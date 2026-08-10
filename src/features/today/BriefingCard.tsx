@@ -59,7 +59,7 @@ export function BriefingCard() {
     <Card>
       <View style={{ gap: 6 }}>
         <View style={styles.head}>
-          <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.8 }}>
+          <Txt variant="eyebrow" tone="tertiary">
             BRIEFING
           </Txt>
           <Pressable

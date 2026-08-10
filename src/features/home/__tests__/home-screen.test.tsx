@@ -9,21 +9,44 @@ import { useVoiceStore } from '@/features/voice/store';
 
 import HomeScreen from '../../../../app/index';
 
+/* Reanimated's own mock still loads the native worklets module. The stub has to
+   cover everything `@/ui/motion` and the heat field reach for, including
+   `ReduceMotion` — the spring configs read it at module scope, so a missing key
+   fails the whole suite at import rather than at render. */
 jest.mock('react-native-reanimated', () => {
-  const { View } = jest.requireActual('react-native');
-  const builder: { duration: () => unknown } = { duration: () => builder };
+  const { View, Text } = jest.requireActual('react-native');
+  const builder: Record<string, unknown> = {};
+  builder.duration = () => builder;
+  builder.delay = () => builder;
+  const passthrough = (v: unknown) => v;
   return {
     __esModule: true,
-    default: { View },
+    default: { View, Text, createAnimatedComponent: (c: unknown) => c },
+    createAnimatedComponent: (c: unknown) => c,
+    View,
+    FadeIn: builder,
+    FadeOut: builder,
     FadeInUp: builder,
     FadeOutUp: builder,
     LinearTransition: builder,
-    Easing: { in: () => undefined, out: () => undefined, quad: undefined },
+    ReduceMotion: { System: 'system', Always: 'always', Never: 'never' },
+    Easing: {
+      in: () => undefined,
+      out: () => undefined,
+      inOut: () => undefined,
+      linear: undefined,
+      quad: undefined,
+      cubic: undefined,
+      sin: undefined,
+    },
     useSharedValue: (v: number) => ({ value: v }),
     useAnimatedStyle: () => ({}),
-    withRepeat: (v: unknown) => v,
-    withSequence: (v: unknown) => v,
-    withTiming: (v: unknown) => v,
+    useDerivedValue: (fn: () => unknown) => ({ value: fn() }),
+    useReducedMotion: () => false,
+    withRepeat: passthrough,
+    withSequence: passthrough,
+    withSpring: passthrough,
+    withTiming: passthrough,
     cancelAnimation: () => {},
   };
 });
@@ -125,7 +148,7 @@ describe('home screen', () => {
     expect(screen.getByTestId('home-mic')).toBeTruthy();
     expect(screen.getByTestId('home-menu')).toBeTruthy();
     expect(screen.getByTestId('home-profile')).toBeTruthy();
-    expect(screen.getByText('Tap to speak')).toBeTruthy();
+    expect(screen.getByText('TAP TO SPEAK')).toBeTruthy();
   });
 
   it('shows what is next and when to leave for it', async () => {
@@ -148,7 +171,7 @@ describe('home screen', () => {
 
     expect(screen.getByText('Project meeting')).toBeTruthy();
     expect(screen.getByText('15:00')).toBeTruthy();
-    expect(screen.getByText('leave at 14:40')).toBeTruthy();
+    expect(screen.getByText('leave 14:40')).toBeTruthy();
   });
 
   it('says so plainly when the day is done', async () => {

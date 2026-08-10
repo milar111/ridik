@@ -10,6 +10,12 @@
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import Animated, {
+  FadeOut,
+  useReducedMotion,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useTheme } from '@/ui/ThemeProvider';
@@ -17,13 +23,30 @@ import { Txt } from '@/ui/components/Text';
 import { useToast } from '@/ui/components';
 import { useVoiceStore } from '@/features/voice/store';
 import { useVoiceUndo } from '@/hooks/useVoiceUndo';
+import { SPRING_ENTER } from '@/ui/motion';
 import { lastUndoable } from './undo';
+
+/**
+ * A spring rather than a fade, and from below rather than in place: the card is
+ * reporting that something just happened, and only movement says "just".
+ */
+const SlideInFromBelow = () => {
+  'worklet';
+  return {
+    initialValues: { opacity: 0, transform: [{ translateY: 18 }, { scale: 0.97 }] },
+    animations: {
+      opacity: withTiming(1, { duration: 200 }),
+      transform: [{ translateY: withSpring(0, SPRING_ENTER) }, { scale: withSpring(1, SPRING_ENTER) }],
+    },
+  };
+};
 
 export function LastAction() {
   const { colors, radius, spacing } = useTheme();
   const router = useRouter();
   const toast = useToast();
   const undo = useVoiceUndo();
+  const reduced = useReducedMotion();
   const [undone, setUndone] = useState<string | null>(null);
 
   const outcome = useVoiceStore((s) => s.outcome);
@@ -56,14 +79,23 @@ export function LastAction() {
   };
 
   return (
-    <View
+    <Animated.View
+      // Springs up from below rather than fading in: something arrived, and a
+      // fade would read as it having been there all along.
+      entering={reduced ? undefined : SlideInFromBelow}
+      exiting={reduced ? undefined : FadeOut.duration(160)}
       style={{
-        borderRadius: radius.md,
+        borderRadius: radius.lg,
         borderWidth: 1,
         borderColor: colors.border,
         backgroundColor: colors.surface,
         padding: spacing.md,
         gap: 6,
+        shadowColor: '#5A1F00',
+        shadowOpacity: 0.1,
+        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 4,
       }}
     >
       <Pressable
@@ -108,6 +140,6 @@ export function LastAction() {
           </Txt>
         </Pressable>
       ) : null}
-    </View>
+    </Animated.View>
   );
 }

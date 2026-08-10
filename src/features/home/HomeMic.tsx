@@ -1,10 +1,18 @@
 /**
- * The mic, as the whole point of the screen rather than a button floating over
- * one.
+ * The source.
  *
- * Same store and the same gestures as the floating dock — tap to talk, tap
- * again to send early, long-press to type — so there is one voice session in
- * the app, not two that can disagree about whether it is listening.
+ * The disc is the darkest object on the screen and it never changes colour.
+ * That is the whole idea: it is the element, and what it does is heat the room
+ * — the field around it is the state, not the button. Lighting the button up
+ * instead was the first attempt and it failed on contact with the device: an
+ * ember disc on a flooded ember field is nearly invisible, so pressing it made
+ * the one control on the screen harder to see.
+ *
+ * What carries the state at the button is a ring, which reads at any field
+ * temperature because it is a hard edge rather than a fill.
+ *
+ * Same store and the same gestures as the floating dock, so there is one voice
+ * session in the app rather than two that can disagree about whether it is on.
  */
 import { useEffect } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -12,9 +20,9 @@ import Animated, {
   Easing,
   cancelAnimation,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withRepeat,
-  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,13 +30,15 @@ import * as Haptics from 'expo-haptics';
 
 import { useTheme } from '@/ui/ThemeProvider';
 import { Txt } from '@/ui/components/Text';
+import { fade, tap } from '@/ui/motion';
 import { useVoiceStore } from '@/features/voice/store';
 
-const DIAMETER = 132;
+const DIAMETER = 138;
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 /** What the button is doing, in the fewest words that are still true. */
 const CAPTION: Record<string, string> = {
-  listening: 'Listening — tap to send',
+  listening: 'Listening · tap to send',
   thinking: 'Working on it',
   speaking: 'Speaking',
   error: 'Tap to try again',
@@ -36,6 +46,7 @@ const CAPTION: Record<string, string> = {
 
 export function HomeMic() {
   const { colors, spacing } = useTheme();
+  const reduced = useReducedMotion();
 
   const status = useVoiceStore((s) => s.status);
   const partial = useVoiceStore((s) => s.partial);
@@ -44,78 +55,105 @@ export function HomeMic() {
   const open = useVoiceStore((s) => s.open);
 
   const listening = status === 'listening';
-  const pulse = useSharedValue(1);
+  const press = useSharedValue(0);
+  const lit = useSharedValue(0);
+  const ring = useSharedValue(0);
 
   useEffect(() => {
-    if (listening) {
-      pulse.value = withRepeat(
-        withSequence(
-          withTiming(1.08, { duration: 620, easing: Easing.out(Easing.quad) }),
-          withTiming(1, { duration: 620, easing: Easing.in(Easing.quad) }),
-        ),
+    lit.value = fade(listening ? 1 : 0);
+    if (listening && !reduced) {
+      ring.value = withRepeat(
+        withTiming(1, { duration: 1500, easing: Easing.out(Easing.quad) }),
         -1,
         false,
       );
     } else {
-      cancelAnimation(pulse);
-      pulse.value = withTiming(1, { duration: 180 });
+      cancelAnimation(ring);
+      ring.value = fade(0);
     }
-  }, [listening, pulse]);
+  }, [listening, reduced, lit, ring]);
 
-  const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
+  const discStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: 1 - press.value * 0.06 }],
+  }));
 
-  const tint = status === 'error' ? colors.danger : listening ? colors.danger : colors.accent;
+  // A hard edge travelling outward, fading as it goes. Reads at any field
+  // temperature, which a change of fill colour does not.
+  const ringStyle = useAnimatedStyle(() => ({
+    opacity: lit.value * (1 - ring.value) * 0.9,
+    transform: [{ scale: 1 + ring.value * 0.42 }],
+  }));
+
   const icon: keyof typeof Ionicons.glyphMap =
     status === 'thinking' ? 'ellipsis-horizontal' : status === 'speaking' ? 'volume-high' : 'mic';
 
   return (
-    <View style={[styles.wrap, { gap: spacing.md }]}>
-      <Animated.View style={pulseStyle}>
-        <Pressable
-          testID="home-mic"
-          accessibilityRole="button"
-          accessibilityLabel={listening ? 'Stop listening' : 'Start voice capture'}
-          accessibilityHint="Long press to type instead"
-          onPress={() => {
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-            if (listening) void stopListening();
-            else void startListening();
-          }}
-          onLongPress={() => {
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
-            open();
-          }}
-          style={({ pressed }) => [
-            styles.mic,
-            { backgroundColor: tint, shadowColor: tint, opacity: pressed ? 0.85 : 1 },
-          ]}
+    <View style={[styles.wrap, { gap: spacing.lg }]}>
+      <View style={styles.stack}>
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.ring, { borderColor: colors.text }, ringStyle]}
+        />
+        <AnimatedPressable
+        testID="home-mic"
+        accessibilityRole="button"
+        accessibilityLabel={listening ? 'Stop listening' : 'Start voice capture'}
+        accessibilityHint="Long press to type instead"
+        onPressIn={() => {
+          press.value = tap(1);
+        }}
+        onPressOut={() => {
+          press.value = tap(0);
+        }}
+        onPress={() => {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+          if (listening) void stopListening();
+          else void startListening();
+        }}
+        onLongPress={() => {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+          open();
+        }}
+          style={[styles.disc, { backgroundColor: colors.text }, discStyle]}
         >
-          <Ionicons name={icon} size={52} color="#FFFFFF" />
-        </Pressable>
-      </Animated.View>
+          <Ionicons name={icon} size={54} color={colors.surface} />
+        </AnimatedPressable>
+      </View>
 
       {/* One line, and it never grows into a transcript: the sheet is where a
           conversation happens. A home screen that reflowed while you spoke
           would move the button out from under your thumb. */}
-      <Txt variant="caption" tone="secondary" numberOfLines={1} style={styles.caption}>
-        {listening && partial ? partial : (CAPTION[status] ?? 'Tap to speak')}
+      <Txt variant="eyebrow" tone="secondary" numberOfLines={1} style={styles.caption}>
+        {(listening && partial ? partial : (CAPTION[status] ?? 'Tap to speak')).toUpperCase()}
       </Txt>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { alignItems: 'center' },
-  mic: {
+  wrap: { alignItems: 'center', width: 300 },
+  stack: { alignItems: 'center', justifyContent: 'center' },
+  ring: {
+    position: 'absolute',
+    width: DIAMETER,
+    height: DIAMETER,
+    borderRadius: DIAMETER / 2,
+    borderWidth: 2,
+  },
+  disc: {
     width: DIAMETER,
     height: DIAMETER,
     borderRadius: DIAMETER / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOpacity: 0.35,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 10,
+    shadowColor: '#5A1F00',
+    shadowOpacity: 0.28,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 14,
   },
-  caption: { textAlign: 'center', minHeight: 18 },
+  // Full width and centred by `textAlign`, never shrink-wrapped: Android does
+  // not count `letterSpacing` when it measures a line, so a tracked label sized
+  // to its own content gets ellipsised a character or two early — "TAP TO S…".
+  caption: { textAlign: 'center', minHeight: 16, width: '100%' },
 });

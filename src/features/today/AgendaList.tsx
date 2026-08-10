@@ -57,7 +57,7 @@ function NowRule() {
     <View style={styles.now} accessibilityRole="text" accessibilityLabel="Now">
       <View style={[styles.nowDot, { backgroundColor: colors.accent }]} />
       <View style={[styles.nowLine, { backgroundColor: colors.accent }]} />
-      <Txt variant="micro" style={{ color: colors.accent, letterSpacing: 0.8 }}>
+      <Txt variant="eyebrow" style={{ color: colors.accent }}>
         NOW
       </Txt>
     </View>

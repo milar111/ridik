@@ -86,8 +86,23 @@ export function VoiceDock() {
 
   const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
 
-  const micColor =
-    status === 'error' ? colors.danger : listening ? colors.danger : colors.accent;
+  /**
+   * On home the screen is already the voice interface — the field floods, the
+   * ring pulses, the caption says what is happening, and the receipt shows the
+   * result. Sliding a sheet and a scrim over all of that hides the one thing
+   * the app is for. So here the sheet is reserved for the cases that genuinely
+   * need it: a question to answer, a failure to retry, or typing.
+   *
+   * Everywhere else it opens as it always did; those screens have no other way
+   * to show what happened.
+   */
+  const needsSheet = Boolean(clarification) || Boolean(error) || typing;
+  const showSheet = expanded && (!onHome || needsSheet);
+
+  // The same element as the one on home: the darkest object on the screen,
+  // constant, so the two mics read as one control that followed you here rather
+  // than as a second, differently-coloured feature.
+  const micColor = status === 'error' ? colors.danger : listening ? colors.accent : colors.text;
   const micIcon: keyof typeof Ionicons.glyphMap =
     status === 'thinking' ? 'ellipsis-horizontal' : status === 'speaking' ? 'volume-high' : 'mic';
 
@@ -139,7 +154,7 @@ export function VoiceDock() {
                 },
               ]}
             >
-              <Ionicons name={micIcon} size={26} color="#FFFFFF" />
+              <Ionicons name={micIcon} size={26} color={colors.surface} />
             </Pressable>
           </Animated.View>
 
@@ -159,7 +174,7 @@ export function VoiceDock() {
       )}
 
       <Modal
-        visible={expanded}
+        visible={showSheet}
         transparent
         animationType="slide"
         onRequestClose={() => {

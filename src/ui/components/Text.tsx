@@ -1,14 +1,30 @@
 import { Text as RNText, type TextProps as RNTextProps, type TextStyle } from 'react-native';
 import { useTheme } from '../ThemeProvider';
-import type { typography } from '../theme';
+import { fonts, type typography } from '../theme';
 
 type Variant = keyof typeof typography;
 type Tone = 'primary' | 'secondary' | 'tertiary' | 'accent' | 'success' | 'warning' | 'danger' | 'info';
 
+/**
+ * Weight is a different family, not a `fontWeight`.
+ *
+ * Once a style names a font file, `fontWeight` is ignored outright on iOS and
+ * synthesised on Android by smearing the glyphs — so the same label would look
+ * bold on one platform, unchanged on the other, and correct on neither. The
+ * prop is kept because call sites read better with it; what it does changed.
+ */
+const WEIGHT_FAMILY: Record<string, string> = {
+  '400': fonts.regular,
+  '500': fonts.medium,
+  '600': fonts.semibold,
+  '700': fonts.bold,
+  '800': fonts.display,
+};
+
 export type TxtProps = RNTextProps & {
   variant?: Variant;
   tone?: Tone;
-  /** Overrides the variant's weight without restating the whole style. */
+  /** Swaps the family for a heavier cut of the same face. */
   weight?: TextStyle['fontWeight'];
   center?: boolean;
   dim?: boolean;
@@ -42,7 +58,11 @@ export function Txt({
       style={[
         theme.typography[variant] as TextStyle,
         { color: toneColor[tone] },
-        weight ? { fontWeight: weight } : null,
+        // Only for the grotesque: asking the mono for a bold cut it was not
+        // given would silently fall back to the system face mid-sentence.
+        weight && WEIGHT_FAMILY[String(weight)] && !theme.typography[variant].fontFamily.startsWith('Martian')
+          ? { fontFamily: WEIGHT_FAMILY[String(weight)] }
+          : null,
         center ? { textAlign: 'center' } : null,
         dim ? { opacity: 0.6 } : null,
         style,

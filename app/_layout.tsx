@@ -11,6 +11,7 @@ import { useColorScheme } from 'react-native';
 
 import { VoiceDock } from '@/features/voice/VoiceDock';
 import { useWidgetPublisher } from '@/hooks/useWidgetPublisher';
+import { useAppFonts } from '@/ui/fonts';
 import { ThemeProvider } from '@/ui/ThemeProvider';
 import { ToastProvider } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
@@ -39,18 +40,25 @@ const queryClient = new QueryClient({
 export default function RootLayout() {
   const scheme = useColorScheme() === 'light' ? 'light' : 'dark';
   const [boot, setBoot] = useState<BootstrapResult | null>(null);
+  const fontsReady = useAppFonts();
 
   useEffect(() => {
     let cancelled = false;
     void bootstrap().then((result) => {
       if (cancelled) return;
       setBoot(result);
-      void SplashScreen.hideAsync().catch(() => {});
     });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // Held until the faces are usable as well as the database. The type scale
+  // sets tracking and line height for these specific faces, so painting in the
+  // system font first would reflow every label the moment the real one lands.
+  useEffect(() => {
+    if (boot && fontsReady) void SplashScreen.hideAsync().catch(() => {});
+  }, [boot, fontsReady]);
 
   useEffect(() => {
     void SystemUI.setBackgroundColorAsync(makeTheme(scheme).colors.bg).catch(() => {});
@@ -90,7 +98,7 @@ export default function RootLayout() {
                     half-migrated database would publish a face built from
                     nothing. */}
                 {boot?.ok ? <WidgetPublisher /> : null}
-                {!boot ? (
+                {!boot || !fontsReady ? (
                   <View style={[styles.overlay, { backgroundColor: theme.colors.bg }]}>
                     <ActivityIndicator color={theme.colors.accent} />
                   </View>

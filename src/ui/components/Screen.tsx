@@ -96,7 +96,7 @@ export function Section({
       {title || right ? (
         <View style={styles.sectionHead}>
           {title ? (
-            <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.8 }}>
+            <Txt variant="eyebrow" tone="tertiary">
               {title.toUpperCase()}
             </Txt>
           ) : (

@@ -47,6 +47,39 @@ Two rules fall out of that and are easy to break by accident:
   the focus runtime. Home needs three pure things from it and imports them from
   their modules.
 
+## The look — "element"
+
+A saturated warm ground lit as though the microphone were the heat source. The
+vernacular is a maker lab: an element coming up to temperature, not a sunset.
+Rules that are easy to break without noticing:
+
+- **`heat` is not a text colour.** `heat.core` is the vivid ember and only ever
+  appears as a large fill or a gradient stop. `colors.accent` is the darkened
+  one that clears 4.5:1 on the sand ground; anything with words in it uses that.
+- **Nothing is neutral grey.** Every "black" is a warm brown, every "white" is
+  linen. A true grey next to this palette reads as a bug.
+- **The mono is rare on purpose.** Martian Mono is for times and for `eyebrow`
+  region labels. It is *not* `micro` — `micro` is small secondary text with a
+  hundred-odd call sites, and setting that in the mono put a wide monospace
+  under every agenda row in the app.
+- **`weight` on `<Txt>` swaps the font family, not `fontWeight`.** Once a style
+  names a font file, iOS ignores `fontWeight` outright and Android synthesises
+  it by smearing the glyphs — the same label would look bold on one platform and
+  unchanged on the other.
+- **Android does not count `letterSpacing` when measuring a line.** A tracked
+  label sized to its own content gets ellipsised early ("TAP TO S…"). Give
+  tracked text an explicit width and centre it with `textAlign`.
+
+`HeatField` carries all of it. Two lessons are baked into that file: Reanimated
+cannot animate `Stop` or `RadialGradient` (they live in `<Defs>` and render no
+host view), and *scaling* the glow to "flood" the screen drags its falloff over
+everything and turns the page a flat mid-brown — so heat comes from a second,
+tighter core layer while the base field barely moves.
+
+On home the voice sheet stays shut unless it needs something (a clarification,
+an error, or typing). The screen is already the voice interface, and a scrim
+over it hides the one thing the app is for.
+
 ## What belongs on the Settings screen
 
 The test: **if a stranger set this to the worst possible value, would the app
