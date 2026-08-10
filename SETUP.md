@@ -312,6 +312,50 @@ Google Calendar one rather than replacing anything.
 
 ---
 
+## 5b. What the stores will actually ask for
+
+Settings is deliberately small — four controls a person can change plus the
+things review requires. That is the whole list below; nothing else on the screen
+exists to satisfy a guideline.
+
+**Already in the app:**
+
+- **Privacy policy and Terms of use** links in Settings → About. They read their
+  URLs from `EXPO_PUBLIC_PRIVACY_URL` / `EXPO_PUBLIC_TERMS_URL` and say plainly
+  that no link is set up yet rather than shipping a placeholder that 404s. Set
+  both before you submit.
+- **Delete all data** (Settings → Your data), gated on typing ERASE. Apple only
+  requires account deletion when an app has accounts, but a one-tap wipe is also
+  what a GDPR request looks like in practice.
+- **Export everything** — the other half of a data-portability request.
+- **Permission usage strings** for microphone, speech, calendar and location,
+  all written in `app.config.ts`. Review rejects vague ones; these say what the
+  app does with the access and why.
+- **Permissions requested in context**, not at launch. Asking for four
+  permissions on a cold start is both a rejection risk and the reason people
+  deny them.
+- **`ITSAppUsesNonExemptEncryption: false`** already declared, so the export
+  compliance question does not stall every build.
+
+**Still to do before submission:**
+
+- **App Privacy answers in App Store Connect.** Be accurate: notes and calendar
+  data leave the device only when Google Calendar is connected, and transcripts
+  go to the model provider. That is a disclosure, not a problem.
+- **Screenshots, icon and description.** The icon is still the Expo default.
+- **A real privacy policy and EULA** at the URLs above.
+
+**Only once you add the subscription:**
+
+- **Restore Purchases** — Apple requires it and will reject without it.
+  RevenueCat gives you one call.
+- **Terms and Privacy links on the paywall itself**, not just in Settings.
+- **Price, duration and renewal terms stated in the app** before purchase.
+- **Play Billing** needs the same restore path; Google is less strict about
+  placement but not about the disclosure.
+
+---
+
 ## 6. Battle-tested vs production-ready
 
 You are right that these are different questions. Taking them separately.
