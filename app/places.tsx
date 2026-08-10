@@ -11,7 +11,7 @@
  * this screen has to change.
  */
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -31,6 +31,7 @@ import {
   useGeofenceStatus,
   useRefreshGeofences,
   useGeocodeAddress,
+  useRequestPermission,
   useReverseGeocode,
 } from '@/hooks/useSystem';
 import type { GeofenceTrigger, SavedPlace } from '@/db/schema';
@@ -123,7 +124,13 @@ export default function PlacesScreen() {
     () => allTriggers.filter((trigger) => isLive(trigger)),
     [allTriggers],
   );
-  const overCap = (status.data?.dropped ?? Math.max(0, live.length - MAX_MONITORED_REGIONS)) > 0;
+  // A missing permission stops every region, so it is checked before the cap:
+  // otherwise a user with one reminder and no "Always" access is told to switch
+  // off the reminders they no longer need, of which they have none.
+  const blockedByPermission = live.length > 0 && status.data?.permission.granted === false;
+  const overCap =
+    !blockedByPermission &&
+    (status.data?.dropped ?? Math.max(0, live.length - MAX_MONITORED_REGIONS)) > 0;
 
   return (
     <Screen
@@ -175,7 +182,13 @@ export default function PlacesScreen() {
             ) : null
           }
         >
-          {overCap ? <CapWarning live={live.length} watched={status.data?.monitored ?? 0} /> : null}
+          {/* Permission first: when the OS is watching nothing at all, the cap
+              is not what is wrong, and only one of these two is ever true. */}
+          {blockedByPermission ? (
+            <PermissionWarning live={live.length} canAsk={status.data?.permission.canAskAgain ?? false} />
+          ) : overCap ? (
+            <CapWarning live={live.length} watched={status.data?.monitored ?? 0} />
+          ) : null}
           {triggers.isLoading && allTriggers.length === 0 ? (
             <ListSkeleton rows={2} />
           ) : triggers.isError ? (
@@ -353,6 +366,43 @@ function TriggerRow({ trigger }: { trigger: GeofenceTrigger }) {
   );
 }
 
+/**
+ * Nothing is being watched because the OS will not let it be — not because
+ * Ridik ran out of room. Saying "the rest wait their turn" here would send a
+ * user to prune reminders that were never the problem.
+ */
+function PermissionWarning({ live, canAsk }: { live: number; canAsk: boolean }) {
+  const { colors } = useTheme();
+  const request = useRequestPermission();
+  return (
+    <Card accent={colors.warning} style={{ gap: 8 }}>
+      <Txt variant="bodyStrong" tone="warning">
+        {countLabel(live, 'reminder')} waiting on location access
+      </Txt>
+      <Txt variant="caption" tone="secondary">
+        A place reminder has to be watched while Ridik is closed, which needs
+        location set to "Always". Until then nothing here will fire.
+      </Txt>
+      {canAsk ? (
+        <Button
+          label="Allow always"
+          size="sm"
+          variant="secondary"
+          loading={request.isPending}
+          onPress={() => request.mutate('location')}
+        />
+      ) : (
+        <Button
+          label="Open settings"
+          size="sm"
+          variant="secondary"
+          onPress={() => void Linking.openSettings()}
+        />
+      )}
+    </Card>
+  );
+}
+
 function CapWarning({ live, watched }: { live: number; watched: number }) {
   const { colors } = useTheme();
   return (
@@ -361,9 +411,9 @@ function CapWarning({ live, watched }: { live: number; watched: number }) {
         {live - watched} of {live} reminders are not being watched
       </Txt>
       <Txt variant="caption" tone="secondary">
-        iOS lets an app monitor {MAX_MONITORED_REGIONS} regions at once. Ridik keeps the ones that
-        have never fired, then the soonest to expire, then the nearest — the rest wait their turn.
-        Switch off the ones you no longer need.
+        Ridik watches {MAX_MONITORED_REGIONS} places at a time — the most a phone will track
+        reliably. It keeps the ones that have never fired, then the soonest to expire, then the
+        nearest; the rest wait their turn. Switch off the ones you no longer need.
       </Txt>
     </Card>
   );

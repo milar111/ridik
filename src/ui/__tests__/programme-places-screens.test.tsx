@@ -33,6 +33,17 @@ jest.mock('@/repositories', () => ({ getRepositories: () => mockRepos }));
    native surface is replaced by the answers. */
 let mockMonitored = 0;
 let mockDropped = 0;
+/* Both halves of the "nothing is being watched" story: the OS refusing, and
+   the cap. The screen has to tell them apart. */
+let mockPermission = {
+  available: true,
+  foreground: true,
+  background: true,
+  granted: true,
+  canAskAgain: false,
+  needsBackgroundExplanation: false,
+};
+const mockRequestPermission = jest.fn();
 const mockRefreshGeofences = jest.fn();
 /* The pin is the only way coordinates enter the screen now, so both halves of
    it answer: a fix, then the address that fix reverse-geocodes to. */
@@ -44,8 +55,15 @@ jest.mock('@/hooks/useSystem', () => ({
   useReverseGeocode: () => ({ mutate: mockGeocode, isPending: false }),
   useGeocodeAddress: () => ({ mutate: mockAddressSearch, isPending: false }),
   useRefreshGeofences: () => ({ mutate: mockRefreshGeofences, isPending: false }),
+  useRequestPermission: () => ({ mutate: mockRequestPermission, isPending: false }),
   useGeofenceStatus: () => ({
-    data: { monitored: mockMonitored, dropped: mockDropped, capped: mockDropped > 0, totalActive: 0 },
+    data: {
+      monitored: mockMonitored,
+      dropped: mockDropped,
+      capped: mockDropped > 0,
+      totalActive: 0,
+      permission: mockPermission,
+    },
   }),
 }));
 
@@ -141,6 +159,15 @@ function trigger(over: Partial<GeofenceTrigger> & { id: string; label: string })
 beforeEach(() => {
   mockMonitored = 0;
   mockDropped = 0;
+  mockPermission = {
+    available: true,
+    foreground: true,
+    background: true,
+    granted: true,
+    canAskAgain: false,
+    needsBackgroundExplanation: false,
+  };
+  mockRequestPermission.mockReset();
   mockRefreshGeofences.mockReset();
   mockLocate.mockReset();
   mockGeocode.mockReset();
@@ -315,6 +342,41 @@ describe('places screen', () => {
 
     await wrap(<PlacesScreen />);
     expect(await screen.findByText('2 of 22 reminders are not being watched')).toBeTruthy();
+  });
+
+  /* Foreground-only location is where the OS leaves every Android user who
+     answers "While using the app", and it stops every region — so the screen
+     must not blame the cap for it and send them pruning reminders that were
+     never the problem. */
+  it('blames the missing permission, not the cap, when the OS is watching nothing', async () => {
+    mockRepos.geofences.listAllTriggers.mockResolvedValue([trigger({ id: 't1', label: 'the lab' })]);
+    mockMonitored = 0;
+    mockPermission = {
+      ...mockPermission,
+      background: false,
+      granted: false,
+      canAskAgain: true,
+      needsBackgroundExplanation: true,
+    };
+
+    await wrap(<PlacesScreen />);
+
+    expect(await screen.findByText('1 reminder waiting on location access')).toBeTruthy();
+    expect(screen.queryByText(/wait their turn/)).toBeNull();
+
+    await fireEvent.press(screen.getByText('Allow always'));
+    expect(mockRequestPermission).toHaveBeenCalledWith('location');
+  });
+
+  it('sends a hard-refused permission to system settings rather than a dead button', async () => {
+    mockRepos.geofences.listAllTriggers.mockResolvedValue([trigger({ id: 't1', label: 'the lab' })]);
+    mockMonitored = 0;
+    mockPermission = { ...mockPermission, background: false, granted: false, canAskAgain: false };
+
+    await wrap(<PlacesScreen />);
+
+    expect(await screen.findByText('Open settings')).toBeTruthy();
+    expect(screen.queryByText('Allow always')).toBeNull();
   });
 
   /* One wrong digit used to move a geofence to another country, and there is no

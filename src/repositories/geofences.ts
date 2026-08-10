@@ -51,7 +51,11 @@ export type TriggerOutcome = {
   trigger: GeofenceTrigger;
 };
 
-/** iOS hard limit on simultaneously monitored regions. */
+/**
+ * Simultaneously monitored regions. iOS enforces 20 as a hard limit; Android
+ * allows more but degrades well before it, so both platforms get the same
+ * budget and the same prioritisation rather than two behaviours to reason about.
+ */
 export const MAX_MONITORED_REGIONS = 20;
 export const DEFAULT_TRIGGER_RADIUS_METERS = 150;
 export const DEFAULT_COOLDOWN_SECONDS = 900;

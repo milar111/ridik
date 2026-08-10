@@ -278,6 +278,43 @@ describe('geofence manager', () => {
       expect(synced.ok && synced.value).toMatchObject({ monitored: 1, totalActive: 1 });
     });
 
+    it('names the missing background permission instead of letting the OS reject the call', async () => {
+      // Where every Android user who answers "While using the app" ends up:
+      // foreground is held, background is not, and the platform refuses to arm
+      // anything. Reported as `unknown` it reads as a bug in Ridik; reported
+      // honestly it tells the user which switch to flip.
+      const manager = build();
+      location.foreground = GRANTED;
+      location.background = REFUSABLE;
+      await makeTrigger({ label: 'Lab' });
+
+      const synced = await manager.syncRegions();
+
+      expect(synced.ok).toBe(false);
+      expect(!synced.ok && synced.error.code).toBe('permission_denied');
+      expect(!synced.ok && synced.error.message).toMatch(/Always/);
+      // And it never reached the OS, so there is nothing half-armed behind it.
+      expect(location.calls).not.toContain('start');
+      expect((await geofences.listAllTriggers()).every((t) => !t.registered)).toBe(true);
+    });
+
+    it('still releases regions when background access is gone', async () => {
+      // Revoking "Always" must not strand the regions the OS is already
+      // holding: dropping them needs no permission, so the gate above may not
+      // stand in the way of the cleanup.
+      const manager = build();
+      const trigger = await makeTrigger({ label: 'Lab' });
+      await manager.syncRegions();
+      expect(location.started).toBe(true);
+
+      location.background = REFUSED;
+      await geofences.deactivateTrigger(trigger.id);
+      const synced = await manager.syncRegions();
+
+      expect(synced.ok && synced.value.monitored).toBe(0);
+      expect(location.calls).toContain('stop');
+    });
+
     it('remembers the set even when the OS was already holding it', async () => {
       const trigger = await makeTrigger();
       await build().syncRegions();

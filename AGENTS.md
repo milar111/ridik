@@ -59,6 +59,14 @@ never honour again.
   An unawaited one leaks an `act()` scope into the next test and every query there returns nothing.
 - **`drizzle-orm/expo-sqlite` must be imported from `/driver`.** The package index also exports
   `useLiveQuery`, which pulls in the native module and makes the file unloadable under Node.
+- **`adb shell input text` typed at an unfocused field reaches the dev menu.** The characters
+  arrive as key events: two `r`s inside the double-tap window reload the bundle, and a space
+  activates whatever button holds focus — usually a sheet's backdrop, which closes it. The failure
+  looks like the app crashing or dismissing itself. Confirm focus first
+  (`adb shell dumpsys input_method | grep mInputShown`) and only then type. `keyevent 111` (ESC)
+  is not a keyboard-dismiss either; it reaches the app and closes the modal.
+- **`&` in a deep link must be escaped for the device shell**, or everything after it is dropped:
+  `adb shell "am start ... -d 'ridik:///notes?pane=lists\&list=Hardware'"`.
 
 ## Verifying a change
 

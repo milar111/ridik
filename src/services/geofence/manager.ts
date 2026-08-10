@@ -321,8 +321,23 @@ export function createGeofenceManager(deps: GeofenceManagerDeps) {
       const changed = !sameSet(current, desired);
 
       if (changed) {
-        if (desired.length === 0) await deps.location.stopGeofencing();
-        else await deps.location.startGeofencing(selected.map(toRegion));
+        if (desired.length === 0) {
+          // Releasing regions never needs the permission arming them does, so
+          // the check below sits on this side of the branch only.
+          await deps.location.stopGeofencing();
+        } else {
+          // Both platforms reject startGeofencing without background access,
+          // and the rejection arrives as an opaque native CodedError that the
+          // catch below would file as an unknown failure. This is not a rare
+          // edge: neither OS grants background in the same breath as
+          // foreground, so every user who answers "While using the app" lands
+          // here, and the one useful thing to tell them is which switch to
+          // flip.
+          if (!permission.background) {
+            return fail('permission_denied', BACKGROUND_DENIED_MESSAGE, { details: permission });
+          }
+          await deps.location.startGeofencing(selected.map(toRegion));
+        }
 
         await repository.clearRegistered();
         if (desired.length > 0) await repository.markRegistered(desired);
