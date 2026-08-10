@@ -42,6 +42,12 @@ export type TurnItem = {
   summary: string;
   detail?: string;
   href?: string;
+  /**
+   * The row the action touched. Carried so the UI can offer to undo a create;
+   * what it points at differs per tool, which is why `undoableAction` decides
+   * rather than the caller — `habit_log` reports the *habit*, not the entry.
+   */
+  entityId?: string;
 };
 
 /** Structurally `VoiceOutcome` from '@/features/voice/store'. */
@@ -476,6 +482,7 @@ function toItem(result: ActionResult): TurnItem {
     summary: result.summary,
     ...(result.detail ? { detail: result.detail } : {}),
     ...(result.href ? { href: result.href } : {}),
+    ...(result.entityId ? { entityId: result.entityId } : {}),
   };
 }
 

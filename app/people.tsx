@@ -185,8 +185,11 @@ function ScreenHeader({ title, subtitle }: { title: string; subtitle?: string })
         accessibilityRole="button"
         accessibilityLabel="Go back"
         hitSlop={8}
-        // Deep links and notifications can land here with nothing to pop back to.
-        onPress={() => (router.canGoBack() ? router.back() : router.replace('/more'))}
+        // Deep links and notifications can land here with nothing to pop back
+        // to. Home, not the menu: the menu is a junction you pass through, and
+        // sending someone back to it would leave them one more tap from where
+        // every route eventually leads anyway.
+        onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
         style={({ pressed }) => [styles.back, { opacity: pressed ? 0.5 : 1 }]}
       >
         <Ionicons name="chevron-back" size={24} color={colors.text} />

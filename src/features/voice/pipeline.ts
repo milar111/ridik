@@ -236,6 +236,7 @@ function toOutcomeItems(outcome: TurnOutcome): VoiceOutcomeItem[] {
     summary: item.summary,
     ...(item.detail ? { detail: item.detail } : {}),
     ...(item.href ? { href: item.href } : {}),
+    ...(item.entityId ? { entityId: item.entityId } : {}),
   }));
 }
 

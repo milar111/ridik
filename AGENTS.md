@@ -25,6 +25,28 @@ you if you do not know them.
 - **Migrations are append-only.** `src/db/migrations.ts` is keyed on `PRAGMA user_version`. Never
   edit a shipped migration; add a new one. `src/db/schema.ts` must be kept in step with it.
 
+## The shape of the app
+
+One screen. `app/index.tsx` is a microphone, the next thing on the calendar, and
+a receipt for the last thing the assistant did. Every other screen is behind the
+hamburger in `app/menu.tsx`; there is no tab bar, and the `(tabs)` group is gone
+— route groups never appeared in the URL, so `/notes`, `/calendar` and every
+deep link kept working unchanged when the files moved up a level.
+
+Two rules fall out of that and are easy to break by accident:
+
+- **The receipt is not decoration.** Speaking is fast because you do not have to
+  look, which is exactly why a mis-heard word would otherwise land silently and
+  stay wrong. `LastAction` is the only thing that closes that loop. Undo is an
+  allow-list in `src/features/home/undo.ts`, not a rule — a tool belongs on it
+  only when it always creates exactly one row *and* the id it reports is that
+  row. `habit_log` reports the habit, not the log entry; `note_create` upserts.
+  Both would destroy data if wired by pattern.
+- **Home must not import `@/features/today`.** That barrel pulls in every
+  section of the Today screen and with them the briefing's text-to-speech and
+  the focus runtime. Home needs three pure things from it and imports them from
+  their modules.
+
 ## What belongs on the Settings screen
 
 The test: **if a stranger set this to the worst possible value, would the app
@@ -93,6 +115,13 @@ A change is not verified until it has run on both.
 
 Honest list. Everything else in the brief is built, tested and has been run on both simulators.
 
+- **Home-screen widgets have a producer but no transport.** `src/services/widgets/`
+  builds and diffs the payload — tested, and fed on every data change — but a widget reads a
+  shared App Group (iOS) or SharedPreferences (Android), and JavaScript can reach neither.
+  `publish.ts` is a capability-detected adapter looking for a `RidikWidgets` native module and
+  no-opping without one. What is missing is a WidgetKit target (`@bacons/apple-targets` can
+  generate one without ejecting) and an `AppWidgetProvider` or `react-native-android-widget`.
+  The iOS half is the same target Live Activities need.
 - **iOS Live Activities** need a Swift widget extension that a config plugin cannot generate.
   `src/services/focus/liveActivity.ts` is a capability-detected adapter: it looks for an optional
   native module and falls back to an ongoing time-sensitive notification. Wiring the real widget is

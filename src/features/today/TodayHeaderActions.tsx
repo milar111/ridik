@@ -51,7 +51,7 @@ export function TodayHeaderActions({ sync }: { sync?: TodaySync }) {
         icon="ellipsis-horizontal"
         variant="ghost"
         accessibilityLabel="More"
-        onPress={() => router.push('/more')}
+        onPress={() => router.push('/menu')}
         style={styles.iconButton}
         testID="today-more-button"
       />

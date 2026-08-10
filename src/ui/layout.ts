@@ -1,13 +1,13 @@
 /**
- * Chrome dimensions shared by the tab bar, the floating mic and every screen's
- * bottom padding. They live apart from both so the dock does not have to import
- * the layout that renders it.
+ * Chrome dimensions shared by the floating mic and every screen's bottom
+ * padding. They live apart from both so the dock does not have to import the
+ * layout that renders it.
+ *
+ * There is no tab bar constant any more: the five-tab bar was replaced by the
+ * menu, and the mic now sits on the safe area itself.
  */
 
-/** Tab bar height excluding the safe-area inset. */
-export const TAB_BAR_CONTENT_HEIGHT = 58;
-
-/** Gap between the tab bar and the mic button. */
+/** Gap between the safe area and the mic button. */
 export const MIC_GAP = 12;
 
 /** Mic button diameter. */

@@ -53,8 +53,13 @@ items to a shopping list — in one pass, offline-first, on-device.
 
 ## Architecture
 
+The app is one screen — a microphone, what is next, and a receipt for the last thing it did.
+Everything else lives behind the hamburger in `app/menu.tsx`.
+
 ```
 app/                    expo-router routes (screens only)
+  index.tsx             home: the mic, and nothing that has not earned its place beside it
+  menu.tsx              every other destination, on one page
 src/
   core/                 pure primitives — clock, time, Result, fuzzy match, logger, format
   db/                   schema, versioned SQL migrations, cross-runtime SQLite driver
@@ -62,7 +67,7 @@ src/
   llm/                  tool contract (Zod), prompt builder, provider clients, executor, orchestrator
   voice/                STT, VAD, TTS, Whisper fallback
   services/             calendar sync, focus timers, geofencing, notifications, background tasks
-  features/             briefing, export, voice dock
+  features/             home, briefing, export, voice dock
   hooks/                TanStack Query hooks — the only way screens touch data
   ui/                   design tokens and primitives
   startup/              bootstrap sequence

@@ -7,7 +7,7 @@ import type { Task } from '@/db/schema';
 import { ToastProvider } from '@/ui/components';
 import { ThemeProvider } from '@/ui/ThemeProvider';
 
-import TasksScreen from '../../../../app/(tabs)/tasks';
+import TasksScreen from '../../../../app/tasks';
 
 // Reanimated's own mock still loads the native worklets module, so the one
 // thing in this tree that animates — the toast stack — gets hand-stubbed

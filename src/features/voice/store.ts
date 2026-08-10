@@ -10,6 +10,8 @@ export type VoiceOutcomeItem = {
   detail?: string;
   /** Route to open when the user taps the result. */
   href?: string;
+  /** The row the action touched; see `undoableAction` before acting on it. */
+  entityId?: string;
 };
 
 export type VoiceOutcome = {

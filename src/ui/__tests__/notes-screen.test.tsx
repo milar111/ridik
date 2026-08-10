@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react-nativ
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 
 import { ThemeProvider } from '../ThemeProvider';
-import NotesScreen from '../../../app/(tabs)/notes';
+import NotesScreen from '../../../app/notes';
 
 // The component barrel reaches Toast, which reaches reanimated — and reanimated's
 // own mock still loads the native worklets module, so the entry animations Toast

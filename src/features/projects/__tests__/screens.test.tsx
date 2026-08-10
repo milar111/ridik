@@ -13,7 +13,7 @@ import type { ProjectOverview } from '@/repositories/projects';
 import type { ColorScheme } from '@/ui/theme';
 import { ThemeProvider } from '@/ui/ThemeProvider';
 
-import ProjectsScreen from '../../../../app/(tabs)/projects';
+import ProjectsScreen from '../../../../app/projects';
 import ProjectDetailScreen from '../../../../app/project/[id]';
 
 const mockPush = jest.fn();

@@ -11,7 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -19,7 +19,7 @@ import { useTheme } from '@/ui/ThemeProvider';
 import { Txt } from '@/ui/components/Text';
 import { Button } from '@/ui/components/Button';
 import { Input } from '@/ui/components/Controls';
-import { MIC_GAP, MIC_SIZE, TAB_BAR_CONTENT_HEIGHT } from '@/ui/layout';
+import { MIC_GAP, MIC_SIZE } from '@/ui/layout';
 import { useVoiceStore } from './store';
 import { useQuickActionRouting } from './useQuickActions';
 
@@ -32,7 +32,9 @@ export function VoiceDock() {
   const { colors, radius, spacing } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const pathname = usePathname();
   const queryClient = useQueryClient();
+  const onHome = pathname === '/';
 
   const status = useVoiceStore((s) => s.status);
   const expanded = useVoiceStore((s) => s.expanded);
@@ -110,46 +112,51 @@ export function VoiceDock() {
 
   return (
     <>
-      <View
-        pointerEvents="box-none"
-        // Sits just above the tab bar on both platforms; the bar's own height is
-        // the same everywhere now, only the safe-area inset differs.
-        style={[styles.dock, { bottom: insets.bottom + TAB_BAR_CONTENT_HEIGHT + MIC_GAP }]}
-      >
-        <Animated.View style={pulseStyle}>
-          <Pressable
-            testID="voice-mic"
-            accessibilityRole="button"
-            accessibilityLabel={listening ? 'Stop listening' : 'Start voice capture'}
-            accessibilityHint="Long press to type instead"
-            onPress={onPressMic}
-            onLongPress={onLongPressMic}
-            style={({ pressed }) => [
-              styles.mic,
-              {
-                backgroundColor: micColor,
-                shadowColor: micColor,
-                opacity: pressed ? 0.85 : 1,
-              },
-            ]}
-          >
-            <Ionicons name={micIcon} size={26} color="#FFFFFF" />
-          </Pressable>
-        </Animated.View>
+      {/* Home puts the mic in the middle of the screen at four times this size.
+          A second one hovering in the corner would be the same session twice,
+          and whichever the user pressed the other would look broken. */}
+      {onHome ? null : (
+        <View
+          pointerEvents="box-none"
+          // The tab bar it used to clear is gone, so the mic sits on the safe
+          // area itself.
+          style={[styles.dock, { bottom: insets.bottom + MIC_GAP }]}
+        >
+          <Animated.View style={pulseStyle}>
+            <Pressable
+              testID="voice-mic"
+              accessibilityRole="button"
+              accessibilityLabel={listening ? 'Stop listening' : 'Start voice capture'}
+              accessibilityHint="Long press to type instead"
+              onPress={onPressMic}
+              onLongPress={onLongPressMic}
+              style={({ pressed }) => [
+                styles.mic,
+                {
+                  backgroundColor: micColor,
+                  shadowColor: micColor,
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+            >
+              <Ionicons name={micIcon} size={26} color="#FFFFFF" />
+            </Pressable>
+          </Animated.View>
 
-        {listening && partial ? (
-          <View
-            style={[
-              styles.partial,
-              { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.pill },
-            ]}
-          >
-            <Txt variant="caption" numberOfLines={1}>
-              {partial}
-            </Txt>
-          </View>
-        ) : null}
-      </View>
+          {listening && partial ? (
+            <View
+              style={[
+                styles.partial,
+                { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.pill },
+              ]}
+            >
+              <Txt variant="caption" numberOfLines={1}>
+                {partial}
+              </Txt>
+            </View>
+          ) : null}
+        </View>
+      )}
 
       <Modal
         visible={expanded}

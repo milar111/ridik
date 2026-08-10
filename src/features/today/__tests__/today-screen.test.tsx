@@ -6,7 +6,7 @@ import { DateTime, dayRange } from '@/core/time';
 import { ThemeProvider } from '@/ui/ThemeProvider';
 import { ToastProvider } from '@/ui/components';
 
-import TodayScreen from '../../../../app/(tabs)/index';
+import TodayScreen from '../../../../app/today';
 
 // Reanimated's own mock still loads the native worklets module, so the two
 // things in this tree that animate — the toast stack and the skeleton — get

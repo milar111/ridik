@@ -1,6 +1,20 @@
+/**
+ * Every screen in the app, on one page.
+ *
+ * This replaced a five-tab bar and a "More" hub that between them showed six
+ * destinations and hid seven. A hamburger is not a worse tab bar here — the app
+ * is voice-first, so no destination is used often enough to earn permanent
+ * chrome, and the ones you do want are easier to find in a list you can read
+ * than behind icons you have to recognise.
+ *
+ * Ordered by how the day tends to go, not alphabetically and not by how the
+ * code is grouped: what is happening, what you owe, what you are keeping track
+ * of, and then the things you set once.
+ */
 import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+
 import { Card, Divider, Screen, Section, Txt } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
 
@@ -11,15 +25,22 @@ type Entry = {
   hint: string;
 };
 
-/**
- * Everything that is not one of the five tabs.
- *
- * Checklists deliberately do not appear here: they already live behind the
- * Notes tab's Lists switch, and two doors into one room is how a hub stops
- * being navigable. Setup — your week, places — moved into Settings, which is
- * where people look for things they configure once.
- */
 const GROUPS: { title: string; entries: Entry[] }[] = [
+  {
+    title: 'Your day',
+    entries: [
+      { href: '/today', icon: 'today-outline', label: 'Today', hint: 'Agenda, due, habits, logged' },
+      { href: '/calendar', icon: 'calendar-outline', label: 'Calendar', hint: 'Events and classes' },
+      { href: '/tasks', icon: 'checkbox-outline', label: 'Tasks', hint: 'Everything outstanding' },
+    ],
+  },
+  {
+    title: 'Keep',
+    entries: [
+      { href: '/notes', icon: 'document-text-outline', label: 'Notes', hint: 'Notes and lists' },
+      { href: '/projects', icon: 'albums-outline', label: 'Projects', hint: 'Anything with parts' },
+    ],
+  },
   {
     title: 'Track',
     entries: [
@@ -38,12 +59,14 @@ const GROUPS: { title: string; entries: Entry[] }[] = [
   },
 ];
 
-export default function MoreScreen() {
+export default function MenuScreen() {
   const router = useRouter();
   const { colors, spacing } = useTheme();
 
   return (
-    <Screen title="More">
+    // Default bottom clearance, not none: the floating mic comes back on every
+    // screen that is not home, and the last row has to stay clear of it.
+    <Screen title="Menu">
       {GROUPS.map((group) => (
         <Section key={group.title} title={group.title}>
           <Card padded={false}>
@@ -52,7 +75,9 @@ export default function MoreScreen() {
                 {i > 0 ? <Divider inset={48} /> : null}
                 <Card
                   padded={false}
-                  onPress={() => router.push(entry.href as never)}
+                  // Replace, not push: the menu is a junction, not a step. Back
+                  // from Tasks should reach home, not the list you came through.
+                  onPress={() => router.replace(entry.href as never)}
                   style={{ borderWidth: 0, backgroundColor: 'transparent' }}
                 >
                   <View
