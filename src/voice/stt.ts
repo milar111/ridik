@@ -99,7 +99,13 @@ export async function startListening(options: SttListenOptions): Promise<Result<
   }
 
   if (!isRecognitionAvailable()) {
-    const error = new AppError('unsupported', 'Speech recognition is not available on this device.');
+    // Names the way out rather than just the wall. Real devices hit this too —
+    // an Android without Google's speech services, an iPhone with dictation
+    // switched off in Screen Time — and on all of them typing still works.
+    const error = new AppError(
+      'unsupported',
+      'This device has no speech recogniser. You can type instead.',
+    );
     emitState(options, 'error');
     options.onError?.(error);
     return err(error);

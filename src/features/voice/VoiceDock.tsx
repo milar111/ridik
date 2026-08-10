@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
   withSequence,
+  withSpring,
   withTiming,
   cancelAnimation,
 } from 'react-native-reanimated';
@@ -20,6 +23,7 @@ import { Txt } from '@/ui/components/Text';
 import { Button } from '@/ui/components/Button';
 import { Input } from '@/ui/components/Controls';
 import { MIC_GAP, MIC_SIZE } from '@/ui/layout';
+import { SPRING_TAP } from '@/ui/motion';
 import { useVoiceStore } from './store';
 import { useQuickActionRouting } from './useQuickActions';
 
@@ -42,6 +46,7 @@ export function VoiceDock() {
   const transcript = useVoiceStore((s) => s.transcript);
   const error = useVoiceStore((s) => s.error);
   const needsRetry = useVoiceStore((s) => s.needsRetry);
+  const sttUnavailable = useVoiceStore((s) => s.sttUnavailable);
   const outcome = useVoiceStore((s) => s.outcome);
   const clarification = useVoiceStore((s) => s.pendingClarification);
   const startListening = useVoiceStore((s) => s.startListening);
@@ -84,6 +89,12 @@ export function VoiceDock() {
     if (clarification) setTyping(true);
   }, [clarification]);
 
+  // Nothing to retry on a device with no recogniser, so go straight to the way
+  // that does work rather than showing a "Try again" that never will.
+  useEffect(() => {
+    if (sttUnavailable) setTyping(true);
+  }, [sttUnavailable]);
+
   const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
 
   /**
@@ -98,6 +109,39 @@ export function VoiceDock() {
    */
   const needsSheet = Boolean(clarification) || Boolean(error) || typing;
   const showSheet = expanded && (!onHome || needsSheet);
+
+  const dismiss = useCallback(() => {
+    setTyping(false);
+    close();
+  }, [close]);
+
+  /**
+   * Drag the sheet away by its handle.
+   *
+   * Attached to the handle rather than the whole sheet on purpose: the results
+   * list inside is a ScrollView, and a pan over the whole surface would fight
+   * it for every vertical gesture. The handle is the affordance people already
+   * reach for, and it cannot be ambiguous.
+   */
+  const sheetY = useSharedValue(0);
+  useEffect(() => {
+    if (showSheet) sheetY.value = 0;
+  }, [showSheet, sheetY]);
+
+  const dragToDismiss = Gesture.Pan()
+    .onChange((event) => {
+      // Downward only. Dragging a bottom sheet up should do nothing, not
+      // detach it from the edge it is anchored to.
+      sheetY.value = Math.max(0, sheetY.value + event.changeY);
+    })
+    .onEnd((event) => {
+      // Either a long pull or a quick flick: a sheet that only closed on
+      // distance ignores the fast flick everyone actually does.
+      if (sheetY.value > 90 || event.velocityY > 700) runOnJS(dismiss)();
+      else sheetY.value = withSpring(0, SPRING_TAP);
+    });
+
+  const sheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: sheetY.value }] }));
 
   // The same element as the one on home: the darkest object on the screen,
   // constant, so the two mics read as one control that followed you here rather
@@ -182,18 +226,20 @@ export function VoiceDock() {
           close();
         }}
       >
-        <Pressable
-          style={[styles.backdrop, { backgroundColor: colors.overlay }]}
-          onPress={() => {
-            setTyping(false);
-            close();
-          }}
-        />
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.sheetWrap}
-        >
-          <View
+        {/* A `Modal` is its own native window, and gesture-handler only routes
+            touches inside a root view. Without this second one the drag on the
+            sheet's handle silently never fires — the gesture is registered and
+            simply never receives anything. */}
+        <GestureHandlerRootView style={styles.fill}>
+          <Pressable
+            style={[styles.backdrop, { backgroundColor: colors.overlay }]}
+            onPress={dismiss}
+          />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.sheetWrap}
+          >
+          <Animated.View
             style={[
               styles.sheet,
               {
@@ -204,9 +250,21 @@ export function VoiceDock() {
                 paddingBottom: insets.bottom + spacing.lg,
                 gap: spacing.md,
               },
+              sheetStyle,
             ]}
           >
-            <View style={styles.grabber} />
+            <GestureDetector gesture={dragToDismiss}>
+              {/* Padded well past the bar itself so the target is thumb-sized. */}
+              <View
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                accessibilityHint="Drag down to dismiss"
+                onAccessibilityTap={dismiss}
+                style={styles.grabberHit}
+              >
+                <View style={[styles.grabber, { backgroundColor: colors.borderStrong }]} />
+              </View>
+            </GestureDetector>
 
             {status === 'listening' ? (
               <Txt variant="heading" tone="accent">
@@ -233,16 +291,14 @@ export function VoiceDock() {
               </View>
             ) : null}
 
+            {/* The message only. The buttons that used to live here were a
+                second copy of the action row at the bottom of the sheet — an
+                error put "Try again" beside "Speak" and "Type it" beside
+                "Type", which read as four choices where there are two. */}
             {error ? (
-              <View style={{ gap: spacing.sm }}>
-                <Txt variant="body" tone="danger">
-                  {needsRetry ? "I didn't catch that clearly. Try again?" : error}
-                </Txt>
-                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                  <Button label="Try again" icon="mic" onPress={() => void startListening()} />
-                  <Button label="Type it" icon="create-outline" onPress={() => setTyping(true)} />
-                </View>
-              </View>
+              <Txt variant="body" tone="danger">
+                {needsRetry ? "I didn't catch that clearly. Try again?" : error}
+              </Txt>
             ) : null}
 
             {clarification ? (
@@ -338,19 +394,22 @@ export function VoiceDock() {
                 </View>
               </View>
             ) : (
+              // Two choices, and the first one changes its name to match what
+              // pressing it will do. No Close: the sheet is dragged away by its
+              // handle, tapped away on the backdrop, or dismissed with Back.
               <View style={{ flexDirection: 'row', gap: spacing.sm }}>
                 <Button
-                  label={listening ? 'Stop' : 'Speak'}
+                  label={listening ? 'Stop' : error ? 'Try again' : 'Speak'}
                   variant="primary"
                   icon={listening ? 'stop' : 'mic'}
                   onPress={onPressMic}
                 />
                 <Button label="Type" icon="create-outline" onPress={() => setTyping(true)} />
-                <Button label="Close" variant="ghost" onPress={() => { setTyping(false); close(); }} />
               </View>
             )}
-          </View>
-        </KeyboardAvoidingView>
+            </Animated.View>
+          </KeyboardAvoidingView>
+        </GestureHandlerRootView>
       </Modal>
     </>
   );
@@ -375,17 +434,12 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderWidth: StyleSheet.hairlineWidth,
   },
+  fill: { flex: 1 },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   sheetWrap: { flex: 1, justifyContent: 'flex-end' },
   sheet: { paddingHorizontal: 18, paddingTop: 10, borderWidth: StyleSheet.hairlineWidth },
-  grabber: {
-    alignSelf: 'center',
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(128,128,140,0.5)',
-    marginBottom: 4,
-  },
+  grabberHit: { alignSelf: 'stretch', alignItems: 'center', paddingTop: 4, paddingBottom: 12 },
+  grabber: { width: 40, height: 4, borderRadius: 2 },
   clarify: { flexDirection: 'row', gap: 8, padding: 12, alignItems: 'flex-start' },
   result: {
     flexDirection: 'row',

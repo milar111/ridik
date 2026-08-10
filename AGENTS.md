@@ -114,6 +114,14 @@ never honour again.
   An unawaited one leaks an `act()` scope into the next test and every query there returns nothing.
 - **`drizzle-orm/expo-sqlite` must be imported from `/driver`.** The package index also exports
   `useLiveQuery`, which pulls in the native module and makes the file unloadable under Node.
+- **Gestures inside a React Native `Modal` need their own `GestureHandlerRootView`.**
+  A `Modal` is a separate native window, and gesture-handler only routes touches inside a root
+  view — so a `GestureDetector` in a modal registers fine and then silently never receives
+  anything. There is no warning; the gesture just does nothing.
+- **The recogniser talks after it is stopped.** Cancelling usually surfaces as an error a moment
+  later, which would land on a store the user has already dismissed and leave the mic red with a
+  message nobody can read. `store.ts` guards every callback with a session ticket; a late
+  transcript must not be executed either.
 - **`adb shell input text` typed at an unfocused field reaches the dev menu.** The characters
   arrive as key events: two `r`s inside the double-tap window reload the bundle, and a space
   activates whatever button holds focus — usually a sheet's backdrop, which closes it. The failure

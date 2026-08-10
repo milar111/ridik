@@ -47,6 +47,17 @@ export type VoicePipeline = {
 
 let pipeline: VoicePipeline | null = null;
 
+/**
+ * Which listening session the store is currently willing to hear from.
+ *
+ * The recogniser keeps talking after it has been stopped — a cancel usually
+ * arrives as an error a moment later — so a dismissed session would otherwise
+ * reach back and set `status: 'error'` on a store that had already moved on,
+ * leaving the mic sitting there red with a message nobody can read because the
+ * sheet it belonged to is closed. Every callback checks its ticket first.
+ */
+let session = 0;
+
 export function registerVoicePipeline(impl: VoicePipeline): void {
   pipeline = impl;
 }
@@ -63,6 +74,13 @@ type VoiceState = {
   error: string | null;
   /** Set when the recogniser heard nothing usable, so the UI can offer typing. */
   needsRetry: boolean;
+  /**
+   * Set when this device has no recogniser at all — an iOS Simulator, an
+   * Android without Google's speech services, dictation switched off. Speaking
+   * will never work here, so the UI opens the text box instead of leaving the
+   * user tapping a microphone that cannot succeed.
+   */
+  sttUnavailable: boolean;
   outcome: VoiceOutcome | null;
   pendingClarification: { question: string; pending?: string } | null;
 
@@ -81,14 +99,23 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   transcript: '',
   error: null,
   needsRetry: false,
+  sttUnavailable: false,
   outcome: null,
   pendingClarification: null,
 
   open: () => set({ expanded: true }),
   close: () => {
+    session += 1;
     void pipeline?.stopListening().catch(() => {});
     void pipeline?.stopSpeaking().catch(() => {});
-    set({ expanded: false, status: 'idle', partial: '', error: null, needsRetry: false });
+    set({
+      expanded: false,
+      status: 'idle',
+      partial: '',
+      error: null,
+      needsRetry: false,
+      sttUnavailable: false,
+    });
   },
 
   startListening: async () => {
@@ -97,6 +124,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       set({ status: 'error', error: 'Voice is still starting up.', expanded: true });
       return;
     }
+    const ticket = ++session;
     set({
       status: 'listening',
       expanded: true,
@@ -104,23 +132,32 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       transcript: '',
       error: null,
       needsRetry: false,
+      sttUnavailable: false,
       outcome: null,
     });
     try {
       await impl.listen({
-        onPartial: (text) => set({ partial: text }),
+        onPartial: (text) => {
+          if (ticket !== session) return;
+          set({ partial: text });
+        },
         onFinal: (text) => {
+          if (ticket !== session) return;
           set({ partial: '' });
           void get().submitText(text);
         },
-        onError: (message, reason) =>
+        onError: (message, reason) => {
+          if (ticket !== session) return;
           set({
             status: 'error',
             error: message,
             needsRetry: reason === 'low_confidence' || reason === 'empty',
-          }),
+            sttUnavailable: reason === 'unsupported',
+          });
+        },
       });
     } catch (error) {
+      if (ticket !== session) return;
       set({
         status: 'error',
         error: error instanceof Error ? error.message : 'Could not start listening.',
@@ -170,14 +207,17 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     }
   },
 
-  reset: () =>
+  reset: () => {
+    session += 1;
     set({
       status: 'idle',
       partial: '',
       transcript: '',
       error: null,
       needsRetry: false,
+      sttUnavailable: false,
       outcome: null,
       pendingClarification: null,
-    }),
+    });
+  },
 }));
