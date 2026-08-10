@@ -1,0 +1,335 @@
+import { useEffect, useState } from 'react';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+
+import { countLabel } from '@/core/format';
+import { copyToClipboard, shareAsFile } from '@/features/export';
+import {
+  BulletList,
+  ErrorRow,
+  NoteActionsSheet,
+  SkeletonRows,
+  errorMessage,
+  type SheetAction,
+} from '@/features/notes';
+import { noteFilename, noteMarkdown } from '@/features/notes/markdown';
+import { useAppendNoteBullets, useNote, useToggleNoteBullet, useUpdateNote } from '@/hooks';
+import type { BulletKind, NoteWithBullets } from '@/repositories/notes';
+import { Button, Divider, EmptyState, Input, Screen, Txt, useToast } from '@/ui/components';
+import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { useTheme } from '@/ui/ThemeProvider';
+import { colorForTag } from '@/ui/theme';
+
+export default function NoteDetailScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+  const { colors, spacing } = useTheme();
+  const note = useNote(id);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const data = note.data ?? null;
+  const extras = useNoteMenuExtras(data);
+
+  return (
+    <Screen scroll={false} contentStyle={{ flex: 1, gap: spacing.sm }}>
+      <View style={[styles.bar, { paddingTop: spacing.sm }]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          hitSlop={12}
+          onPress={() => router.back()}
+          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+        >
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
+        </Pressable>
+
+        <View style={{ flex: 1 }} />
+
+        {data?.isPinned ? <Ionicons name="pin" size={16} color={colors.accent} /> : null}
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Note actions"
+          hitSlop={12}
+          disabled={!data}
+          onPress={() => setMenuOpen(true)}
+          style={({ pressed }) => ({ opacity: pressed ? 0.6 : data ? 1 : 0.3 })}
+        >
+          <Ionicons name="ellipsis-horizontal" size={22} color={colors.text} />
+        </Pressable>
+      </View>
+
+      {note.isPending ? <SkeletonRows count={7} height={38} /> : null}
+
+      {note.error ? (
+        <ErrorRow
+          message={errorMessage(note.error, 'I could not open that note.')}
+          onRetry={() => void note.refetch()}
+        />
+      ) : null}
+
+      {!note.isPending && !note.error && !data ? (
+        <View>
+          <EmptyState
+            icon="help-circle-outline"
+            title="That note is gone"
+            hint="It was deleted, or the link is stale."
+          />
+          <View style={{ alignItems: 'center' }}>
+            <Button label="Back to notes" variant="ghost" onPress={() => router.back()} />
+          </View>
+        </View>
+      ) : null}
+
+      {data ? (
+        <ErrorBoundary label="note">
+          <NoteBody note={data} />
+        </ErrorBoundary>
+      ) : null}
+
+      <NoteActionsSheet
+        note={data}
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        onDeleted={() => router.back()}
+        extraActions={extras}
+      />
+    </Screen>
+  );
+}
+
+/**
+ * The two menu entries that only make sense with the note open. Kept as a hook
+ * so the sheet itself stays the single owner of pin/tag/archive/delete.
+ */
+function useNoteMenuExtras(note: NoteWithBullets | null): SheetAction[] {
+  const toast = useToast();
+  const toggleBullet = useToggleNoteBullet();
+  if (!note) return [];
+
+  const plain = note.bullets.filter((bullet) => bullet.bulletKind === 'text');
+
+  const share = async () => {
+    const markdown = noteMarkdown(note);
+    const shared = await shareAsFile(markdown, noteFilename(note), {
+      dialogTitle: note.titleSummary,
+    });
+    if (shared.ok) return;
+    // A locked-down device has no share sheet; the clipboard almost always
+    // still works, and a note the user cannot get out of the app is a trap.
+    const copied = await copyToClipboard(markdown);
+    toast.show(
+      copied.ok
+        ? { message: 'Copied to clipboard', detail: note.titleSummary, tone: 'success' }
+        : { message: errorMessage(shared.error, 'I could not share that note.'), tone: 'danger' },
+    );
+  };
+
+  const actions: SheetAction[] = [
+    { label: 'Share', icon: 'share-outline', onPress: () => void share() },
+  ];
+
+  if (plain.length > 0) {
+    actions.push({
+      label: `Turn ${countLabel(plain.length, 'bullet')} into todos`,
+      icon: 'checkbox-outline',
+      onPress: () => {
+        // Marking a bullet "not done" is what promotes it to a checkbox.
+        for (const bullet of plain) {
+          toggleBullet.mutate({ bulletId: bullet.id, completed: false });
+        }
+      },
+    });
+  }
+
+  return actions;
+}
+
+function NoteBody({ note }: { note: NoteWithBullets }) {
+  const { colors, spacing, typography } = useTheme();
+  const toast = useToast();
+  const updateNote = useUpdateNote();
+  const appendBullets = useAppendNoteBullets();
+
+  const [title, setTitle] = useState(note.titleSummary);
+  const [tag, setTag] = useState(note.categoryTag);
+  const [draft, setDraft] = useState('');
+  const [kind, setKind] = useState<BulletKind>('text');
+
+  /**
+   * Re-seeds the fields from the row, which is also the rollback: a rename the
+   * repository refuses (the title+tag pair is unique) invalidates and refetches,
+   * and the field snaps back to what is actually stored.
+   */
+  useEffect(() => {
+    setTitle(note.titleSummary);
+    setTag(note.categoryTag);
+  }, [note.titleSummary, note.categoryTag]);
+
+  const rename = (next: { titleSummary?: string; categoryTag?: string }) => {
+    const patch: { titleSummary?: string; categoryTag?: string } = {};
+    if (next.titleSummary !== undefined) {
+      const value = next.titleSummary.trim();
+      if (!value || value === note.titleSummary) {
+        setTitle(note.titleSummary);
+        return;
+      }
+      patch.titleSummary = value;
+    }
+    if (next.categoryTag !== undefined) {
+      const value = next.categoryTag.trim();
+      if (!value || value === note.categoryTag) {
+        setTag(note.categoryTag);
+        return;
+      }
+      patch.categoryTag = value;
+    }
+    updateNote.mutate(
+      { id: note.id, patch },
+      {
+        onError: (error) =>
+          toast.show({
+            message: errorMessage(error, 'I could not rename that note.'),
+            tone: 'danger',
+          }),
+      },
+    );
+  };
+
+  const add = (value: string) => {
+    const content = value.trim();
+    if (!content) return;
+    setDraft('');
+    appendBullets.mutate(
+      { noteId: note.id, contents: [content], kind },
+      {
+        onError: (error) =>
+          toast.show({
+            message: errorMessage(error, 'I could not add that bullet.'),
+            tone: 'danger',
+          }),
+      },
+    );
+  };
+
+  const done = note.bullets.filter((bullet) => bullet.isCompleted).length;
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={{ flex: 1 }}
+    >
+      <ScrollView
+        style={{ flex: 1 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        contentContainerStyle={{ paddingBottom: spacing.md, gap: spacing.sm }}
+        showsVerticalScrollIndicator={false}
+      >
+        <Input
+          value={title}
+          onChangeText={setTitle}
+          accessibilityLabel="Note title"
+          placeholder="Untitled"
+          returnKeyType="done"
+          onSubmitEditing={(event) => rename({ titleSummary: event.nativeEvent.text })}
+          onBlur={() => rename({ titleSummary: title })}
+          style={typography.title}
+        />
+
+        <View style={[styles.tagRow, { gap: spacing.sm }]}>
+          <View
+            style={[styles.swatch, { backgroundColor: colorForTag(note.categoryTag) }]}
+            accessibilityElementsHidden
+          />
+          <Input
+            containerStyle={{ flex: 1 }}
+            value={tag}
+            onChangeText={setTag}
+            accessibilityLabel="Note tag"
+            placeholder="tag"
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="done"
+            onSubmitEditing={(event) => rename({ categoryTag: event.nativeEvent.text })}
+            onBlur={() => rename({ categoryTag: tag })}
+          />
+        </View>
+
+        <View style={styles.counts}>
+          <Txt variant="micro" tone="tertiary">
+            {countLabel(note.bullets.length, 'bullet')}
+            {done > 0 ? ` · ${done} done` : ''}
+          </Txt>
+        </View>
+
+        <Divider />
+
+        {note.bullets.length === 0 ? (
+          <EmptyState
+            icon="add-circle-outline"
+            title="Nothing in here yet"
+            hint={`Try: “add two more points to ${note.titleSummary}”`}
+          />
+        ) : (
+          <BulletList note={note} />
+        )}
+      </ScrollView>
+
+      <View
+        style={[
+          styles.composer,
+          { borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.sm },
+        ]}
+      >
+        <Button
+          icon={kind === 'todo' ? 'checkbox-outline' : 'ellipse-outline'}
+          size="sm"
+          style={{ minWidth: 44, minHeight: 42 }}
+          accessibilityLabel={kind === 'todo' ? 'Adding as a todo' : 'Adding as a plain bullet'}
+          onPress={() => setKind(kind === 'todo' ? 'text' : 'todo')}
+        />
+        <Input
+          containerStyle={{ flex: 1 }}
+          value={draft}
+          onChangeText={setDraft}
+          placeholder={kind === 'todo' ? 'Add a todo…' : 'Add a bullet…'}
+          accessibilityLabel="Add a bullet"
+          returnKeyType="done"
+          // Keeps the keyboard up: bullets arrive in runs, not one at a time.
+          submitBehavior="submit"
+          onSubmitEditing={(event) => add(event.nativeEvent.text)}
+        />
+        <Button
+          icon="arrow-up"
+          variant="primary"
+          size="sm"
+          style={{ minWidth: 44, minHeight: 42 }}
+          accessibilityLabel="Add bullet"
+          disabled={!draft.trim()}
+          onPress={() => add(draft)}
+        />
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  bar: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44 },
+  tagRow: { flexDirection: 'row', alignItems: 'center' },
+  swatch: { width: 10, height: 10, borderRadius: 5 },
+  counts: { flexDirection: 'row', justifyContent: 'flex-end' },
+  composer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+});

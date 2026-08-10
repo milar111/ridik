@@ -1,0 +1,179 @@
+import { create } from 'zustand';
+import type { LlmAction } from '@/llm/contract';
+
+export type VoiceStatus = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error';
+
+export type VoiceOutcomeItem = {
+  toolName: LlmAction['tool_name'];
+  ok: boolean;
+  summary: string;
+  detail?: string;
+  /** Route to open when the user taps the result. */
+  href?: string;
+};
+
+export type VoiceOutcome = {
+  transcript: string;
+  /** False suppresses TTS for this turn without hiding the text. */
+  speak?: boolean;
+  feedback?: string;
+  items: VoiceOutcomeItem[];
+  clarification?: { question: string; pending?: string };
+};
+
+/**
+ * The pipeline (STT -> LLM -> executor -> TTS) is registered at startup rather
+ * than imported here, so the dock can render — and be tested — without pulling
+ * in native speech modules.
+ */
+export type VoicePipeline = {
+  listen: (handlers: {
+    onPartial: (text: string) => void;
+    onFinal: (text: string, confidence: number | null) => void;
+    onError: (message: string, reason?: string) => void;
+  }) => Promise<void>;
+  stopListening: () => Promise<void>;
+  process: (
+    transcript: string,
+    options?: { pending?: string },
+  ) => Promise<VoiceOutcome>;
+  speak: (text: string) => Promise<void>;
+  stopSpeaking: () => Promise<void>;
+};
+
+let pipeline: VoicePipeline | null = null;
+
+export function registerVoicePipeline(impl: VoicePipeline): void {
+  pipeline = impl;
+}
+
+export function getVoicePipeline(): VoicePipeline | null {
+  return pipeline;
+}
+
+type VoiceState = {
+  status: VoiceStatus;
+  expanded: boolean;
+  partial: string;
+  transcript: string;
+  error: string | null;
+  /** Set when the recogniser heard nothing usable, so the UI can offer typing. */
+  needsRetry: boolean;
+  outcome: VoiceOutcome | null;
+  pendingClarification: { question: string; pending?: string } | null;
+
+  open: () => void;
+  close: () => void;
+  startListening: () => Promise<void>;
+  stopListening: () => Promise<void>;
+  submitText: (text: string) => Promise<void>;
+  reset: () => void;
+};
+
+export const useVoiceStore = create<VoiceState>((set, get) => ({
+  status: 'idle',
+  expanded: false,
+  partial: '',
+  transcript: '',
+  error: null,
+  needsRetry: false,
+  outcome: null,
+  pendingClarification: null,
+
+  open: () => set({ expanded: true }),
+  close: () => {
+    void pipeline?.stopListening().catch(() => {});
+    void pipeline?.stopSpeaking().catch(() => {});
+    set({ expanded: false, status: 'idle', partial: '', error: null, needsRetry: false });
+  },
+
+  startListening: async () => {
+    const impl = pipeline;
+    if (!impl) {
+      set({ status: 'error', error: 'Voice is still starting up.', expanded: true });
+      return;
+    }
+    set({
+      status: 'listening',
+      expanded: true,
+      partial: '',
+      transcript: '',
+      error: null,
+      needsRetry: false,
+      outcome: null,
+    });
+    try {
+      await impl.listen({
+        onPartial: (text) => set({ partial: text }),
+        onFinal: (text) => {
+          set({ partial: '' });
+          void get().submitText(text);
+        },
+        onError: (message, reason) =>
+          set({
+            status: 'error',
+            error: message,
+            needsRetry: reason === 'low_confidence' || reason === 'empty',
+          }),
+      });
+    } catch (error) {
+      set({
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Could not start listening.',
+      });
+    }
+  },
+
+  stopListening: async () => {
+    await pipeline?.stopListening().catch(() => {});
+    if (get().status === 'listening') set({ status: 'idle' });
+  },
+
+  submitText: async (text: string) => {
+    const impl = pipeline;
+    const trimmed = text.trim();
+    if (!trimmed) {
+      set({ status: 'error', error: 'Nothing to send.', needsRetry: true });
+      return;
+    }
+    if (!impl) {
+      set({ status: 'error', error: 'Voice is still starting up.' });
+      return;
+    }
+    const pending = get().pendingClarification?.pending;
+    set({ status: 'thinking', transcript: trimmed, partial: '', error: null, needsRetry: false });
+    try {
+      const outcome = await impl.process(trimmed, pending ? { pending } : undefined);
+      set({
+        status: 'idle',
+        outcome,
+        pendingClarification: outcome.clarification ?? null,
+      });
+      const toSpeak =
+        outcome.speak === false ? undefined : (outcome.clarification?.question ?? outcome.feedback);
+      if (toSpeak) {
+        set({ status: 'speaking' });
+        await impl.speak(toSpeak).catch(() => {});
+        set((s) => (s.status === 'speaking' ? { ...s, status: 'idle' } : s));
+      }
+      // A clarification keeps the sheet open so the user can answer immediately.
+      if (outcome.clarification) set({ expanded: true });
+    } catch (error) {
+      set({
+        status: 'error',
+        error: error instanceof Error ? error.message : 'That did not go through.',
+      });
+    }
+  },
+
+  reset: () =>
+    set({
+      status: 'idle',
+      partial: '',
+      transcript: '',
+      error: null,
+      needsRetry: false,
+      outcome: null,
+      pendingClarification: null,
+    }),
+}));

@@ -1,0 +1,71 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`projectMarkdown matches the recorded snapshot 1`] = `
+"# 🤖 Robot arm
+
+_project · active · target 1 Sep 2026 · 1/3 done · 2 open todos_
+
+Build the arm before the \\* competition \\*
+
+## Items
+
+- Sketch the gripper
+
+## Parts
+
+- [x] Print the frame
+- [ ] Budget \\| Q3 \\# notes \\*starred\\* \\_under\\_ \\[link\\] \\<b\\> \\\`code\\\` — from the club budget (due 20 Aug 2026)
+
+## Linked tasks
+
+- [ ] Order the servos — due 15 Aug 2026 _(blocked)_
+
+## Notes
+
+- Servo spec _(robotics)_
+
+## Checklist items
+
+- [ ] M3 bolts ×20 _(Hardware)_
+
+## Spending
+
+| Date | Category | Amount |
+| --- | --- | --- |
+| 5 Aug 2026 | parts | −€42.50 |
+"
+`;
+
+exports[`weeklyStandup matches the recorded snapshot 1`] = `
+"# Weekly standup
+
+_3 Aug – 4 Aug · 1h 15m across 3 entries_
+
+## Monday 3 Aug — 1h 15m
+
+- Wrote the report (45m)
+- Ran (30m)
+
+## Tuesday 4 Aug
+
+- Budget \\| Q3 \\# notes \\*starred\\* \\_under\\_ \\[link\\] \\<b\\> \\\`code\\\`
+
+## Totals
+
+- Tracked: 1h 15m
+- Entries: 3
+- Days active: 2
+
+## By project
+
+| Project | Entries | Time |
+| --- | --- | --- |
+| Robotics \\| club | 2 | 1h 15m |
+
+## By habit
+
+| Habit | Entries | Time |
+| --- | --- | --- |
+| Running | 1 | 30m |
+"
+`;

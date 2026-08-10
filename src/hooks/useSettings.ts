@@ -1,0 +1,158 @@
+/**
+ * The typed settings store.
+ *
+ * Reads are total by construction: the repository decodes a missing, corrupt or
+ * outdated row to that key's declared default, and `useSetting` falls back to
+ * the same default while the query is still in flight — so a screen never has
+ * to render an "unknown" state for a toggle.
+ *
+ * Writes are optimistic. A switch that snaps back for 40ms before settling
+ * reads as a bug, so the cache moves first and only rolls back on a real
+ * failure (a value the key's schema rejects).
+ */
+import { useMemo } from 'react';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from '@tanstack/react-query';
+
+import { getRepositories } from '@/repositories';
+import {
+  defaultSettings,
+  type SettingKey,
+  type SettingsValues,
+} from '@/repositories/settings';
+
+import {
+  cancelKeys,
+  invalidateKeys,
+  qk,
+  restoreQueries,
+  snapshotQueries,
+  type QuerySnapshot,
+} from './keys';
+
+type OptimisticContext = { previous: QuerySnapshot };
+
+/* ------------------------------------------------------------------- reads */
+
+export function useSettings(): UseQueryResult<SettingsValues> {
+  return useQuery({
+    queryKey: qk.settings.values(),
+    queryFn: () => getRepositories().settings.getAll(),
+  });
+}
+
+/** One key, read on its own. Prefer `useSetting` unless you only need the value. */
+export function useSettingValue<K extends SettingKey>(key: K): UseQueryResult<SettingsValues[K]> {
+  return useQuery({
+    queryKey: qk.settings.detail(key),
+    queryFn: () => getRepositories().settings.get(key),
+  });
+}
+
+/** The raw stored JSON, for the diagnostics screen. */
+export function useRawSetting(key: SettingKey): UseQueryResult<string | null> {
+  return useQuery({
+    queryKey: qk.settings.raw(key),
+    queryFn: () => getRepositories().settings.getRaw(key),
+  });
+}
+
+/* ------------------------------------------------------------------ writes */
+
+export function useSetSettings(): UseMutationResult<
+  SettingsValues,
+  Error,
+  Partial<SettingsValues>,
+  OptimisticContext
+> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: Partial<SettingsValues>) => getRepositories().settings.setMany(patch),
+    onMutate: async (patch) => {
+      await cancelKeys(client, [qk.settings.all]);
+      const previous = snapshotQueries(client, [qk.settings.all]);
+      client.setQueryData<SettingsValues>(qk.settings.values(), (current) =>
+        current ? { ...current, ...patch } : current,
+      );
+      return { previous };
+    },
+    onError: (_error, _patch, context) => restoreQueries(client, context?.previous),
+    onSuccess: (values) => client.setQueryData<SettingsValues>(qk.settings.values(), values),
+    onSettled: () => invalidateKeys(client, [qk.settings.all]),
+  });
+}
+
+export function useResetSetting(): UseMutationResult<
+  SettingsValues[SettingKey],
+  Error,
+  SettingKey
+> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (key: SettingKey) => getRepositories().settings.reset(key),
+    onSettled: () => invalidateKeys(client, [qk.settings.all]),
+  });
+}
+
+export function useResetAllSettings(): UseMutationResult<SettingsValues, Error, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => getRepositories().settings.resetAll(),
+    onSettled: () => invalidateKeys(client, [qk.settings.all]),
+  });
+}
+
+/* ------------------------------------------------------------ one setting */
+
+export type SettingHandle<K extends SettingKey> = {
+  /** The stored value, or this key's declared default until the read lands. */
+  value: SettingsValues[K];
+  /** False once a value (stored or default) is available to render. */
+  isLoading: boolean;
+  error: Error | null;
+  /** Fire-and-forget; the cache already shows the new value. */
+  set: (value: SettingsValues[K]) => void;
+  setAsync: (value: SettingsValues[K]) => Promise<SettingsValues[K]>;
+  isSaving: boolean;
+};
+
+/**
+ * Read and write a single setting.
+ *
+ * The generic keeps the key and the value correlated: `useSetting('ttsRate')`
+ * only accepts a number, and `useSetting('briefingEnabled')` only a boolean.
+ */
+export function useSetting<K extends SettingKey>(key: K): SettingHandle<K> {
+  const client = useQueryClient();
+  const query = useSettings();
+  const fallback = useMemo(() => defaultSettings()[key], [key]);
+
+  const mutation = useMutation<SettingsValues[K], Error, SettingsValues[K], OptimisticContext>({
+    mutationFn: (value) => getRepositories().settings.set(key, value),
+    onMutate: async (value) => {
+      await cancelKeys(client, [qk.settings.all]);
+      const previous = snapshotQueries(client, [qk.settings.all]);
+      client.setQueryData<SettingsValues>(qk.settings.values(), (current) =>
+        current ? ({ ...current, [key]: value } as SettingsValues) : current,
+      );
+      client.setQueryData<SettingsValues[K]>(qk.settings.detail(key), () => value);
+      return { previous };
+    },
+    onError: (_error, _value, context) => restoreQueries(client, context?.previous),
+    onSettled: () => invalidateKeys(client, [qk.settings.all]),
+  });
+
+  return {
+    value: query.data ? query.data[key] : fallback,
+    isLoading: query.isLoading,
+    error: query.error,
+    set: (value) => mutation.mutate(value),
+    setAsync: (value) => mutation.mutateAsync(value),
+    isSaving: mutation.isPending,
+  };
+}

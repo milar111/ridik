@@ -1,0 +1,87 @@
+# Ridik — working notes
+
+Expo has changed a lot: read the exact versioned docs at
+https://docs.expo.dev/versions/v57.0.0/ before writing native-facing code.
+
+Read `README.md` first for the stack and architecture. This file records the things that will bite
+you if you do not know them.
+
+## Invariants — do not break these
+
+- **UTC epoch milliseconds everywhere.** Every timestamp in SQLite, in a repository signature and on
+  the wire is epoch ms. Wall-clock strings exist only at two edges: what the LLM emits and what a
+  screen renders. All conversion goes through `src/core/time.ts` (Luxon, named IANA zones). Never
+  do date arithmetic by hand and never call `new Date()` for maths.
+- **`now()` from `src/core/clock.ts`, never `Date.now()`.** Tests freeze the clock; a direct
+  `Date.now()` makes a module untestable and its bugs unreproducible.
+- **Repositories stay pure.** Nothing under `src/repositories/**` may import `expo-*`, `react` or
+  `react-native`. That purity is what lets the `logic` test project run them under plain Node
+  against real SQLite. Native work belongs in `src/services/**`.
+- **Screens touch data only through `src/hooks`.** Never call `getRepositories()` from a component;
+  it bypasses the query cache and the optimistic-update paths.
+- **Fuzzy matches must be able to say "I don't know".** `resolveOne()` returns
+  `none | unique | ambiguous`. An ambiguous match becomes a spoken question, never a guess — a wrong
+  resolve silently destroys the user's data.
+- **Migrations are append-only.** `src/db/migrations.ts` is keyed on `PRAGMA user_version`. Never
+  edit a shipped migration; add a new one. `src/db/schema.ts` must be kept in step with it.
+
+## Environment gotchas
+
+- **Android needs JDK 21.** JDK 25 fails `configureCMakeDebug` with
+  `A restricted method in java.lang.System has been called`. Build with
+  `export JAVA_HOME="$HOME/.jdks/temurin-21/Contents/Home"`.
+- **`src/app/` is a forbidden directory name.** expo-router prefers `src/app` over `./app` as its
+  route root; creating it silently moves the whole route tree and every screen becomes
+  "Unmatched Route". Startup code lives in `src/startup/`.
+- **The root layout must mount its navigator on the first render.** Gating `<Stack>` behind an async
+  bootstrap leaves expo-router unable to match the initial URL. Bootstrap state is an overlay drawn
+  over the navigator, not a replacement for it.
+- **`expo-dev-client` is intentionally absent.** Its launcher needs a manual tap, which breaks
+  automated simulator verification. A plain debug build loads Metro directly.
+- **RNTL v14 is fully async.** `render`, `rerender`, `unmount` and `fireEvent` all return promises.
+  An unawaited one leaks an `act()` scope into the next test and every query there returns nothing.
+- **`drizzle-orm/expo-sqlite` must be imported from `/driver`.** The package index also exports
+  `useLiveQuery`, which pulls in the native module and makes the file unloadable under Node.
+
+## Verifying a change
+
+```bash
+npm run typecheck
+npm test
+
+# iOS
+xcrun simctl boot "iPhone 17 Pro"; npx expo start
+xcrun simctl install booted ios/build/Build/Products/Debug-iphonesimulator/Ridik.app
+xcrun simctl launch booted ai.raisen.ridik
+xcrun simctl io booted screenshot /tmp/shot.png
+
+# Android
+adb reverse tcp:8081 tcp:8081
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n ai.raisen.ridik/.MainActivity
+adb logcat -d -s ReactNativeJS -s AndroidRuntime
+```
+
+A change is not verified until it has run on both.
+
+## Known gaps
+
+Honest list. Everything else in the brief is built, tested and has been run on both simulators.
+
+- **iOS Live Activities** need a Swift widget extension that a config plugin cannot generate.
+  `src/services/focus/liveActivity.ts` is a capability-detected adapter: it looks for an optional
+  native module and falls back to an ongoing time-sensitive notification. Wiring the real widget is
+  a native task; `isSupported()` starts returning true once it exists, and nothing else changes.
+- **The map picker** in `app/places.tsx` is a coordinate + radius editor with a current-location
+  shortcut and reverse geocoding. A real map needs `react-native-maps`.
+- **Home-screen shortcuts are registered but not tap-verified.** `adb shell dumpsys shortcut`
+  confirms both actions are published to the OS, and the handler in
+  `src/features/voice/useQuickActions.ts` is wired — but a launcher long-press cannot be faithfully
+  simulated over adb, so the tap-through has only been reasoned about, not observed.
+- **A refetch failure over a cached Today snapshot is invisible.** The screen keeps showing the last
+  good day with no indication that it has stopped updating.
+- **Google Calendar sync is untested against the live API.** Every path is covered against a mocked
+  transport — offline, backoff, auth loss, last-write-wins — but no OAuth client ids were available,
+  so nothing has spoken to Google.
+- **The LLM path has only run against the mock provider.** The Gemini client, its retry and repair
+  loops and the prompt are all tested; no request has been made with a real key.

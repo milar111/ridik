@@ -1,0 +1,21 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`composeSpoken matches the recorded snapshot 1`] = `
+{
+  "bullets": [
+    {
+      "icon": "calendar",
+      "text": "Math at 10:00, then 1 more.",
+    },
+    {
+      "icon": "task",
+      "text": "Physics homework is due tomorrow.",
+    },
+    {
+      "icon": "streak",
+      "text": "4-day study streak going strong.",
+    },
+  ],
+  "spoken": "Good morning. You have Math at 10 AM, Project meeting with Ivo at 3 PM and your Physics homework is due tomorrow. You're on a 4-day study streak.",
+}
+`;
