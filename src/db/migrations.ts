@@ -428,9 +428,30 @@ CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
 );
 `;
 
+/**
+ * A running tally of what the assistant has cost, kept per local day.
+ *
+ * Separate from `llm_interactions` because that table is an audit trail that
+ * can be pruned, while this is the meter the spend cap reads. Counting rows in
+ * an audit log is not a billing control.
+ */
+const m003_llm_usage = /* sql */ `
+CREATE TABLE IF NOT EXISTS llm_usage (
+  local_date     TEXT PRIMARY KEY,          -- "YYYY-MM-DD" in the user's zone
+  requests       INTEGER NOT NULL DEFAULT 0,
+  input_tokens   INTEGER NOT NULL DEFAULT 0,
+  output_tokens  INTEGER NOT NULL DEFAULT 0,
+  -- Micro-units of the provider's currency: integers avoid float drift over
+  -- thousands of tiny additions.
+  cost_micros    INTEGER NOT NULL DEFAULT 0,
+  updated_at     INTEGER NOT NULL
+);
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'initial_schema', sql: m001_initial },
   { version: 2, name: 'notes_fts5', sql: m002_notes_fts },
+  { version: 3, name: 'llm_usage', sql: m003_llm_usage },
 ];
 
 /** Migrations that must be skipped (not failed) when FTS5 is unavailable. */

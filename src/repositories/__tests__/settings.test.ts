@@ -48,6 +48,8 @@ describe('settings repository', () => {
         timezone: ZONE,
         llmModel: DEFAULT_LLM_MODEL,
         llmApiKeyPresent: false,
+        llmDailyRequestCap: 200,
+        llmMonthlyRequestCap: 3_000,
         voiceConfidenceThreshold: 0.7,
         silenceTimeoutMs: 1500,
         defaultBufferMinutes: 20,

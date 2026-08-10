@@ -78,6 +78,8 @@ export type Interpretation = {
   /** Provider time summed across every attempt. */
   latencyMs: number;
   attempts: number;
+  /** Token counts the provider reported, when it reported any. */
+  usage?: { input?: number | undefined; output?: number | undefined };
 };
 
 type CallState = { attempts: number; latencyMs: number };
@@ -174,6 +176,7 @@ export function createLlmClient(options: LlmClientOptions) {
             model: call.value.model,
             latencyMs: state.latencyMs,
             attempts: state.attempts,
+            ...(call.value.usage ? { usage: call.value.usage } : {}),
           });
         }
 

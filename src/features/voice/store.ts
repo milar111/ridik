@@ -16,6 +16,8 @@ export type VoiceOutcome = {
   transcript: string;
   /** False suppresses TTS for this turn without hiding the text. */
   speak?: boolean;
+  /** A one-off explanation shown above the results, e.g. a spend cap being hit. */
+  notice?: string;
   feedback?: string;
   items: VoiceOutcomeItem[];
   clarification?: { question: string; pending?: string };

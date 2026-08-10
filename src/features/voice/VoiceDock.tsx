@@ -237,6 +237,20 @@ export function VoiceDock() {
               </View>
             ) : null}
 
+            {outcome?.notice ? (
+              <View
+                style={[
+                  styles.clarify,
+                  { backgroundColor: colors.warningMuted, borderRadius: radius.md },
+                ]}
+              >
+                <Ionicons name="wallet-outline" size={18} color={colors.warning} />
+                <Txt variant="caption" tone="warning" style={{ flex: 1 }}>
+                  {outcome.notice}
+                </Txt>
+              </View>
+            ) : null}
+
             {outcome && outcome.items.length > 0 ? (
               <ScrollView style={{ maxHeight: 260 }} keyboardShouldPersistTaps="handled">
                 <View style={{ gap: spacing.sm }}>

@@ -30,6 +30,7 @@ import {
 } from '@/features/voice/store';
 import { createLlmClient, type LlmClient } from '@/llm/client';
 import { createOrchestrator, type TurnOutcome } from '@/llm/orchestrator';
+import { createUsageMeter } from '@/llm/usage';
 import type { ExecutorEffects } from '@/llm/executor';
 import { createGeminiProvider, createMockProvider } from '@/llm/provider';
 import { getRepositories } from '@/repositories';
@@ -116,13 +117,25 @@ const mockClient = createLlmClient({ provider: createMockProvider(), logger: log
 let geminiKey: string | null = null;
 let gemini: { model: string | undefined; client: LlmClient } | null = null;
 
+export type TurnClient = { client: LlmClient; metered: boolean; capped: string | null };
+
 /**
- * The client for this turn. Gemini whenever a key is readable, and the mock
- * provider's offline heuristic otherwise — the app degrades, never dies.
+ * The client for this turn.
+ *
+ * Gemini whenever a key is readable AND the day's own spend cap still has room;
+ * the mock provider's offline heuristic otherwise. Hitting the cap degrades the
+ * app rather than silencing it — the same path a missing key takes — because a
+ * budget control that bricks the mic teaches the user to raise the budget.
  */
-async function clientForTurn(): Promise<LlmClient> {
+async function clientForTurn(): Promise<TurnClient> {
   geminiKey = await readSecret(LLM_API_KEY_STORE_KEY);
-  if (!geminiKey) return mockClient;
+  if (!geminiKey) return { client: mockClient, metered: false, capped: null };
+
+  const allowed = await withinBudget();
+  if (allowed !== null) {
+    log.warn('assistant budget reached', allowed);
+    return { client: mockClient, metered: false, capped: allowed };
+  }
 
   const model = await preferredGeminiModel();
   if (!gemini || gemini.model !== model) {
@@ -138,7 +151,25 @@ async function clientForTurn(): Promise<LlmClient> {
       }),
     };
   }
-  return gemini.client;
+  return { client: gemini.client, metered: true, capped: null };
+}
+
+/** Returns the reason the paid provider is off limits, or null when it is fine. */
+async function withinBudget(): Promise<string | null> {
+  try {
+    const repos = getRepositories();
+    const settings = await repos.settings.getAll();
+    const verdict = await createUsageMeter(repos.db).check({
+      daily: settings.llmDailyRequestCap,
+      monthly: settings.llmMonthlyRequestCap,
+    });
+    return verdict.ok ? null : verdict.error.userMessage;
+  } catch (error) {
+    // A meter that cannot be read must not block the assistant; the provider's
+    // own cap is still underneath us.
+    log.warn('could not read the assistant budget', error);
+    return null;
+  }
 }
 
 /**
@@ -225,10 +256,11 @@ export function createVoicePipeline(): VoicePipeline {
     },
 
     async process(transcript, options): Promise<VoiceOutcome> {
-      const client = await clientForTurn();
+      const repos = getRepositories();
+      const turn = await clientForTurn();
       const orchestrator = createOrchestrator({
-        repos: getRepositories(),
-        client,
+        repos,
+        client: turn.client,
         effects: voiceEffects,
         zone: currentZone(),
         logger: log,
@@ -242,9 +274,23 @@ export function createVoicePipeline(): VoicePipeline {
       });
       lastCapture = null;
 
+      if (turn.metered && outcome.usage) {
+        // Metering must never cost the user the turn they just completed.
+        await createUsageMeter(repos.db)
+          .record({
+            model: outcome.usage.model,
+            inputTokens: outcome.usage.inputTokens,
+            outputTokens: outcome.usage.outputTokens,
+          })
+          .catch((error: unknown) => log.warn('could not record assistant usage', error));
+      }
+
       return {
         transcript: outcome.transcript,
         speak: outcome.speak !== false,
+        // Said once, on the turn the cap bit, so the user learns why the
+        // answers suddenly got simpler instead of assuming it broke.
+        ...(turn.capped ? { notice: turn.capped } : {}),
         ...(outcome.feedback ? { feedback: outcome.feedback } : {}),
         items: toOutcomeItems(outcome),
         ...(outcome.clarification ? { clarification: outcome.clarification } : {}),

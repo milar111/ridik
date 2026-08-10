@@ -51,6 +51,15 @@ export const SETTINGS = {
   onboardingComplete: define(z.boolean(), () => false),
   weekStartsOn: define<0 | 1>(z.union([z.literal(0), z.literal(1)]), () => 1),
   whisperFallbackEnabled: define(z.boolean(), () => true),
+
+  /**
+   * The app's own spend ceiling, counted in assistant requests rather than
+   * money: a request is something a person can reason about, and it holds even
+   * if the provider changes its prices. 0 means unlimited. Past the cap, voice
+   * still works — it falls back to offline pattern matching.
+   */
+  llmDailyRequestCap: define(z.number().int().min(0).max(100_000), () => 200),
+  llmMonthlyRequestCap: define(z.number().int().min(0).max(1_000_000), () => 3_000),
 };
 
 export type SettingsValues = {

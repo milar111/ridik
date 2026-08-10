@@ -13,7 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { formatDateTime, formatRelative, isValidZone } from '@/core/time';
 import { countLabel, truncate } from '@/core/format';
 import { copyToClipboard } from '@/features/export';
-import { useRebuildNoteSearchIndex, useSetting, useSyncEntries } from '@/hooks';
+import { useAssistantUsage, useRebuildNoteSearchIndex, useSetting, useSyncEntries } from '@/hooks';
+import { formatCostMicros } from '@/llm/usage';
 import {
   useBackgroundStatus,
   useCalendarConnection,
@@ -214,6 +215,9 @@ function VoiceGroup() {
   const rate = useSetting('ttsRate');
   const confidence = useSetting('voiceConfidenceThreshold');
   const silence = useSetting('silenceTimeoutMs');
+  const dailyCap = useSetting('llmDailyRequestCap');
+  const monthlyCap = useSetting('llmMonthlyRequestCap');
+  const usage = useAssistantUsage(dailyCap.value, monthlyCap.value).data;
   const whisperEnabled = useSetting('whisperFallbackEnabled');
 
   const [customModel, setCustomModel] = useState(false);
@@ -312,6 +316,40 @@ function VoiceGroup() {
           step={100}
           format={(v) => `${(v / 1000).toFixed(1)}s`}
           onChange={(v) => silence.set(Math.round(v))}
+        />
+        <Divider inset={spacing.md} />
+        <SliderRow
+          label="Requests per day"
+          hint={
+            dailyCap.value === 0
+              ? 'Unlimited. Set a number to cap what the assistant can spend in a day.'
+              : `${usage?.remainingToday ?? dailyCap.value} left today${
+                  usage ? ` · ${formatCostMicros(usage.today.costMicros)} so far` : ''
+                }.`
+          }
+          value={dailyCap.value}
+          min={0}
+          max={1000}
+          step={25}
+          format={(v) => (v === 0 ? 'Off' : String(Math.round(v)))}
+          onChange={(v) => dailyCap.set(Math.round(v))}
+        />
+        <Divider inset={spacing.md} />
+        <SliderRow
+          label="Requests per month"
+          hint={
+            monthlyCap.value === 0
+              ? 'Unlimited.'
+              : `${usage?.remainingThisMonth ?? monthlyCap.value} left this month${
+                  usage ? ` · ${formatCostMicros(usage.month.costMicros)} so far` : ''
+                }. Past the cap, commands fall back to pattern matching rather than stopping.`
+          }
+          value={monthlyCap.value}
+          min={0}
+          max={20_000}
+          step={250}
+          format={(v) => (v === 0 ? 'Off' : String(Math.round(v)))}
+          onChange={(v) => monthlyCap.set(Math.round(v))}
         />
         <Divider inset={spacing.md} />
         <SwitchRow

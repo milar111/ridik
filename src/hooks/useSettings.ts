@@ -19,6 +19,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 
+import { createUsageMeter, type UsageSnapshot } from '@/llm/usage';
 import { getRepositories } from '@/repositories';
 import {
   defaultSettings,
@@ -155,4 +156,23 @@ export function useSetting<K extends SettingKey>(key: K): SettingHandle<K> {
     setAsync: (value) => mutation.mutateAsync(value),
     isSaving: mutation.isPending,
   };
+}
+
+/**
+ * What the assistant has spent, against the caps currently configured.
+ *
+ * Polled rather than pushed: a turn can be metered from the voice pipeline,
+ * which has no access to the query client, and a stale-by-thirty-seconds
+ * counter on a settings screen costs nothing.
+ */
+export function useAssistantUsage(
+  dailyCap: number,
+  monthlyCap: number,
+): UseQueryResult<UsageSnapshot> {
+  return useQuery({
+    queryKey: qk.usage.snapshot(dailyCap, monthlyCap),
+    queryFn: () =>
+      createUsageMeter(getRepositories().db).snapshot({ daily: dailyCap, monthly: monthlyCap }),
+    refetchInterval: 30_000,
+  });
 }

@@ -46,6 +46,8 @@ export type TurnItem = {
 
 /** Structurally `VoiceOutcome` from '@/features/voice/store'. */
 export type TurnOutcome = {
+  /** Present only when a provider was actually called; feeds the spend meter. */
+  usage?: { model: string; inputTokens?: number | undefined; outputTokens?: number | undefined };
   /**
    * False when every result asked to stay quiet — a briefing the user tapped
    * for rather than spoke for. The dock still shows it; TTS skips it.
@@ -388,7 +390,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
       return { transcript, feedback, items: [] };
     }
 
-    const { response, raw, model } = interpretation.value;
+    const { response, raw, model, usage } = interpretation.value;
     const executor = executorFor(startedAt);
     const results =
       response.actions.length > 0 ? await executor.executeAll(response.actions) : [];
@@ -436,6 +438,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
       feedback,
       items: results.map(toItem),
       speak: shouldSpeak(results),
+      usage: { model, inputTokens: usage?.input, outputTokens: usage?.output },
       ...(clarification ? { clarification } : {}),
     };
   }

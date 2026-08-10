@@ -455,6 +455,16 @@ export const appSettings = sqliteTable('app_settings', {
   updatedAt: epoch('updated_at').notNull(),
 });
 
+export const llmUsage = sqliteTable('llm_usage', {
+  localDate: text('local_date').primaryKey(),
+  requests: integer('requests').notNull().default(0),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  /** Micro-units of the provider's currency; integers avoid float drift. */
+  costMicros: integer('cost_micros').notNull().default(0),
+  updatedAt: epoch('updated_at').notNull(),
+});
+
 export const llmInteractions = sqliteTable(
   'llm_interactions',
   {
@@ -496,6 +506,7 @@ export const schema = {
   focusSessions,
   appSettings,
   llmInteractions,
+  llmUsage,
 };
 
 export type Schema = typeof schema;
@@ -526,3 +537,4 @@ export type SyncQueueEntry = typeof syncQueue.$inferSelect;
 export type FocusSession = typeof focusSessions.$inferSelect;
 export type CurriculumEntry = typeof curriculumSchedule.$inferSelect;
 export type LlmInteraction = typeof llmInteractions.$inferSelect;
+export type LlmUsageRow = typeof llmUsage.$inferSelect;
