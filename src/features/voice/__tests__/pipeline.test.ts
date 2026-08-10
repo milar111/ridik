@@ -10,6 +10,10 @@
  */
 const mockSecrets = new Map<string, string>();
 const mockGetItem = jest.fn(async (key: string) => mockSecrets.get(key) ?? null);
+// The build-time backend URL. Empty here, so these tests exercise the
+// personal-key path; the hosted path has its own suite.
+jest.mock('expo-constants', () => ({ __esModule: true, default: { expoConfig: { extra: {} } } }));
+
 jest.mock('expo-secure-store', () => ({
   AFTER_FIRST_UNLOCK: 'after-first-unlock',
   getItemAsync: (key: string, ...rest: unknown[]) => mockGetItem(key, ...(rest as [])),

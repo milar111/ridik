@@ -17,6 +17,7 @@
  *    microphone, a missing TTS voice or an unreadable keychain all degrade to a
  *    sentence the user can act on.
  */
+import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 
 import { createLogger } from '@/core/logger';
@@ -32,7 +33,7 @@ import { createLlmClient, type LlmClient } from '@/llm/client';
 import { createOrchestrator, type TurnOutcome } from '@/llm/orchestrator';
 import { createUsageMeter } from '@/llm/usage';
 import type { ExecutorEffects } from '@/llm/executor';
-import { createGeminiProvider, createMockProvider } from '@/llm/provider';
+import { createGeminiProvider, createHostedProvider, createMockProvider } from '@/llm/provider';
 import { getRepositories } from '@/repositories';
 import { pushEventNow } from '@/services/calendar';
 import { focusEffects } from '@/services/focus';
@@ -50,6 +51,12 @@ const log = createLogger('voice-pipeline');
 
 /** Where the Settings screen writes the assistant key. Never in SQLite. */
 export const LLM_API_KEY_STORE_KEY = 'ridik.llm.apiKey';
+/**
+ * The session token a store build presents to your backend. Whatever issues
+ * identity — RevenueCat, Supabase auth, your own sign-in — writes it here; the
+ * app only ever reads it, and only ever over TLS to the URL baked into the build.
+ */
+export const ASSISTANT_TOKEN_STORE_KEY = 'ridik.assistant.token';
 /** Optional: unlocks the Whisper rung of the transcription ladder. */
 export const WHISPER_API_KEY_STORE_KEY = 'ridik.whisper.apiKey';
 
@@ -119,15 +126,56 @@ let gemini: { model: string | undefined; client: LlmClient } | null = null;
 
 export type TurnClient = { client: LlmClient; metered: boolean; capped: string | null };
 
+/** Set in store builds; empty in your own. See `app.config.ts`. */
+export function assistantApiUrl(): string {
+  const extra = (Constants.expoConfig?.extra ?? {}) as { assistantApiUrl?: string };
+  return (extra.assistantApiUrl ?? '').trim();
+}
+
+export type AssistantMode = 'hosted' | 'personal-key' | 'offline';
+
+/** What the Settings screen shows, and what decides the provider below. */
+export async function assistantMode(): Promise<AssistantMode> {
+  if (assistantApiUrl()) return 'hosted';
+  return (await readSecret(LLM_API_KEY_STORE_KEY)) ? 'personal-key' : 'offline';
+}
+
+let hosted: LlmClient | null = null;
+
 /**
  * The client for this turn.
  *
- * Gemini whenever a key is readable AND the day's own spend cap still has room;
- * the mock provider's offline heuristic otherwise. Hitting the cap degrades the
- * app rather than silencing it — the same path a missing key takes — because a
- * budget control that bricks the mic teaches the user to raise the budget.
+ * Three modes, in order of precedence:
+ *
+ *   hosted        a backend URL is baked into the build, so the request goes
+ *                 there with the user's session token and the model key never
+ *                 leaves your server. This is what ships to a store.
+ *   personal-key  no backend, but a key in the device keychain — your own
+ *                 builds, running on your own free-tier quota.
+ *   offline       neither, or the local spend cap is spent: the mock
+ *                 provider's pattern matcher.
+ *
+ * Hitting the cap degrades rather than silences, the same path a missing key
+ * takes, because a budget control that bricks the mic only teaches people to
+ * raise the budget.
  */
 async function clientForTurn(): Promise<TurnClient> {
+  const endpoint = assistantApiUrl();
+  if (endpoint) {
+    // Quotas belong to the server here — it is the only party that can see
+    // across a user's devices, and the only one the user cannot edit.
+    if (!hosted) {
+      hosted = createLlmClient({
+        provider: createHostedProvider({
+          endpoint,
+          getToken: () => readSecret(ASSISTANT_TOKEN_STORE_KEY),
+        }),
+        logger: log,
+      });
+    }
+    return { client: hosted, metered: false, capped: null };
+  }
+
   geminiKey = await readSecret(LLM_API_KEY_STORE_KEY);
   if (!geminiKey) return { client: mockClient, metered: false, capped: null };
 

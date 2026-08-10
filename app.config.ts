@@ -182,6 +182,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     reactCompiler: false,
   },
   extra: {
+    /**
+     * Set this in store builds and the app routes every assistant request
+     * through your backend, which holds the model key and checks the
+     * subscription. Leave it unset for your own builds and the app uses a
+     * personal key from the device keychain instead — which is how one
+     * codebase serves both "my free-tier key" and "paying customers".
+     */
+    assistantApiUrl: process.env.EXPO_PUBLIC_RIDIK_API_URL ?? '',
     googleOAuth: {
       iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '',
       androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? '',

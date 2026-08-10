@@ -25,3 +25,8 @@ export {
   type MockProviderOptions,
   type MockResponder,
 } from './mock';
+
+export {
+  createHostedProvider,
+  type HostedProviderOptions,
+} from './hosted';

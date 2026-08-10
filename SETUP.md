@@ -11,12 +11,31 @@ The app runs **fully offline with nothing configured** — notes, tasks, project
 lists, habits, ledger, calendar, timers and the briefing all work on-device.
 Only the two networked features need keys.
 
+There are **two deployment shapes** and they need different things.
+
+**Your own builds** (what you run day to day): a personal Gemini key on the
+device, your free tier, nothing to pay and nothing to host.
+
+**Store builds** (what you sell): a backend you own holds the key and checks the
+subscription. Users supply nothing. See §2b.
+
 | Thing | Needed for | Where it goes | Cost |
 | --- | --- | --- | --- |
-| **Gemini API key** | Understanding what you say | Settings → Voice → Assistant API key | Free tier is almost certainly enough |
+| **Gemini API key** | Your own builds only | Settings → Voice → Assistant API key | Free tier is almost certainly enough |
+| **`EXPO_PUBLIC_RIDIK_API_URL`** | Store builds | Build-time env var | — |
+| **A provider key on the server** | Store builds | Your backend's secret store | ~$0.39/user/month |
 | **Google OAuth client ids** | Google Calendar sync | Build-time env vars | Free |
 | **OpenAI key** *(optional)* | Whisper fallback in noisy rooms | Settings → Voice → Whisper API key | ~$0.006/min, rarely used |
-| **Supabase** | **Not used — see §5** | — | — |
+| **Supabase** | Optional — see §5 | — | — |
+
+**Speech-to-text costs nothing and needs no key.** It uses the phone's own
+recogniser — `SFSpeechRecognizer` on iOS, `SpeechRecognizer` on Android — and
+asks for on-device recognition wherever the locale supports it
+(`src/voice/stt.ts` checks `supportsOnDeviceRecognition()` before each request).
+Audio never leaves the phone on that path. The Whisper fallback is opt-in,
+needs its own key, and only fires for the specific failures a re-listen could
+fix, so in practice it is close to never used. That keeps the per-utterance cost
+to the language model alone.
 
 ### Gemini key
 
@@ -69,7 +88,7 @@ Per utterance, at published August 2026 list prices:
 | **Gemini free tier** | — | **$0** (1,500 req/day) | **$0** |
 | Gemini 3 Flash | $0.25 / $1.50 | ~$0.0011 | ~$1.65/mo |
 | Gemini 3.1 Flash-Lite | $0.10 / $0.40 | ~$0.0004 | ~$0.60/mo |
-| GPT-5.6 Luna | $0.20 / $1.20 | ~$0.0009 | ~$1.40/mo |
+| GPT-5.6 Luna | $0.10 / $0.60 | ~$0.0004 | ~$0.65/mo |
 | Gemini 3.6 Flash | $1.50 / $7.50 | ~$0.0060 | ~$9/mo |
 | GPT-5.6 Terra | $2.00 / $12.00 | ~$0.0086 | ~$13/mo |
 
@@ -122,6 +141,53 @@ worthwhile follow-up on this list.
 
 **Recommendation: stay on Gemini Flash. Add the Apple tier later if you want the
 privacy and offline win; it is an addition, not a migration.**
+
+---
+
+## 2b. Shipping it: your free tier for you, a proxy for customers
+
+**Built and wired.** `app.config.ts` exposes `EXPO_PUBLIC_RIDIK_API_URL`. When it
+is set, the app routes every assistant request through that backend with the
+user's session token and never touches a model key. When it is unset — your
+builds — it reads a personal key from the keychain and calls Gemini directly on
+your free tier. Same prompt, same validation, same executor; only the transport
+differs (`src/llm/provider/hosted.ts`).
+
+You cannot ship your own key inside the app, for three reasons and only the first
+is about money:
+
+1. **A key in a bundle is not your key.** Anyone who downloads the app can
+   extract it. No obfuscation survives that.
+2. **A free tier is per project, not per user.** 1,500 requests/day is shared
+   across *everyone* running your app. Ten users and you are rate-limited.
+3. **Free-tier data terms.** Google may use free-tier traffic to improve its
+   products — fine for your notes, not for a paying customer's.
+
+`server/interpret.ts` is a working reference handler (~200 lines, plain `fetch`,
+runs on Cloudflare / Deno / Supabase Edge / Vercel unchanged). It leaves exactly
+two seams for you: `verifyCaller(token)` — usually
+[RevenueCat](https://www.revenuecat.com/), which wraps App Store and Play Billing
+behind one entitlement check — and a `quota` counter, for which Redis `INCR` with
+a TTL to midnight or a Postgres upsert both work. `server/README.md` has the
+detail.
+
+The economics at Luna's $0.10/$0.60:
+
+| | requests/month | cost/user/month |
+| --- | --- | --- |
+| Light (10/day) | 300 | ~$0.13 |
+| Typical (30/day) | 900 | ~$0.39 |
+| Heavy (100/day) | 3,000 | ~$1.29 |
+
+At €4.99/month that is a **92% gross margin on a typical user**, 74% on a heavy
+one. The per-user `dailyLimit` is what stops a pathological user or a stolen
+token from inverting that — start it at 150/day.
+
+**Prompt caching is the biggest remaining lever.** The system prompt is large and
+almost entirely static, exactly the shape caching rewards; the GPT-5.x family
+discounts cached input by up to 90%. Adding a cache breakpoint after the static
+preamble would cut the input side of the bill by roughly an order of magnitude.
+Not implemented — worth doing before you have many users.
 
 ---
 
