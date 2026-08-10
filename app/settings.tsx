@@ -206,6 +206,8 @@ function CalendarGroup() {
   const connection = useCalendarConnection();
   const connect = useConnectCalendar();
   const disconnect = useDisconnectCalendar();
+  const permissions = usePermissions();
+  const request = useRequestPermission();
   const toast = useToast();
 
   if (connection.isLoading && !connection.data) return <GroupSkeleton title="Calendar" rows={1} />;
@@ -270,7 +272,52 @@ function CalendarGroup() {
           )
         }
       />
+      <MirrorRow
+        granted={status?.nativeMirror ?? false}
+        blocked={permissions.data?.calendar?.level === 'blocked'}
+        onAllow={() =>
+          request.mutate('calendar', {
+            onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
+          })
+        }
+      />
     </Group>
+  );
+}
+
+/**
+ * Mirroring into the phone's own calendar is a permission, not a preference —
+ * the OS owns the off switch. So this states where things stand and offers the
+ * one action that can change it, rather than pretending to be a toggle that
+ * cannot actually turn itself off.
+ */
+function MirrorRow({
+  granted,
+  blocked,
+  onAllow,
+}: {
+  granted: boolean;
+  blocked: boolean;
+  onAllow: () => void;
+}) {
+  return (
+    <Row
+      icon="phone-portrait-outline"
+      label="Show in your phone calendar"
+      value={granted ? 'On' : blocked ? 'Turned off in system settings' : 'Off'}
+      hint={
+        granted
+          ? 'Ridik events appear in Apple Calendar and any app that reads it.'
+          : 'Ridik keeps its own calendar so its events show up alongside everything else.'
+      }
+      right={
+        granted ? undefined : blocked ? (
+          <Button label="Open settings" size="sm" onPress={() => void Linking.openSettings().catch(() => {})} />
+        ) : (
+          <Button label="Turn on" size="sm" variant="primary" onPress={onAllow} />
+        )
+      }
+    />
   );
 }
 
