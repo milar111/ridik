@@ -7,7 +7,7 @@ import { AppError } from '@/core/result';
 import { localToEpoch, setZoneOverride } from '@/core/time';
 import type { Transaction } from '@/db/schema';
 
-import { currencyTotals, deadlineOf, errorMessage, swapped } from '../format';
+import { currencyTotals, deadlineOf, errorMessage } from '../format';
 
 const ZONE = 'Europe/Sofia';
 const NOW = localToEpoch('2026-08-11T09:00', ZONE);
@@ -66,18 +66,6 @@ describe('currencyTotals', () => {
 
   it('has nothing to say about no transactions', () => {
     expect(currencyTotals([])).toEqual([]);
-  });
-});
-
-describe('swapped', () => {
-  it('swaps two positions', () => {
-    expect(swapped(['a', 'b', 'c'], 0, 1)).toEqual(['b', 'a', 'c']);
-  });
-
-  it('leaves the order alone when the move runs off either end', () => {
-    expect(swapped(['a', 'b'], 0, -1)).toEqual(['a', 'b']);
-    expect(swapped(['a', 'b'], 1, 2)).toEqual(['a', 'b']);
-    expect(swapped(['a', 'b'], 1, 1)).toEqual(['a', 'b']);
   });
 });
 

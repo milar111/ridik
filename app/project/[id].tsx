@@ -26,7 +26,6 @@ import {
   STATUS_LABEL,
   UNSECTIONED_TITLE,
   errorMessage,
-  swapped,
   type AddItemDraft,
   type MenuOption,
 } from '@/features/projects';
@@ -36,9 +35,9 @@ import {
   useDeleteProjectItem,
   useMoveProjectItem,
   useProjectOverview,
-  useReorderProjectItems,
   useSetProjectStatus,
   useToggleProjectItem,
+  useReorderProjectItems,
   useUpdateProjectItem,
 } from '@/hooks';
 import type { ProjectStatus } from '@/repositories/projects';
@@ -71,8 +70,8 @@ export default function ProjectDetailScreen() {
   const toggleItem = useToggleProjectItem();
   const addItems = useAddProjectItems();
   const updateItem = useUpdateProjectItem();
-  const moveItem = useMoveProjectItem();
   const reorderItems = useReorderProjectItems();
+  const moveItem = useMoveProjectItem();
   const deleteItem = useDeleteProjectItem();
   const setStatus = useSetProjectStatus();
   const deleteProject = useDeleteProject();
@@ -121,19 +120,6 @@ export default function ProjectDetailScreen() {
       },
       { onError: complain },
     );
-
-  /** Reorder is per section, and the repository re-indexes what we send it. */
-  const nudge = (item: ProjectItem, delta: number) => {
-    const view = sections.find(
-      (candidate) => sectionKey(candidate.section?.id ?? null) === sectionKey(item.sectionId),
-    );
-    if (!view) return;
-    const ids = view.items.map((row) => row.id);
-    const from = ids.indexOf(item.id);
-    const to = from + delta;
-    if (from < 0 || to < 0 || to >= ids.length) return;
-    reorderItems.mutate({ projectId, orderedIds: swapped(ids, from, to) }, { onError: complain });
-  };
 
   /**
    * Both confirmations are raised from a menu option, so the sheet is still
@@ -215,52 +201,66 @@ export default function ProjectDetailScreen() {
         selected: current === 'archived',
         onPress: move('archived'),
       },
-      { label: 'Share as markdown', icon: 'share-outline', onPress: () => void share() },
-      { label: 'Delete project', icon: 'trash-outline', tone: 'danger', onPress: confirmDeleteProject },
+      // Everything above is one radio group; the rule keeps the irreversible
+      // option from reading as a fifth thing the project could be.
+      {
+        label: 'Delete project',
+        icon: 'trash-outline',
+        tone: 'danger',
+        separated: true,
+        onPress: confirmDeleteProject,
+      },
     ];
   };
 
-  const itemMenu = (item: ProjectItem): MenuOption[] => {
-    const view = sections.find(
-      (candidate) => sectionKey(candidate.section?.id ?? null) === sectionKey(item.sectionId),
+  const moveToTop = (item: ProjectItem) => {
+    const siblings = sections.find((view) => view.items.some((row) => row.id === item.id))?.items ?? [];
+    if (siblings.length < 2 || siblings[0]?.id === item.id) {
+      setMenu(null);
+      return;
+    }
+    reorderItems.mutate(
+      {
+        projectId: item.projectId,
+        orderedIds: [item.id, ...siblings.filter((row) => row.id !== item.id).map((row) => row.id)],
+      },
+      { onError: complain },
     );
-    const index = view ? view.items.findIndex((row) => row.id === item.id) : -1;
-    const last = view ? view.items.length - 1 : -1;
-    return [
-      {
-        label: 'Move up',
-        icon: 'arrow-up',
-        disabled: index <= 0,
-        onPress: () => nudge(item, -1),
-      },
-      {
-        label: 'Move down',
-        icon: 'arrow-down',
-        disabled: index < 0 || index >= last,
-        onPress: () => nudge(item, 1),
-      },
-      {
-        label: item.isCheckbox ? 'Remove the checkbox' : 'Make it a checkbox',
-        icon: item.isCheckbox ? 'remove-circle-outline' : 'checkbox-outline',
-        onPress: () =>
-          updateItem.mutate(
-            { itemId: item.id, patch: { isCheckbox: !item.isCheckbox } },
-            { onError: complain },
-          ),
-      },
-      {
-        label: 'Move to section…',
-        icon: 'folder-outline',
-        onPress: () => setMenu({ kind: 'move', item }),
-      },
-      {
-        label: 'Delete',
-        icon: 'trash-outline',
-        tone: 'danger',
-        onPress: () => confirmDeleteItem(item),
-      },
-    ];
+    setMenu(null);
   };
+
+  const itemMenu = (item: ProjectItem): MenuOption[] => [
+    {
+      label: item.isCheckbox ? 'Remove the checkbox' : 'Make it a checkbox',
+      icon: item.isCheckbox ? 'remove-circle-outline' : 'checkbox-outline',
+      onPress: () =>
+        updateItem.mutate(
+          { itemId: item.id, patch: { isCheckbox: !item.isCheckbox } },
+          { onError: complain },
+        ),
+    },
+    {
+      label: 'Move to section…',
+      icon: 'folder-outline',
+      onPress: () => setMenu({ kind: 'move', item }),
+    },
+    // One option instead of a Move up / Move down pair. Nudging an item a row
+    // at a time is a lot of taps for a list nobody sorts precisely, and the
+    // pair sat directly above Delete; "the thing I care about next" is what
+    // reordering was actually for.
+    {
+      label: 'Move to top',
+      icon: 'arrow-up-outline',
+      onPress: () => moveToTop(item),
+    },
+    {
+      label: 'Delete',
+      icon: 'trash-outline',
+      tone: 'danger',
+      separated: true,
+      onPress: () => confirmDeleteItem(item),
+    },
+  ];
 
   const moveMenu = (item: ProjectItem): MenuOption[] => [
     {

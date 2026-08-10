@@ -7,7 +7,7 @@ export type { SheetAction } from './ActionSheet';
 export { BulletList } from './BulletList';
 export { ChecklistSection } from './ChecklistSection';
 export { NewListDialog } from './NewListDialog';
-export { NoteActionsSheet } from './NoteActionsSheet';
+export { ChangeTagSheet, NoteActionsSheet } from './NoteActionsSheet';
 export { NoteRow } from './NoteRow';
 export { ErrorRow, SkeletonRows } from './Placeholders';
 export { TagStrip } from './TagStrip';

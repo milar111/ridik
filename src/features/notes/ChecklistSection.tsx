@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+import { countLabel } from '@/core/format';
 import {
   useAddChecklistItems,
   useChecklistItems,
@@ -19,22 +20,18 @@ import { errorMessage } from './errors';
 /**
  * One checklist, header plus rows.
  *
- * Shared by the Lists side of the Notes tab (collapsible, so a long list does
- * not bury the next one) and by the full Checklists screen (always open). The
- * collapsible behaviour is controlled from outside precisely so those two
- * screens can disagree about it without forking the component.
+ * The Lists side of the Notes tab is the only door to a checklist, so this is
+ * the whole surface: tick, add, remove, clear. Sections collapse because a long
+ * list would otherwise bury the next one.
  */
 export function ChecklistSection({
   summary,
   expanded,
   onToggleExpanded,
-  onLayout,
 }: {
   summary: ChecklistListSummary;
   expanded: boolean;
-  /** Omit to make the section permanently open and its header inert. */
-  onToggleExpanded?: () => void;
-  onLayout?: (event: LayoutChangeEvent) => void;
+  onToggleExpanded: () => void;
 }) {
   const { colors, spacing } = useTheme();
   const toast = useToast();
@@ -46,6 +43,13 @@ export function ChecklistSection({
   const removeItem = useRemoveChecklistItem();
 
   const [draft, setDraft] = useState('');
+  /**
+   * How many ticked rows the clear was armed for, or `null` for unarmed. It is
+   * the count and not a flag because ticking or unticking something while the
+   * confirm is up changes which rows "Clear" would delete: the arm is dropped
+   * rather than left pointing at a set the user never agreed to.
+   */
+  const [armedFor, setArmedFor] = useState<number | null>(null);
 
   /**
    * The repository already returns open rows first, but an optimistic tick only
@@ -78,17 +82,28 @@ export function ChecklistSection({
     );
   };
 
+  const clear = () =>
+    clearCompleted.mutate(summary.name, {
+      onSuccess: (count) => {
+        setArmedFor(null);
+        toast.show({ message: `Cleared ${count} from ${summary.name}` });
+      },
+      onError: (error) => {
+        setArmedFor(null);
+        toast.show({
+          message: errorMessage(error, 'I could not clear those.'),
+          tone: 'danger',
+        });
+      },
+    });
+
   const header = (
     <View style={[styles.header, { paddingVertical: spacing.sm, gap: spacing.sm }]}>
-      {onToggleExpanded ? (
-        <Ionicons
-          name={expanded ? 'chevron-down' : 'chevron-forward'}
-          size={15}
-          color={colors.textTertiary}
-        />
-      ) : (
-        <Ionicons name="list-outline" size={15} color={colors.textTertiary} />
-      )}
+      <Ionicons
+        name={expanded ? 'chevron-down' : 'chevron-forward'}
+        size={15}
+        color={colors.textTertiary}
+      />
       <Txt variant="bodyStrong" numberOfLines={1} style={{ flex: 1 }}>
         {summary.name}
       </Txt>
@@ -103,20 +118,16 @@ export function ChecklistSection({
   );
 
   return (
-    <View onLayout={onLayout}>
-      {onToggleExpanded ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${summary.name}, ${summary.open} of ${summary.total} open`}
-          accessibilityState={{ expanded }}
-          onPress={onToggleExpanded}
-          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, minHeight: 44 })}
-        >
-          {header}
-        </Pressable>
-      ) : (
-        header
-      )}
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${summary.name}, ${summary.open} of ${summary.total} open`}
+        accessibilityState={{ expanded }}
+        onPress={onToggleExpanded}
+        style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, minHeight: 44 })}
+      >
+        {header}
+      </Pressable>
 
       {expanded ? (
         <View style={{ paddingLeft: spacing.lg }}>
@@ -171,7 +182,11 @@ export function ChecklistSection({
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`Remove ${item.itemText}`}
-                    hitSlop={12}
+                    // Deliberately a much smaller target than the 44pt row it
+                    // sits in: removal is the rare intent and the only one here
+                    // that cannot be taken back, so a thumb that misses should
+                    // land on the tick, which is one tap to reverse.
+                    hitSlop={4}
                     onPress={() =>
                       removeItem.mutate(item.id, {
                         onError: (error) =>
@@ -209,25 +224,40 @@ export function ChecklistSection({
             />
           </View>
 
-          {done > 0 ? (
+          {done === 0 ? null : armedFor === done ? (
+            // The one irreversible action on this screen, and a bulk one: the
+            // rows are deleted outright, so there is nothing an undo could put
+            // back with its tick, its quantity and its place still on it.
+            <View style={{ gap: spacing.xs, paddingVertical: spacing.xs }}>
+              <Txt variant="caption" tone="secondary">
+                Delete {countLabel(done, 'ticked item')} from {summary.name}? This cannot be undone.
+              </Txt>
+              <View style={[styles.confirm, { gap: spacing.sm }]}>
+                <Button
+                  label={`Clear ${done}`}
+                  icon="trash-bin-outline"
+                  size="sm"
+                  variant="danger"
+                  loading={clearCompleted.isPending}
+                  onPress={clear}
+                />
+                <Button
+                  label="Keep"
+                  size="sm"
+                  variant="ghost"
+                  onPress={() => setArmedFor(null)}
+                />
+              </View>
+            </View>
+          ) : (
             <Button
               label={`Clear ${done} done`}
               icon="trash-bin-outline"
               size="sm"
               variant="ghost"
-              onPress={() =>
-                clearCompleted.mutate(summary.name, {
-                  onSuccess: (count) =>
-                    toast.show({ message: `Cleared ${count} from ${summary.name}` }),
-                  onError: (error) =>
-                    toast.show({
-                      message: errorMessage(error, 'I could not clear those.'),
-                      tone: 'danger',
-                    }),
-                })
-              }
+              onPress={() => setArmedFor(done)}
             />
-          ) : null}
+          )}
         </View>
       ) : null}
     </View>
@@ -237,6 +267,9 @@ export function ChecklistSection({
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center' },
   count: { fontVariant: ['tabular-nums'] },
-  trailing: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  // The left padding is dead space owned by the row's own checkbox, so the ✕
+  // does not start where the label ends.
+  trailing: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 16 },
   footer: { flexDirection: 'row', alignItems: 'flex-end' },
+  confirm: { flexDirection: 'row', alignItems: 'center' },
 });

@@ -238,16 +238,31 @@ function DetailBody({
       <Prerequisites task={task} />
       <Dependents task={task} onOpenTask={onOpenTask} />
 
-      <Button
-        label={confirmDelete ? 'Tap again to delete' : 'Delete task'}
-        icon="trash-outline"
-        variant="danger"
-        fullWidth
-        onPress={() => {
-          if (!confirmDelete) return setConfirmDelete(true);
-          actions.remove(task, { onDeleted: onClose });
-        }}
-      />
+      {confirmDelete ? (
+        <View style={{ gap: spacing.sm }}>
+          <Txt variant="caption" tone="secondary">
+            Delete “{task.title}”? This cannot be undone.
+          </Txt>
+          <View style={styles.actions}>
+            <Button
+              label="Delete"
+              icon="trash-outline"
+              variant="danger"
+              onPress={() => actions.remove(task, { onDeleted: onClose })}
+              testID="task-delete-confirm"
+            />
+            <Button label="Keep" variant="ghost" onPress={() => setConfirmDelete(false)} />
+          </View>
+        </View>
+      ) : (
+        <Button
+          label="Delete task"
+          icon="trash-outline"
+          variant="danger"
+          fullWidth
+          onPress={() => setConfirmDelete(true)}
+        />
+      )}
     </>
   );
 }
@@ -455,6 +470,7 @@ function Dependents({ task, onOpenTask }: { task: Task; onOpenTask: (task: Task)
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
+  actions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   linkRow: {
     flexDirection: 'row',

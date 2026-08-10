@@ -206,7 +206,9 @@ export function LinkedPanel({
                 title={row.quantity ? `${row.itemText} ×${row.quantity}` : row.itemText}
                 subtitle={row.listName}
                 struck={!!row.isCompleted}
-                onPress={() => onOpen('/checklists')}
+                onPress={() =>
+                  onOpen(`/notes?pane=lists&list=${encodeURIComponent(row.listName)}`)
+                }
               />
             ))}
           </Group>

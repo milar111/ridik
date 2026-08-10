@@ -272,4 +272,17 @@ describe('habits repository', () => {
     expect(unclear.ok).toBe(false);
     if (!unclear.ok) expect(unclear.error.code).toBe('ambiguous');
   });
+
+  it('brings an archived habit back when it is logged again', async () => {
+    const habit = await repo.getOrCreateHabit('Workout');
+    await repo.archiveHabit(habit.id, true);
+    expect((await repo.listHabits({})).map((h) => h.name)).not.toContain('Workout');
+
+    // Archiving is the only exit from the list, so saying "logged a workout"
+    // has to be the way back in — otherwise the log lands on a row nothing
+    // renders and the streak grows where the user cannot see it.
+    const logged = await repo.logHabit({ habitName: 'Workout' });
+    expect(logged.habit.isArchived).toBe(false);
+    expect((await repo.listHabits({})).map((h) => h.name)).toContain('Workout');
+  });
 });

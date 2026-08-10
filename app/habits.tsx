@@ -10,7 +10,6 @@ import type { Habit } from '@/db/schema';
 import {
   useArchiveHabit,
   useCreateHabit,
-  useDeleteHabit,
   useHabitHistory,
   useHabits,
   useLogHabit,
@@ -25,18 +24,9 @@ import {
   Input,
   Screen,
   Section,
-  Segmented,
   Txt,
   useToast,
 } from '@/ui/components';
-
-type Unit = Habit['unit'];
-
-const UNITS: { value: Unit; label: string }[] = [
-  { value: 'session', label: 'Session' },
-  { value: 'minutes', label: 'Minutes' },
-  { value: 'count', label: 'Count' },
-];
 
 /** Five weeks of seven days is the widest grid that still fits beside the name. */
 const WEEKS = 5;
@@ -148,7 +138,6 @@ function HabitCard({
   const history = useHabitHistory(habit.id, { from: gridStart, to: today });
   const log = useLogHabit();
   const archive = useArchiveHabit();
-  const remove = useDeleteHabit();
 
   // Optimism lives here rather than in the cache: the streak the repository
   // returns depends on history this screen does not own, so the card shows the
@@ -191,6 +180,9 @@ function HabitCard({
     );
   };
 
+  // Archiving is the only way out of the list: the card itself is the log
+  // button, so a long press that lands by accident must not be able to take
+  // the streak with it.
   const onMenu = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
     Alert.alert(habit.name, `${countLabel(habit.longestStreak, 'day')} at best`, [
@@ -207,22 +199,11 @@ function HabitCard({
             },
           ),
       },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () =>
-          remove.mutate(habit.id, {
-            onSuccess: () => toast.show({ message: `${habit.name} deleted`, tone: 'warning' }),
-            onError: (error) =>
-              toast.show({ message: 'Could not delete that', detail: reason(error), tone: 'danger' }),
-          }),
-      },
     ]);
   };
 
   const meta = [
     habit.longestStreak > 0 ? `best ${habit.longestStreak}` : null,
-    habit.unit,
     habit.targetPerWeek ? `${habit.targetPerWeek}×/week` : null,
   ].filter((part): part is string => part !== null);
 
@@ -239,7 +220,7 @@ function HabitCard({
         accessibilityLabel={`${habit.name}, ${countLabel(streak, 'day')} streak${
           loggedToday ? ', logged today' : atRisk ? ', at risk today' : ''
         }`}
-        accessibilityHint="Long press for archive and delete"
+        accessibilityHint="Long press to archive"
         style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }}
       >
         <View style={{ flex: 1, gap: 4 }}>
@@ -258,9 +239,13 @@ function HabitCard({
             ) : null}
           </View>
 
-          <Txt variant="micro" tone="tertiary">
-            {meta.join(' · ')}
-          </Txt>
+          {/* With the unit gone this line is empty until the first streak, and
+              an empty Txt still costs a line of height. */}
+          {meta.length > 0 ? (
+            <Txt variant="micro" tone="tertiary">
+              {meta.join(' · ')}
+            </Txt>
+          ) : null}
 
           {atRisk ? (
             <View style={[styles.titleRow, { marginTop: 2 }]}>
@@ -349,7 +334,6 @@ function AddHabitCard({ onDone }: { onDone: () => void }) {
   const toast = useToast();
   const create = useCreateHabit();
   const [name, setName] = useState('');
-  const [unit, setUnit] = useState<Unit>('session');
 
   const submit = () => {
     const trimmed = name.trim();
@@ -358,7 +342,7 @@ function AddHabitCard({ onDone }: { onDone: () => void }) {
       return;
     }
     create.mutate(
-      { name: trimmed, options: { unit } },
+      { name: trimmed },
       {
         onSuccess: (habit) => {
           toast.show({ message: `Tracking ${habit.name}`, tone: 'success' });
@@ -383,12 +367,6 @@ function AddHabitCard({ onDone }: { onDone: () => void }) {
           returnKeyType="done"
           onSubmitEditing={submit}
         />
-        <View style={{ gap: 4 }}>
-          <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.6 }}>
-            UNIT
-          </Txt>
-          <Segmented options={UNITS} value={unit} onChange={setUnit} />
-        </View>
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           <Button
             label="Start tracking"

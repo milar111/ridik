@@ -94,14 +94,6 @@ export function useArchiveHabit(): UseMutationResult<
   });
 }
 
-export function useDeleteHabit(): UseMutationResult<boolean, Error, string> {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (habitId: string) => getRepositories().habits.deleteHabit(habitId),
-    onSettled: () => invalidateKeys(client, HABIT_WRITE_KEYS),
-  });
-}
-
 export function useRecomputeHabitStreak(): UseMutationResult<Habit, Error, string> {
   const client = useQueryClient();
   return useMutation({
@@ -171,6 +163,12 @@ export function useLogActivity(): UseMutationResult<ActivityEntry, Error, Activi
   });
 }
 
+/**
+ * The undo for `useLogActivity`. `activity_log` is the only activity tool in
+ * the LLM contract, so voice can write the log but never correct it — this is
+ * the sole route out of a mis-logged entry and cannot be dropped until an
+ * `activity_delete` tool exists.
+ */
 export function useRemoveActivityEntry(): UseMutationResult<boolean, Error, string> {
   const client = useQueryClient();
   return useMutation({

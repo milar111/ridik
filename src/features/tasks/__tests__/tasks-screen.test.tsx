@@ -106,17 +106,18 @@ function setup(
   hooks.useTaskDependents!.mockReturnValue(query([]));
 
   const complete = mutation();
+  const remove = mutation();
   hooks.useCompleteTask!.mockReturnValue(complete);
+  hooks.useDeleteTask!.mockReturnValue(remove);
   for (const name of [
     'useUncompleteTask',
     'useUpdateTask',
-    'useDeleteTask',
     'useAddTaskDependencies',
     'useRemoveTaskDependency',
   ]) {
     hooks[name]!.mockReturnValue(mutation());
   }
-  return { complete };
+  return { complete, remove };
 }
 
 function wrap() {
@@ -239,5 +240,46 @@ describe('Tasks screen', () => {
     // Spec 5.4: the chain is invisible until this moment, so it announces itself.
     expect(screen.getByText('Unlocked next step')).toBeTruthy();
     expect(screen.getByText('Assemble the robot')).toBeTruthy();
+  });
+
+  /** Three verbs and nothing that edits: a long press cannot destroy a task. */
+  it('holds only complete, snooze and open details in the long-press menu', async () => {
+    setup({ active: [task('t1', 'Order the servos')] });
+    hooks.useTask!.mockReturnValue(query(task('t1', 'Order the servos')));
+    await wrap();
+
+    await fireEvent(screen.getByLabelText('Order the servos'), 'longPress');
+
+    expect(screen.getByText('Complete')).toBeTruthy();
+    expect(screen.getByText('Snooze to tomorrow')).toBeTruthy();
+    expect(screen.getByText('Open details')).toBeTruthy();
+    expect(screen.queryByText('Delete')).toBeNull();
+    expect(screen.queryByText('PRIORITY')).toBeNull();
+
+    // The menu lost the controls, not the app: this is the tap that still
+    // reaches both, and it is the only one left that does.
+    await fireEvent.press(screen.getByLabelText('Open details'));
+    expect(screen.getByText('PRIORITY')).toBeTruthy();
+    expect(screen.getByText('Delete task')).toBeTruthy();
+  });
+
+  /**
+   * The delete used to be "tap again" on a button that relabelled itself under
+   * the finger. The confirmation is its own target now, as it is on an event.
+   */
+  it('confirms a delete beside the button, not on top of it', async () => {
+    const { remove } = setup({ active: [task('t1', 'Order the servos')] });
+    hooks.useTask!.mockReturnValue(query(task('t1', 'Order the servos')));
+    await wrap();
+
+    await fireEvent.press(screen.getByLabelText('Order the servos'));
+    await fireEvent.press(screen.getByText('Delete task'));
+
+    expect(remove.mutate).not.toHaveBeenCalled();
+    expect(screen.queryByText('Tap again to delete')).toBeNull();
+    expect(screen.getByText(/This cannot be undone/)).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId('task-delete-confirm'));
+    expect(remove.mutate).toHaveBeenCalledWith('t1', expect.anything());
   });
 });

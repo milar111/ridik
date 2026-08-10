@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { ok } from '@/core/result';
 import type { CurriculumEntry, GeofenceTrigger, SavedPlace } from '@/db/schema';
 import { defaultSettings } from '@/repositories/settings';
 
@@ -13,9 +14,15 @@ const mockRepos = {
   curriculum: {
     listEntries: jest.fn(),
     upcomingOccurrences: jest.fn(),
+    updateEntry: jest.fn(),
+    deleteEntry: jest.fn(),
   },
-  places: { listPlaces: jest.fn() },
-  geofences: { listAllTriggers: jest.fn(), deactivateTrigger: jest.fn() },
+  places: { listPlaces: jest.fn(), upsertPlace: jest.fn(), deletePlace: jest.fn() },
+  geofences: {
+    listAllTriggers: jest.fn(),
+    deactivateTrigger: jest.fn(),
+    deleteTrigger: jest.fn(),
+  },
   settings: { getAll: jest.fn() },
 };
 
@@ -27,9 +34,15 @@ jest.mock('@/repositories', () => ({ getRepositories: () => mockRepos }));
 let mockMonitored = 0;
 let mockDropped = 0;
 const mockRefreshGeofences = jest.fn();
+/* The pin is the only way coordinates enter the screen now, so both halves of
+   it answer: a fix, then the address that fix reverse-geocodes to. */
+const mockLocate = jest.fn();
+const mockAddressSearch = jest.fn();
+const mockGeocode = jest.fn();
 jest.mock('@/hooks/useSystem', () => ({
-  useCurrentPosition: () => ({ mutate: jest.fn(), isPending: false }),
-  useReverseGeocode: () => ({ mutate: jest.fn(), isPending: false }),
+  useCurrentPosition: () => ({ mutate: mockLocate, isPending: false }),
+  useReverseGeocode: () => ({ mutate: mockGeocode, isPending: false }),
+  useGeocodeAddress: () => ({ mutate: mockAddressSearch, isPending: false }),
   useRefreshGeofences: () => ({ mutate: mockRefreshGeofences, isPending: false }),
   useGeofenceStatus: () => ({
     data: { monitored: mockMonitored, dropped: mockDropped, capped: mockDropped > 0, totalActive: 0 },
@@ -129,10 +142,23 @@ beforeEach(() => {
   mockMonitored = 0;
   mockDropped = 0;
   mockRefreshGeofences.mockReset();
+  mockLocate.mockReset();
+  mockGeocode.mockReset();
+  mockLocate.mockImplementation((_input, options) =>
+    options?.onSuccess?.({ latitude: 42.7, longitude: 23.3 }),
+  );
+  mockGeocode.mockImplementation((_coords, options) => options?.onSuccess?.('12 Sofia St'));
   mockRepos.curriculum.listEntries.mockResolvedValue([]);
   mockRepos.curriculum.upcomingOccurrences.mockResolvedValue([]);
+  mockRepos.curriculum.updateEntry.mockImplementation(async (_id, patch) =>
+    ok(classRow({ subjectName: 'Chemistry', ...patch })),
+  );
+  mockRepos.curriculum.deleteEntry.mockResolvedValue(true);
   mockRepos.places.listPlaces.mockResolvedValue([]);
+  mockRepos.places.upsertPlace.mockResolvedValue(place({ label: 'the lab' }));
+  mockRepos.places.deletePlace.mockResolvedValue(true);
   mockRepos.geofences.listAllTriggers.mockResolvedValue([]);
+  mockRepos.geofences.deleteTrigger.mockResolvedValue(true);
   mockRepos.settings.getAll.mockResolvedValue(defaultSettings());
 });
 
@@ -181,6 +207,60 @@ describe('programme screen', () => {
     expect(screen.getByText('Chemistry')).toBeTruthy();
     expect(screen.getByText('OFF')).toBeTruthy();
     expect(screen.queryByText(/^Next /)).toBeNull();
+  });
+
+  /* Switching a class off left it on screen while quietly removing it from the
+     dates homework resolves against; the sheet no longer offers that state. */
+  it('has no active toggle in the entry sheet', async () => {
+    mockRepos.curriculum.listEntries.mockResolvedValue([classRow({ subjectName: 'Physics' })]);
+
+    await wrap(<CurriculumScreen />);
+    await fireEvent.press(await screen.findByText('List'));
+    await fireEvent.press(screen.getByLabelText('Edit Physics'));
+
+    expect(screen.getByText('Edit class')).toBeTruthy();
+    expect(screen.queryByLabelText('Active')).toBeNull();
+    expect(screen.queryByText(/never counts towards a due date/)).toBeNull();
+  });
+
+  /* Rows switched off before the toggle went are the only inactive ones left,
+     and with no control for it the save is the only way back on. */
+  it('switches a class back on when it is saved', async () => {
+    mockRepos.curriculum.listEntries.mockResolvedValue([
+      classRow({ subjectName: 'Chemistry', isActive: false }),
+    ]);
+
+    await wrap(<CurriculumScreen />);
+    await fireEvent.press(await screen.findByText('List'));
+    await fireEvent.press(screen.getByLabelText('Edit Chemistry'));
+    await fireEvent.press(screen.getByText('Save'));
+
+    await waitFor(() =>
+      expect(mockRepos.curriculum.updateEntry).toHaveBeenCalledWith(
+        'chemistry',
+        expect.objectContaining({ isActive: true }),
+      ),
+    );
+  });
+
+  it('asks before deleting a class', async () => {
+    mockRepos.curriculum.listEntries.mockResolvedValue([classRow({ subjectName: 'Physics' })]);
+
+    await wrap(<CurriculumScreen />);
+    await fireEvent.press(await screen.findByText('List'));
+    await fireEvent.press(screen.getByLabelText('Edit Physics'));
+    await fireEvent.press(screen.getByText('Delete'));
+
+    expect(mockRepos.curriculum.deleteEntry).not.toHaveBeenCalled();
+    expect(screen.getByText(/^Delete “Physics”/)).toBeTruthy();
+
+    await fireEvent.press(screen.getByText('Keep'));
+    expect(screen.queryByText(/^Delete “Physics”/)).toBeNull();
+
+    // The first press reopens the confirm; only the one inside it deletes.
+    await fireEvent.press(screen.getByText('Delete'));
+    await fireEvent.press(screen.getByText('Delete'));
+    await waitFor(() => expect(mockRepos.curriculum.deleteEntry).toHaveBeenCalledWith('physics'));
   });
 });
 
@@ -235,5 +315,167 @@ describe('places screen', () => {
 
     await wrap(<PlacesScreen />);
     expect(await screen.findByText('2 of 22 reminders are not being watched')).toBeTruthy();
+  });
+
+  /* One wrong digit used to move a geofence to another country, and there is no
+     map on this screen to catch it against: the pin comes from the phone. */
+  it('pins a place you are not standing in, by name rather than by coordinate', async () => {
+    // Deleting the latitude/longitude fields removed the only way to add a
+    // place you are not currently at. An address is the safe replacement: a
+    // wrong one reads wrong, where a wrong digit in 42.6501 does not.
+    mockAddressSearch.mockImplementation((query: string, opts: { onSuccess: (r: unknown) => void }) =>
+      opts.onSuccess({ coords: { latitude: 42.65, longitude: 23.38 }, address: query }),
+    );
+
+    await wrap(<PlacesScreen />);
+    await fireEvent.press(await screen.findByText('Add'));
+    await fireEvent.changeText(screen.getByTestId('place-name'), 'the lab');
+    await fireEvent.changeText(
+      screen.getByTestId('place-address-search'),
+      'Technical University, Sofia',
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Find' }));
+
+    expect(mockAddressSearch).toHaveBeenCalledWith(
+      'Technical University, Sofia',
+      expect.anything(),
+    );
+    expect(screen.getByText('Technical University, Sofia')).toBeTruthy();
+  });
+
+  it('takes a pin from the phone instead of typed coordinates', async () => {
+    await wrap(<PlacesScreen />);
+    await fireEvent.press(await screen.findByText('Add'));
+
+    expect(screen.getByText('New place')).toBeTruthy();
+    expect(screen.queryByText('LATITUDE')).toBeNull();
+    expect(screen.queryByText('LONGITUDE')).toBeNull();
+    expect(screen.queryByText('Look up address')).toBeNull();
+    expect(screen.getByText(/^Not pinned yet/)).toBeTruthy();
+
+    await fireEvent.changeText(screen.getByTestId('place-name'), 'the lab');
+    await fireEvent.press(screen.getByText('Add place'));
+    expect(mockRepos.places.upsertPlace).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByText('Use my current location'));
+    // The address is reverse-geocoded off the fix, not typed.
+    expect(screen.getByText('12 Sofia St')).toBeTruthy();
+
+    await fireEvent.press(screen.getByText('Add place'));
+    await waitFor(() =>
+      expect(mockRepos.places.upsertPlace).toHaveBeenCalledWith({
+        label: 'the lab',
+        latitude: 42.7,
+        longitude: 23.3,
+        radiusMeters: 150,
+        address: '12 Sofia St',
+      }),
+    );
+  });
+
+  /* The pin moved, so the street that described the old one is a lie, and there
+     is no field left to correct it in. */
+  it('drops the old address when the pin moves and the lookup gives nothing back', async () => {
+    mockRepos.places.listPlaces.mockResolvedValue([
+      place({ label: 'the lab', address: '12 Sofia St' }),
+    ]);
+    mockGeocode.mockImplementation(() => undefined);
+
+    await wrap(<PlacesScreen />);
+    await fireEvent.press(await screen.findByLabelText('Edit the lab'));
+    // Once in the row behind the sheet, once in the sheet.
+    expect(screen.getAllByText('12 Sofia St')).toHaveLength(2);
+
+    await fireEvent.press(screen.getByText('Use my current location'));
+    expect(screen.getAllByText('12 Sofia St')).toHaveLength(1);
+    expect(screen.getByText('42.7000, 23.3000')).toBeTruthy();
+  });
+
+  /* `place_save` takes anything from 50 m to 5 km. Snapping that to the nearest
+     named size showed the wrong circle and then made the display true. */
+  it('keeps a stored radius the named sizes cannot express', async () => {
+    mockRepos.places.listPlaces.mockResolvedValue([
+      place({ label: 'the lab', radiusMeters: 2000 }),
+    ]);
+
+    await wrap(<PlacesScreen />);
+    await fireEvent.press(await screen.findByLabelText('Edit the lab'));
+    await fireEvent.press(screen.getByText('Save place'));
+
+    await waitFor(() =>
+      expect(mockRepos.places.upsertPlace).toHaveBeenCalledWith(
+        expect.objectContaining({ radiusMeters: 2000 }),
+      ),
+    );
+  });
+
+  /* `upsertPlace` keys on the label, so a rename inserted a second row and left
+     every reminder anchored to the one it had just orphaned. */
+  it('will not rename a place that already exists', async () => {
+    mockRepos.places.listPlaces.mockResolvedValue([place({ label: 'the lab' })]);
+
+    await wrap(<PlacesScreen />);
+    await fireEvent.press(await screen.findByLabelText('Edit the lab'));
+
+    expect(screen.getByText('Edit place')).toBeTruthy();
+    expect(screen.queryByTestId('place-name')).toBeNull();
+    expect(screen.getByText(/cannot be changed here/)).toBeTruthy();
+  });
+
+  it('sizes a place by name rather than by 25 m steps', async () => {
+    mockRepos.places.listPlaces.mockResolvedValue([place({ label: 'the lab' })]);
+
+    await wrap(<PlacesScreen />);
+    await fireEvent.press(await screen.findByLabelText('Edit the lab'));
+
+    expect(screen.queryByLabelText('Smaller radius')).toBeNull();
+    expect(screen.queryByLabelText('Larger radius')).toBeNull();
+
+    await fireEvent.press(screen.getByText('This block · 600 m'));
+    await fireEvent.press(screen.getByText('Save place'));
+    await waitFor(() =>
+      expect(mockRepos.places.upsertPlace).toHaveBeenCalledWith(
+        expect.objectContaining({ label: 'the lab', radiusMeters: 600 }),
+      ),
+    );
+  });
+
+  it('asks before deleting a place', async () => {
+    mockRepos.places.listPlaces.mockResolvedValue([place({ label: 'the lab' })]);
+
+    await wrap(<PlacesScreen />);
+    await fireEvent.press(await screen.findByLabelText('Edit the lab'));
+    await fireEvent.press(screen.getByText('Delete'));
+
+    expect(mockRepos.places.deletePlace).not.toHaveBeenCalled();
+    expect(screen.getByText(/^Delete “the lab”/)).toBeTruthy();
+
+    await fireEvent.press(screen.getByText('Keep'));
+    expect(screen.queryByText(/^Delete “the lab”/)).toBeNull();
+
+    // The first press reopens the confirm; only the one inside it deletes.
+    await fireEvent.press(screen.getByText('Delete'));
+    await fireEvent.press(screen.getByText('Delete'));
+    await waitFor(() => expect(mockRepos.places.deletePlace).toHaveBeenCalledWith('the lab'));
+  });
+
+  it('asks before deleting a reminder', async () => {
+    mockRepos.geofences.listAllTriggers.mockResolvedValue([
+      trigger({ id: 't1', label: 'the lab' }),
+    ]);
+
+    await wrap(<PlacesScreen />);
+    await fireEvent.press(await screen.findByLabelText('Delete the reminder at the lab'));
+
+    expect(mockRepos.geofences.deleteTrigger).not.toHaveBeenCalled();
+    expect(screen.getByText('Delete this reminder for good?')).toBeTruthy();
+
+    await fireEvent.press(screen.getByText('Keep'));
+    expect(screen.queryByText('Delete this reminder for good?')).toBeNull();
+
+    await fireEvent.press(screen.getByLabelText('Delete the reminder at the lab'));
+    await fireEvent.press(screen.getByLabelText('Yes, delete the reminder at the lab'));
+    await waitFor(() => expect(mockRepos.geofences.deleteTrigger).toHaveBeenCalledWith('t1'));
+    expect(mockRefreshGeofences).toHaveBeenCalled();
   });
 });

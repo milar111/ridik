@@ -82,16 +82,3 @@ export function currencyTotals(rows: readonly Transaction[]): CurrencyTotal[] {
       };
     });
 }
-
-/** Swaps two positions and returns a new array; out-of-range moves are no-ops. */
-export function swapped<T>(items: readonly T[], from: number, to: number): T[] {
-  if (from < 0 || to < 0 || from >= items.length || to >= items.length || from === to) {
-    return [...items];
-  }
-  const next = [...items];
-  const a = next[from]!;
-  const b = next[to]!;
-  next[from] = b;
-  next[to] = a;
-  return next;
-}

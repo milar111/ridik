@@ -5,11 +5,12 @@
  * state, so the one menu shape this feature needs is drawn here — themed, and
  * identical on both platforms.
  */
+import { Fragment } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Txt } from '@/ui/components';
+import { Divider, Txt } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
 
 import type { IconName } from './constants';
@@ -18,8 +19,9 @@ export type MenuOption = {
   label: string;
   icon?: IconName;
   tone?: 'default' | 'danger' | 'accent';
-  disabled?: boolean;
   selected?: boolean;
+  /** Draws a rule above the row, so a destructive option is not one more choice. */
+  separated?: boolean;
   onPress: () => void;
 };
 
@@ -84,35 +86,42 @@ export function MenuSheet({
                     ? colors.accent
                     : colors.text;
               return (
-                <Pressable
-                  key={`${option.label}-${index}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={option.label}
-                  accessibilityState={{ disabled: !!option.disabled, selected: !!option.selected }}
-                  disabled={option.disabled}
-                  onPress={() => {
-                    // Closing first lets an option open the next menu: both
-                    // updates land in one batch and the option's wins.
-                    onClose();
-                    option.onPress();
-                  }}
-                  style={({ pressed }) => [
-                    styles.option,
-                    {
-                      paddingHorizontal: spacing.lg,
-                      opacity: option.disabled ? 0.35 : pressed ? 0.6 : 1,
-                      backgroundColor: pressed ? colors.surfaceRaised : 'transparent',
-                    },
-                  ]}
-                >
-                  {option.icon ? <Ionicons name={option.icon} size={19} color={tint} /> : null}
-                  <Txt variant="body" style={{ color: tint, flex: 1 }} numberOfLines={1}>
-                    {option.label}
-                  </Txt>
-                  {option.selected ? (
-                    <Ionicons name="checkmark" size={17} color={colors.accent} />
+                <Fragment key={`${option.label}-${index}`}>
+                  {option.separated ? (
+                    // Named after what it sets apart: the rule carries no text,
+                    // so a test has no other way to say which option is below it.
+                    <View style={{ marginVertical: spacing.xs }} testID={`rule-above-${option.label}`}>
+                      <Divider />
+                    </View>
                   ) : null}
-                </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={option.label}
+                    accessibilityState={{ selected: !!option.selected }}
+                    onPress={() => {
+                      // Closing first lets an option open the next menu: both
+                      // updates land in one batch and the option's wins.
+                      onClose();
+                      option.onPress();
+                    }}
+                    style={({ pressed }) => [
+                      styles.option,
+                      {
+                        paddingHorizontal: spacing.lg,
+                        opacity: pressed ? 0.6 : 1,
+                        backgroundColor: pressed ? colors.surfaceRaised : 'transparent',
+                      },
+                    ]}
+                  >
+                    {option.icon ? <Ionicons name={option.icon} size={19} color={tint} /> : null}
+                    <Txt variant="body" style={{ color: tint, flex: 1 }} numberOfLines={1}>
+                      {option.label}
+                    </Txt>
+                    {option.selected ? (
+                      <Ionicons name="checkmark" size={17} color={colors.accent} />
+                    ) : null}
+                  </Pressable>
+                </Fragment>
               );
             })}
           </ScrollView>

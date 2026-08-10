@@ -28,5 +28,5 @@ export {
 } from './constants';
 export type { IconName } from './constants';
 
-export { currencyTotals, deadlineOf, errorMessage, swapped } from './format';
+export { currencyTotals, deadlineOf, errorMessage } from './format';
 export type { CurrencyTotal, Deadline, DeadlineTone } from './format';

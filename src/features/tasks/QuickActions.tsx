@@ -1,22 +1,20 @@
-import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { Task } from '@/db/schema';
 import { Card, Divider } from '@/ui/components/Card';
-import { Chip } from '@/ui/components/Controls';
 import { Txt } from '@/ui/components/Text';
 import { useTheme } from '@/ui/ThemeProvider';
 
-import { PRIORITY_LABEL, dueLabel } from './buckets';
+import { dueLabel } from './buckets';
 import { Sheet } from './Sheet';
 import type { TaskActions } from './useTaskActions';
 
 /**
- * The long-press menu: the four things worth doing without opening anything.
+ * The long-press menu: complete, snooze, open details.
  *
- * Priority is a chip row rather than a submenu — three values, one tap, and the
- * current one is visible while you choose.
+ * Nothing here edits the task. Priority and delete live in the detail sheet,
+ * one tap further on, where a change is visible next to what it changed.
  */
 export function QuickActions({
   task,
@@ -29,11 +27,7 @@ export function QuickActions({
   onClose: () => void;
   onOpenDetail: (task: Task) => void;
 }) {
-  const { colors, spacing } = useTheme();
-  const [confirmDelete, setConfirmDelete] = useState(false);
-
-  // A new row must never inherit the previous row's armed delete.
-  useEffect(() => setConfirmDelete(false), [task?.id]);
+  const { colors } = useTheme();
 
   if (!task) return null;
   const done = task.isCompleted === true;
@@ -72,38 +66,7 @@ export function QuickActions({
           tint={colors.accent}
           onPress={() => run(() => onOpenDetail(task))}
         />
-        <Divider inset={44} />
-        <ActionRow
-          icon="trash-outline"
-          label={confirmDelete ? 'Tap again to delete' : 'Delete'}
-          tint={colors.danger}
-          danger
-          onPress={() => {
-            if (!confirmDelete) {
-              setConfirmDelete(true);
-              return;
-            }
-            run(() => actions.remove(task));
-          }}
-        />
       </Card>
-
-      <View style={{ gap: spacing.sm }}>
-        <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.8 }}>
-          PRIORITY
-        </Txt>
-        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-          {[1, 2, 3].map((level) => (
-            <Chip
-              key={level}
-              label={PRIORITY_LABEL[level] ?? String(level)}
-              selected={task.priority === level}
-              color={level === 1 ? colors.accent : colors.textSecondary}
-              onPress={() => actions.setPriority(task, level)}
-            />
-          ))}
-        </View>
-      </View>
     </Sheet>
   );
 }
@@ -112,13 +75,11 @@ function ActionRow({
   icon,
   label,
   tint,
-  danger,
   onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   tint: string;
-  danger?: boolean;
   onPress: () => void;
 }) {
   const { colors } = useTheme();
@@ -133,9 +94,7 @@ function ActionRow({
       ]}
     >
       <Ionicons name={icon} size={19} color={tint} />
-      <Txt variant="body" style={danger ? { color: colors.danger } : undefined}>
-        {label}
-      </Txt>
+      <Txt variant="body">{label}</Txt>
     </Pressable>
   );
 }

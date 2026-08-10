@@ -19,13 +19,7 @@ import {
   type LocalDate,
 } from '@/core/time';
 import type { ActivityEntry } from '@/db/schema';
-import {
-  copyToClipboard,
-  emailSummary,
-  exportPdf,
-  shareAsFile,
-  weeklyStandup,
-} from '@/features/export';
+import { copyToClipboard, shareAsFile, weeklyStandup } from '@/features/export';
 import { useActivitySummary, useRemoveActivityEntry } from '@/hooks';
 import type { ActivitySummary } from '@/repositories/activity';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
@@ -253,6 +247,8 @@ function EntryRow({
     <Pressable
       // A tap has nowhere to go — the row is the record — so delete is exposed
       // as an explicit accessibility action rather than hidden behind a gesture.
+      // It stays because voice cannot undo a log: `activity_log` writes, and no
+      // tool in the LLM contract removes.
       accessibilityRole="text"
       accessibilityLabel={entry.description}
       accessibilityActions={[{ name: 'longpress', label: 'Delete entry' }]}
@@ -302,8 +298,9 @@ type ExportAction = {
 };
 
 /**
- * All four routes hand out the *same* markdown document, so what the user
- * pastes is byte-for-byte what they mail.
+ * Both routes hand out the *same* markdown document, so what the user pastes is
+ * byte-for-byte what they send. Mail and PDF are not rows here: they are what
+ * the share sheet already does with the file.
  */
 const EXPORT_ACTIONS: ExportAction[] = [
   {
@@ -319,33 +316,11 @@ const EXPORT_ACTIONS: ExportAction[] = [
   {
     key: 'share',
     label: 'Share file',
-    hint: 'Hand the .md to another app',
+    hint: 'Mail it, print it, save it',
     icon: 'share-outline',
     run: async (doc) => {
       const result = await shareAsFile(doc.markdown, doc.filename, { dialogTitle: doc.title });
       return result.ok ? ok(result.value.shared ? 'Export shared' : 'File written') : result;
-    },
-  },
-  {
-    key: 'pdf',
-    label: 'Export PDF',
-    hint: 'Printable copy',
-    icon: 'document-text-outline',
-    run: async (doc) => {
-      const result = await exportPdf(doc.markdown, doc.title);
-      // A refused share sheet still leaves a PDF on disk, so say which happened.
-      return result.ok ? ok(result.value.shared ? 'PDF shared' : 'PDF saved') : result;
-    },
-  },
-  {
-    key: 'email',
-    label: 'Email',
-    hint: 'Opens your mail app',
-    icon: 'mail-outline',
-    run: async (doc) => {
-      const result = await emailSummary(doc.markdown, doc.title, { filename: doc.filename });
-      if (!result.ok) return result;
-      return ok(result.value.method === 'mail' ? 'Mail composed' : 'Shared instead of mailed');
     },
   },
 ];

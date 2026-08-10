@@ -14,6 +14,7 @@ import { countLabel } from '@/core/format';
 import { copyToClipboard, shareAsFile } from '@/features/export';
 import {
   BulletList,
+  ChangeTagSheet,
   ErrorRow,
   NoteActionsSheet,
   SkeletonRows,
@@ -21,9 +22,9 @@ import {
   type SheetAction,
 } from '@/features/notes';
 import { noteFilename, noteMarkdown } from '@/features/notes/markdown';
-import { useAppendNoteBullets, useNote, useToggleNoteBullet, useUpdateNote } from '@/hooks';
+import { useAppendNoteBullets, useNote, useUpdateNote } from '@/hooks';
 import type { BulletKind, NoteWithBullets } from '@/repositories/notes';
-import { Button, Divider, EmptyState, Input, Screen, Txt, useToast } from '@/ui/components';
+import { Button, Chip, Divider, EmptyState, Input, Screen, Txt, useToast } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
 import { colorForTag } from '@/ui/theme';
@@ -107,15 +108,12 @@ export default function NoteDetailScreen() {
 }
 
 /**
- * The two menu entries that only make sense with the note open. Kept as a hook
+ * The one menu entry that only makes sense with the note open. Kept as a hook
  * so the sheet itself stays the single owner of pin/tag/archive/delete.
  */
 function useNoteMenuExtras(note: NoteWithBullets | null): SheetAction[] {
   const toast = useToast();
-  const toggleBullet = useToggleNoteBullet();
   if (!note) return [];
-
-  const plain = note.bullets.filter((bullet) => bullet.bulletKind === 'text');
 
   const share = async () => {
     const markdown = noteMarkdown(note);
@@ -133,24 +131,7 @@ function useNoteMenuExtras(note: NoteWithBullets | null): SheetAction[] {
     );
   };
 
-  const actions: SheetAction[] = [
-    { label: 'Share', icon: 'share-outline', onPress: () => void share() },
-  ];
-
-  if (plain.length > 0) {
-    actions.push({
-      label: `Turn ${countLabel(plain.length, 'bullet')} into todos`,
-      icon: 'checkbox-outline',
-      onPress: () => {
-        // Marking a bullet "not done" is what promotes it to a checkbox.
-        for (const bullet of plain) {
-          toggleBullet.mutate({ bulletId: bullet.id, completed: false });
-        }
-      },
-    });
-  }
-
-  return actions;
+  return [{ label: 'Share', icon: 'share-outline', onPress: () => void share() }];
 }
 
 function NoteBody({ note }: { note: NoteWithBullets }) {
@@ -160,40 +141,25 @@ function NoteBody({ note }: { note: NoteWithBullets }) {
   const appendBullets = useAppendNoteBullets();
 
   const [title, setTitle] = useState(note.titleSummary);
-  const [tag, setTag] = useState(note.categoryTag);
   const [draft, setDraft] = useState('');
   const [kind, setKind] = useState<BulletKind>('text');
+  const [retagging, setRetagging] = useState(false);
 
   /**
-   * Re-seeds the fields from the row, which is also the rollback: a rename the
+   * Re-seeds the field from the row, which is also the rollback: a rename the
    * repository refuses (the title+tag pair is unique) invalidates and refetches,
    * and the field snaps back to what is actually stored.
    */
-  useEffect(() => {
-    setTitle(note.titleSummary);
-    setTag(note.categoryTag);
-  }, [note.titleSummary, note.categoryTag]);
+  useEffect(() => setTitle(note.titleSummary), [note.titleSummary]);
 
-  const rename = (next: { titleSummary?: string; categoryTag?: string }) => {
-    const patch: { titleSummary?: string; categoryTag?: string } = {};
-    if (next.titleSummary !== undefined) {
-      const value = next.titleSummary.trim();
-      if (!value || value === note.titleSummary) {
-        setTitle(note.titleSummary);
-        return;
-      }
-      patch.titleSummary = value;
-    }
-    if (next.categoryTag !== undefined) {
-      const value = next.categoryTag.trim();
-      if (!value || value === note.categoryTag) {
-        setTag(note.categoryTag);
-        return;
-      }
-      patch.categoryTag = value;
+  const rename = (next: string) => {
+    const value = next.trim();
+    if (!value || value === note.titleSummary) {
+      setTitle(note.titleSummary);
+      return;
     }
     updateNote.mutate(
-      { id: note.id, patch },
+      { id: note.id, patch: { titleSummary: value } },
       {
         onError: (error) =>
           toast.show({
@@ -240,27 +206,23 @@ function NoteBody({ note }: { note: NoteWithBullets }) {
           accessibilityLabel="Note title"
           placeholder="Untitled"
           returnKeyType="done"
-          onSubmitEditing={(event) => rename({ titleSummary: event.nativeEvent.text })}
-          onBlur={() => rename({ titleSummary: title })}
+          onSubmitEditing={(event) => rename(event.nativeEvent.text)}
+          onBlur={() => rename(title)}
           style={typography.title}
         />
 
-        <View style={[styles.tagRow, { gap: spacing.sm }]}>
-          <View
-            style={[styles.swatch, { backgroundColor: colorForTag(note.categoryTag) }]}
-            accessibilityElementsHidden
-          />
-          <Input
-            containerStyle={{ flex: 1 }}
-            value={tag}
-            onChangeText={setTag}
-            accessibilityLabel="Note tag"
-            placeholder="tag"
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="done"
-            onSubmitEditing={(event) => rename({ categoryTag: event.nativeEvent.text })}
-            onBlur={() => rename({ categoryTag: tag })}
+        {/* The tag is the note's grouping key and half of the unique
+            (title, tag) pair, so it is chosen from what exists rather than
+            typed over: the picker is the only way to change it. */}
+        <View style={styles.tagRow}>
+          <Chip
+            label={note.categoryTag}
+            icon="pricetag-outline"
+            color={colorForTag(note.categoryTag)}
+            // The bare tag was a labelled field before; on its own it does not
+            // say it is the tag, or that tapping it changes one.
+            accessibilityHint="Changes the tag on this note"
+            onPress={() => setRetagging(true)}
           />
         </View>
 
@@ -318,6 +280,8 @@ function NoteBody({ note }: { note: NoteWithBullets }) {
           onPress={() => add(draft)}
         />
       </View>
+
+      <ChangeTagSheet visible={retagging} note={note} onClose={() => setRetagging(false)} />
     </KeyboardAvoidingView>
   );
 }
@@ -325,7 +289,6 @@ function NoteBody({ note }: { note: NoteWithBullets }) {
 const styles = StyleSheet.create({
   bar: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44 },
   tagRow: { flexDirection: 'row', alignItems: 'center' },
-  swatch: { width: 10, height: 10, borderRadius: 5 },
   counts: { flexDirection: 'row', justifyContent: 'flex-end' },
   composer: {
     flexDirection: 'row',

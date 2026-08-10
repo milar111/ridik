@@ -21,7 +21,6 @@ const mockBack = jest.fn();
 const mockToggle = jest.fn();
 const mockAdd = jest.fn();
 const mockMove = jest.fn();
-const mockReorder = jest.fn();
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, back: mockBack }),
@@ -86,6 +85,8 @@ jest.mock('@/hooks', () => ({
   useDeleteProjectItem: () => ({ mutate: jest.fn(), isPending: false }),
   useDeleteProject: () => ({ mutate: jest.fn(), isPending: false }),
 }));
+
+const mockReorder = jest.fn();
 
 const AT = 1_700_000_000_000;
 
@@ -283,8 +284,16 @@ describe('project detail', () => {
     expect(mockMove).toHaveBeenCalledWith({ itemId: 'i1', sectionId: 's1' }, expect.anything());
   });
 
-  /** A checkbox row keeps its tap for the tick, so reorder lives behind the ellipsis. */
-  it('reorders within a section from the row ellipsis', async () => {
+  /**
+   * Nobody reorders a project list, and the arrows sat one row above Delete.
+   * The repository can still reorder; the menu no longer offers it.
+   */
+  /*
+   * Reordering survives the deletion of the up/down pair, as one option. The
+   * pair was a lot of taps for a list nobody sorts precisely, and it sat
+   * directly above Delete; "bring this to the top" is what it was really for.
+   */
+  it('reorders by moving an item to the top, not a row at a time', async () => {
     mockOverviewQuery = idle(
       overview({
         sections: [{ section: null, items: [item(), item({ id: 'i2', content: 'Second' })] }],
@@ -294,12 +303,31 @@ describe('project detail', () => {
     await wrap(<ProjectDetailScreen />);
 
     await fireEvent.press(screen.getByLabelText('Actions for Second'));
-    await fireEvent.press(screen.getByText('Move up'));
+    expect(screen.queryByText('Move up')).toBeNull();
+    expect(screen.queryByText('Move down')).toBeNull();
+    expect(screen.getByText('Move to section…')).toBeTruthy();
 
+    await fireEvent.press(screen.getByText('Move to top'));
     expect(mockReorder).toHaveBeenCalledWith(
       { projectId: 'p1', orderedIds: ['i2', 'i1'] },
       expect.anything(),
     );
+  });
+
+  /** Sharing is the header icon; the menu carried a second copy of it. */
+  it('keeps the project menu to status and delete', async () => {
+    mockOverviewQuery = idle(overview());
+    await wrap(<ProjectDetailScreen />);
+
+    await fireEvent.press(screen.getByTestId('project-menu'));
+
+    expect(screen.queryByText('Share as markdown')).toBeNull();
+    expect(screen.getByText('Mark active')).toBeTruthy();
+    expect(screen.getByText('Delete project')).toBeTruthy();
+    expect(screen.getByTestId('project-share')).toBeTruthy();
+    // The four statuses are one radio group; the rule is what stops the
+    // irreversible option reading as a fifth thing the project could be.
+    expect(screen.getByTestId('rule-above-Delete project')).toBeTruthy();
   });
 
   /**
@@ -342,5 +370,10 @@ describe('project detail', () => {
     // Every row leads back to the screen that owns it.
     await fireEvent.press(screen.getByText('Visa rules'));
     expect(mockPush).toHaveBeenCalledWith('/note/n1');
+
+    // Checklists have no screen of their own; the row must name the pane and
+    // the list, or it lands back on the dead `/checklists`.
+    await fireEvent.press(screen.getByText('Adapter ×2'));
+    expect(mockPush).toHaveBeenCalledWith('/notes?pane=lists&list=Packing');
   });
 });

@@ -11,8 +11,7 @@ import type {
   BriefingIcon,
   BriefingTask,
 } from '@/features/briefing';
-import { briefingMarkdown, copyToClipboard, shareAsFile } from '@/features/export';
-import { useSetting } from '@/hooks';
+import { briefingMarkdown, shareAsFile } from '@/features/export';
 import { useBriefing, useBriefingSpeech, type BriefingScope } from '@/hooks/useBriefing';
 import {
   Badge,
@@ -86,7 +85,6 @@ function BriefingBody({ scope, onNavigate }: { scope: BriefingScope; onNavigate:
 
   const query = useBriefing(scope);
   const speech = useBriefingSpeech();
-  const tts = useSetting('ttsEnabled');
 
   const briefing = query.data;
 
@@ -95,14 +93,13 @@ function BriefingBody({ scope, onNavigate }: { scope: BriefingScope; onNavigate:
     router.push(href as never);
   };
 
-  const copy = async () => {
-    if (!briefing) return;
-    const result = await copyToClipboard(briefingMarkdown(briefing.data));
-    toast.show(
-      result.ok
-        ? { message: 'Briefing copied', tone: 'success' }
-        : { message: result.error.userMessage, tone: 'danger' },
-    );
+  // Pressing Play *is* the answer to "shall I speak?", so it never consults
+  // `ttsEnabled` — and never writes it either. That switch governs speech the
+  // user did not ask for (`pipeline.speak`), and one press here must not sign
+  // them up for spoken replies everywhere else. `speakBriefing` bypasses it.
+  const play = () => {
+    if (speech.isSpeaking) speech.stop();
+    else speech.play(scope);
   };
 
   const share = async () => {
@@ -155,36 +152,13 @@ function BriefingBody({ scope, onNavigate }: { scope: BriefingScope; onNavigate:
               label={speech.isSpeaking ? 'Stop' : 'Play'}
               icon={speech.isSpeaking ? 'stop' : 'volume-high'}
               variant={speech.isSpeaking ? 'danger' : 'primary'}
-              disabled={!tts.value}
-              onPress={() => (speech.isSpeaking ? speech.stop() : speech.play(scope))}
+              onPress={play}
               accessibilityLabel={speech.isSpeaking ? 'Stop speaking' : 'Play the spoken briefing'}
             />
-            {speech.isSpeaking ? (
-              <Txt variant="caption" tone="accent">
-                Speaking…
-              </Txt>
-            ) : !tts.value ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Turn speech on in settings"
-                onPress={() => go('/settings')}
-              >
-                <Txt variant="caption" tone="tertiary">
-                  Speech is off · Settings
-                </Txt>
-              </Pressable>
-            ) : (
-              <Txt variant="caption" tone="tertiary">
-                ~15 seconds
-              </Txt>
-            )}
+            <Txt variant="caption" tone={speech.isSpeaking ? 'accent' : 'tertiary'}>
+              {speech.isSpeaking ? 'Speaking…' : '~15 seconds'}
+            </Txt>
             <View style={{ flex: 1 }} />
-            <Button
-              icon="copy-outline"
-              size="sm"
-              onPress={() => void copy()}
-              accessibilityLabel="Copy the briefing as markdown"
-            />
             <Button
               icon="share-outline"
               size="sm"

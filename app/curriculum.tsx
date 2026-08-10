@@ -10,7 +10,7 @@
  * against, and a wrong parity or a switched-off row is only visible here.
  */
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -68,7 +68,6 @@ type Draft = {
   location: string;
   teacher: string;
   weekParity: WeekParity;
-  isActive: boolean;
 };
 
 const blankDraft = (dayOfWeek: number): Draft => ({
@@ -80,7 +79,6 @@ const blankDraft = (dayOfWeek: number): Draft => ({
   location: '',
   teacher: '',
   weekParity: 'every',
-  isActive: true,
 });
 
 const toDraft = (entry: CurriculumEntry): Draft => ({
@@ -92,7 +90,6 @@ const toDraft = (entry: CurriculumEntry): Draft => ({
   location: entry.location ?? '',
   teacher: entry.teacher ?? '',
   weekParity: entry.weekParity,
-  isActive: entry.isActive,
 });
 
 function minutesOf(time: string): number {
@@ -424,6 +421,8 @@ function WeekList({
 
 /* ------------------------------------------------------------ add / edit */
 
+type Mode = 'form' | 'confirm';
+
 function EntrySheet({
   draft,
   onChange,
@@ -439,6 +438,8 @@ function EntrySheet({
   const add = useAddCurriculumEntries();
   const update = useUpdateCurriculumEntry();
   const remove = useDeleteCurriculumEntry();
+
+  const [mode, setMode] = useState<Mode>('form');
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => onChange({ ...draft, [key]: value });
 
@@ -472,7 +473,10 @@ function EntrySheet({
             location: draft.location.trim() || null,
             teacher: draft.teacher.trim() || null,
             weekParity: draft.weekParity,
-            isActive: draft.isActive,
+            // Nothing can switch a class off any more, so `false` is only ever
+            // left over from the toggle that used to live here. The OFF badge
+            // names the state; saving the row is the way back out of it.
+            isActive: true,
           },
         },
         { onSuccess: () => done('Class updated'), onError: failed },
@@ -490,12 +494,20 @@ function EntrySheet({
           location: draft.location.trim() || undefined,
           teacher: draft.teacher.trim() || undefined,
           week_parity: draft.weekParity,
-          is_active: draft.isActive,
         },
       ],
       { onSuccess: () => done('Class added'), onError: failed },
     );
   };
+
+  const confirmDelete = () =>
+    remove.mutate(draft.id!, {
+      onSuccess: () => {
+        toast.show({ message: 'Class removed', tone: 'neutral' });
+        onClose();
+      },
+      onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
+    });
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -602,48 +614,35 @@ function EntrySheet({
             </Txt>
           </View>
 
-          <View style={styles.switchRow}>
-            <View style={{ flex: 1, gap: 1 }}>
-              <Txt variant="body">Active</Txt>
-              <Txt variant="micro" tone="tertiary">
-                Switched off, it stays here but never counts towards a due date.
+          {mode === 'confirm' ? (
+            <View style={{ gap: spacing.sm }}>
+              <Txt variant="caption" tone="secondary">
+                Delete “{draft.subjectName.trim() || 'this class'}”? It goes from every week.
               </Txt>
+              <View style={styles.chips}>
+                <Button
+                  label="Delete"
+                  variant="danger"
+                  loading={remove.isPending}
+                  onPress={confirmDelete}
+                />
+                <Button label="Keep" variant="ghost" onPress={() => setMode('form')} />
+              </View>
             </View>
-            <Switch
-              value={draft.isActive}
-              onValueChange={(value) => set('isActive', value)}
-              accessibilityLabel="Active"
-              accessibilityState={{ checked: draft.isActive }}
-              trackColor={{ false: colors.borderStrong, true: colors.accent }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-
-          <View style={styles.chips}>
-            <Button
-              label={draft.id ? 'Save' : 'Add class'}
-              variant="primary"
-              disabled={invalid}
-              loading={saving}
-              onPress={save}
-            />
-            {draft.id ? (
+          ) : (
+            <View style={styles.chips}>
               <Button
-                label="Delete"
-                variant="danger"
-                loading={remove.isPending}
-                onPress={() =>
-                  remove.mutate(draft.id!, {
-                    onSuccess: () => {
-                      toast.show({ message: 'Class removed', tone: 'neutral' });
-                      onClose();
-                    },
-                    onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
-                  })
-                }
+                label={draft.id ? 'Save' : 'Add class'}
+                variant="primary"
+                disabled={invalid}
+                loading={saving}
+                onPress={save}
               />
-            ) : null}
-          </View>
+              {draft.id ? (
+                <Button label="Delete" variant="danger" onPress={() => setMode('confirm')} />
+              ) : null}
+            </View>
+          )}
         </ScrollView>
       </View>
     </Modal>
@@ -698,5 +697,4 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44 },
 });

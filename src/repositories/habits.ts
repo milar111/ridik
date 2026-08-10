@@ -96,7 +96,14 @@ export function createHabitsRepository(db: RidikDatabase) {
     if (!trimmed) throw new AppError('invalid_input', 'A habit needs a name.');
 
     const existing = await findHabitByName(trimmed);
-    if (existing) return existing;
+    if (existing) {
+      // Archiving is how a habit leaves the list, so logging one again is the
+      // only way back — and it is unambiguous about intent. Without this the
+      // log lands on a row nothing renders and the streak grows unseen.
+      if (!existing.isArchived) return existing;
+      await db.update(habits).set({ isArchived: false }).where(eq(habits.id, existing.id));
+      return { ...existing, isArchived: false };
+    }
 
     const [created] = await db
       .insert(habits)

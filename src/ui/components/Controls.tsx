@@ -100,6 +100,7 @@ export function Chip({
   onPress,
   icon,
   size = 'md',
+  accessibilityHint,
 }: {
   label: string;
   color?: string;
@@ -107,6 +108,8 @@ export function Chip({
   onPress?: () => void;
   icon?: keyof typeof Ionicons.glyphMap;
   size?: 'sm' | 'md';
+  /** For a chip whose label alone does not say what tapping it does. */
+  accessibilityHint?: string;
 }) {
   const { colors, radius } = useTheme();
   const tint = color ?? colors.accent;
@@ -134,6 +137,7 @@ export function Chip({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityHint={accessibilityHint}
       // Selection is the whole point of a pressable chip; without this a screen
       // reader cannot tell which kind, section or date is currently chosen.
       accessibilityState={{ selected: !!selected }}

@@ -21,6 +21,8 @@ jest.mock('react-native-reanimated', () => {
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn(), canGoBack: () => true }),
+  useLocalSearchParams: () => jest.requireMock('expo-router').__params,
+  __params: {} as Record<string, string>,
 }));
 
 jest.mock('@/hooks', () => ({
@@ -40,6 +42,7 @@ jest.mock('@/hooks', () => ({
 
 type Mocks = Record<string, jest.Mock>;
 const hooks = jest.requireMock('@/hooks') as Mocks;
+const router = jest.requireMock('expo-router') as { __params: Record<string, string> };
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -114,18 +117,15 @@ function setup(
   hooks.useChecklistItems!.mockReturnValue(query(over.items ?? []));
 
   const toggle = mutation();
+  const clear = mutation();
+  const remove = mutation();
   hooks.useToggleChecklistItem!.mockReturnValue(toggle);
-  for (const name of [
-    'useUpdateNote',
-    'useArchiveNote',
-    'useDeleteNote',
-    'useAddChecklistItems',
-    'useClearCompletedChecklistItems',
-    'useRemoveChecklistItem',
-  ]) {
+  hooks.useClearCompletedChecklistItems!.mockReturnValue(clear);
+  hooks.useRemoveChecklistItem!.mockReturnValue(remove);
+  for (const name of ['useUpdateNote', 'useArchiveNote', 'useDeleteNote', 'useAddChecklistItems']) {
     hooks[name]!.mockReturnValue(mutation());
   }
-  return { toggle };
+  return { toggle, clear, remove };
 }
 
 function wrap(ui: React.ReactElement) {
@@ -137,6 +137,10 @@ function wrap(ui: React.ReactElement) {
 }
 
 describe('notes screen', () => {
+  beforeEach(() => {
+    router.__params = {};
+  });
+
   it('teaches the user what to say when there are no notes', async () => {
     setup();
     await wrap(<NotesScreen />);
@@ -186,5 +190,152 @@ describe('notes screen', () => {
       expect.objectContaining({ listName: 'Shopping', itemQuery: 'Milk', completed: true, itemId: 'i1' }),
       expect.anything(),
     );
+  });
+});
+
+/* ------------------------------------------------------------------ lists -- */
+
+describe('lists pane', () => {
+  beforeEach(() => {
+    router.__params = {};
+  });
+
+  const SHOPPING = [
+    item('Shopping', 'Milk', { id: 'i1' }),
+    item('Shopping', 'Bread', { id: 'i2', done: true }),
+  ];
+
+  async function openLists(over: Parameters<typeof setup>[0] = {}) {
+    const mutations = setup(over);
+    await wrap(<NotesScreen />);
+    if (router.__params['pane'] !== 'lists') await fireEvent.press(screen.getByText('Lists'));
+    return mutations;
+  }
+
+  it('is the only door: it counts the lists, starts one and leads nowhere else', async () => {
+    await openLists({
+      lists: [{ name: 'Shopping', open: 1, total: 2 }],
+      items: SHOPPING,
+    });
+
+    expect(screen.getByText('1 list · 1 still open')).toBeTruthy();
+    expect(screen.getByText('New list')).toBeTruthy();
+    // The full-screen duplicate is gone; nothing may offer a way back to it.
+    expect(screen.queryByText('Open all lists')).toBeNull();
+    expect(screen.queryByText('Start a list')).toBeNull();
+  });
+
+  it('sinks ticked items to the bottom', async () => {
+    await openLists({ lists: [{ name: 'Shopping', open: 1, total: 2 }], items: SHOPPING });
+
+    const rows = screen.getAllByRole('checkbox');
+    expect(rows[0]?.props.accessibilityLabel).toBe('Milk');
+    expect(rows[1]?.props.accessibilityLabel).toBe('Bread');
+  });
+
+  it('opens on the list a deep link names, and only that one', async () => {
+    router.__params = { pane: 'lists', list: 'shopping' };
+    await openLists({
+      lists: [
+        { name: 'Hardware', open: 1, total: 1 },
+        { name: 'Shopping', open: 1, total: 2 },
+      ],
+      items: SHOPPING,
+    });
+
+    // The pane followed the URL without the segmented control being touched,
+    // and the named list is the one that opened — not the first.
+    expect(screen.getByText('2 lists · 2 still open')).toBeTruthy();
+    expect(screen.getAllByRole('checkbox')).toHaveLength(SHOPPING.length);
+    expect(screen.getByLabelText('Shopping, 1 of 2 open').props.accessibilityState).toMatchObject({
+      expanded: true,
+    });
+    expect(screen.getByLabelText('Hardware, 1 of 1 open').props.accessibilityState).toMatchObject({
+      expanded: false,
+    });
+  });
+
+  /**
+   * The URL chooses the pane, it does not own it. Deriving `pane` from the
+   * params instead of seeding state from them would nail the tab to Lists for
+   * as long as a deep link's params survive, with the Notes half unreachable.
+   */
+  it('lets the segmented control back out of a pane the URL chose', async () => {
+    router.__params = { pane: 'lists', list: 'shopping' };
+    setup({ lists: [{ name: 'Shopping', open: 1, total: 2 }], items: SHOPPING, notes: [] });
+    await wrap(<NotesScreen />);
+
+    expect(screen.getByText('1 list · 1 still open')).toBeTruthy();
+
+    // By role, because the screen's own title says "Notes" too.
+    await fireEvent.press(screen.getByRole('tab', { name: 'Notes' }));
+    expect(screen.queryByText('1 list · 1 still open')).toBeNull();
+    expect(screen.getByLabelText('Search notes')).toBeTruthy();
+  });
+
+  it('removes a single item on the spot — the ✕ asks nothing', async () => {
+    const { remove } = await openLists({
+      lists: [{ name: 'Shopping', open: 1, total: 2 }],
+      items: SHOPPING,
+    });
+
+    await fireEvent.press(screen.getByLabelText('Remove Milk'));
+    expect(remove.mutate).toHaveBeenCalledWith('i1', expect.anything());
+  });
+
+  it('makes the bulk clear confirm itself, and lets it be called off', async () => {
+    const { clear } = await openLists({
+      lists: [{ name: 'Shopping', open: 1, total: 2 }],
+      items: SHOPPING,
+    });
+
+    await fireEvent.press(screen.getByText('Clear 1 done'));
+    expect(clear.mutate).not.toHaveBeenCalled();
+    expect(screen.getByText(/cannot be undone/)).toBeTruthy();
+
+    await fireEvent.press(screen.getByText('Keep'));
+    expect(clear.mutate).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByText('Clear 1 done'));
+    await fireEvent.press(screen.getByText('Clear 1'));
+    expect(clear.mutate).toHaveBeenCalledWith('Shopping', expect.anything());
+  });
+
+  /**
+   * The arm is worth nothing if it survives a change to what it would delete:
+   * the user answered a question about one row and would be answering it about
+   * two.
+   */
+  it('drops an armed clear when what is ticked changes under it', async () => {
+    await openLists({ lists: [{ name: 'Shopping', open: 1, total: 2 }], items: SHOPPING });
+
+    await fireEvent.press(screen.getByText('Clear 1 done'));
+    expect(screen.getByText('Clear 1')).toBeTruthy();
+
+    hooks.useChecklistItems!.mockReturnValue(
+      query([
+        item('Shopping', 'Milk', { id: 'i1', done: true }),
+        item('Shopping', 'Bread', { id: 'i2', done: true }),
+      ]),
+    );
+    // Collapsing and re-opening the section is the cheapest honest re-render.
+    await fireEvent.press(screen.getByLabelText('Shopping, 1 of 2 open'));
+    await fireEvent.press(screen.getByLabelText('Shopping, 1 of 2 open'));
+
+    expect(screen.queryByText('Clear 1')).toBeNull();
+    expect(screen.getByText('Clear 2 done')).toBeTruthy();
+  });
+
+  /**
+   * With no lists there is no row to lean on, and "Start a list" is gone: the
+   * header button is the only non-voice way left to begin one.
+   */
+  it('can still start the very first list', async () => {
+    await openLists({ lists: [] });
+
+    expect(screen.getByText('No lists yet')).toBeTruthy();
+    await fireEvent.press(screen.getByText('New list'));
+    expect(screen.getByLabelText('List name')).toBeTruthy();
+    expect(screen.getByLabelText('First item')).toBeTruthy();
   });
 });

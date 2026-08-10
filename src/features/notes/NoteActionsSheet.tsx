@@ -143,53 +143,51 @@ export function NoteActionsSheet({
         actions={actions}
         onClose={onClose}
       />
-      <TagPicker
-        visible={retagging}
-        note={note}
-        onClose={() => setRetagging(false)}
-        onPick={(categoryTag) => {
-          setRetagging(false);
-          if (categoryTag.toLowerCase() === note.categoryTag.toLowerCase()) return;
-          updateNote.mutate(
-            { id: note.id, patch: { categoryTag } },
-            {
-              onSuccess: () => toast.show({ message: `Tagged ${categoryTag}`, tone: 'success' }),
-              onError: (error) =>
-                toast.show({
-                  // A (title, tag) pair is unique, so this is where "another
-                  // note already uses that title and tag" surfaces.
-                  message: errorMessage(error, 'I could not change that tag.'),
-                  tone: 'danger',
-                }),
-            },
-          );
-        }}
-      />
+      <ChangeTagSheet visible={retagging} note={note} onClose={() => setRetagging(false)} />
     </>
   );
 }
 
-function TagPicker({
+/**
+ * Retagging, wherever it is reached from: this sheet's "Change tag" and the
+ * detail screen's tag chip. One owner means the collision the unique
+ * (title, tag) pair can raise is reported the same way from both.
+ */
+export function ChangeTagSheet({
   visible,
   note,
   onClose,
-  onPick,
 }: {
   visible: boolean;
   note: NoteWithBullets;
   onClose: () => void;
-  onPick: (tag: string) => void;
 }) {
   const { colors, radius, spacing } = useTheme();
   const insets = useSafeAreaInsets();
+  const toast = useToast();
+  const updateNote = useUpdateNote();
   const tags = useNoteTags();
   const [draft, setDraft] = useState('');
 
   const submit = (value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
+    const categoryTag = value.trim();
+    if (!categoryTag) return;
     setDraft('');
-    onPick(trimmed);
+    onClose();
+    if (categoryTag.toLowerCase() === note.categoryTag.toLowerCase()) return;
+    updateNote.mutate(
+      { id: note.id, patch: { categoryTag } },
+      {
+        onSuccess: () => toast.show({ message: `Tagged ${categoryTag}`, tone: 'success' }),
+        onError: (error) =>
+          toast.show({
+            // A (title, tag) pair is unique, so this is where "another note
+            // already uses that title and tag" surfaces.
+            message: errorMessage(error, 'I could not change that tag.'),
+            tone: 'danger',
+          }),
+      },
+    );
   };
 
   return (
@@ -230,7 +228,7 @@ function TagPicker({
                 label={tag.tag}
                 color={colorForTag(tag.tag)}
                 selected={tag.tag.toLowerCase() === note.categoryTag.toLowerCase()}
-                onPress={() => onPick(tag.tag)}
+                onPress={() => submit(tag.tag)}
               />
             ))}
           </ScrollView>

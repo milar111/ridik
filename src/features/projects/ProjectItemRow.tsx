@@ -3,7 +3,7 @@
  *
  * Two shapes, one row height: a checkbox item is a tick target, everything else
  * (idea, question, milestone, link, note) is a typed line with a leading icon.
- * Both carry the same trailing menu button, so reorder / move / delete are
+ * Both carry the same trailing menu button, so checkbox / move / delete are
  * always in the same place under the thumb.
  */
 import { Pressable, View } from 'react-native';

@@ -381,6 +381,32 @@ export function useReverseGeocode(): UseMutationResult<string | null, Error, Coo
   });
 }
 
+/**
+ * An address to a pin, for places you are not standing in.
+ *
+ * The counterpart to reverse geocoding, and the reason the sheet does not need
+ * a latitude field: "Technical University, Sofia" is something a person can
+ * check by reading it, and a wrong digit in 42.6501 is not.
+ */
+export function useGeocodeAddress(): UseMutationResult<
+  { coords: Coords; address: string } | null,
+  Error,
+  string
+> {
+  return useMutation({
+    mutationFn: async (query: string) => {
+      const trimmed = query.trim();
+      if (!trimmed) return null;
+      const [match] = await Location.geocodeAsync(trimmed);
+      if (!match) return null;
+      return {
+        coords: { latitude: match.latitude, longitude: match.longitude },
+        address: trimmed,
+      };
+    },
+  });
+}
+
 /* ----------------------------------------------------------------- database */
 
 export type TableCount = { table: string; rows: number };

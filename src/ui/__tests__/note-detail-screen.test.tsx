@@ -3,7 +3,6 @@ import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 
 import { ThemeProvider } from '../ThemeProvider';
 import NoteDetailScreen from '../../../app/note/[id]';
-import ChecklistsScreen from '../../../app/checklists';
 
 jest.mock('react-native-reanimated', () => {
   const { View } = jest.requireActual('react-native');
@@ -42,12 +41,6 @@ jest.mock('@/hooks', () => ({
   useUpdateNoteBullet: jest.fn(),
   useRemoveNoteBullet: jest.fn(),
   useReorderNoteBullets: jest.fn(),
-  useChecklistNames: jest.fn(),
-  useChecklistItems: jest.fn(),
-  useToggleChecklistItem: jest.fn(),
-  useAddChecklistItems: jest.fn(),
-  useClearCompletedChecklistItems: jest.fn(),
-  useRemoveChecklistItem: jest.fn(),
 }));
 
 type Mocks = Record<string, jest.Mock>;
@@ -82,22 +75,13 @@ function bullet(id: string, content: string, kind: 'text' | 'todo', done = false
 function setup(data: unknown) {
   const mutations: Mocks = {};
   for (const name of Object.keys(hooks)) {
-    if (name.startsWith('useNote') || name === 'useChecklistNames' || name === 'useChecklistItems') {
-      continue;
-    }
+    if (name.startsWith('useNote')) continue;
     const mutate = jest.fn();
     mutations[name] = mutate;
     hooks[name]!.mockReturnValue({ mutate, isPending: false });
   }
   hooks.useNote!.mockReturnValue(query(data));
   hooks.useNoteTags!.mockReturnValue(query([]));
-  hooks.useChecklistNames!.mockReturnValue(query([{ name: 'Shopping', open: 1, total: 2 }]));
-  hooks.useChecklistItems!.mockReturnValue(
-    query([
-      { id: 'b', listName: 'Shopping', itemText: 'Bread', isCompleted: true, createdAt: 0, quantity: null, projectId: null, orderIndex: 1, completedAt: 1 },
-      { id: 'm', listName: 'Shopping', itemText: 'Milk', isCompleted: false, createdAt: 0, quantity: '2', projectId: null, orderIndex: 0, completedAt: null },
-    ]),
-  );
   return mutations;
 }
 
@@ -131,12 +115,51 @@ describe('note detail screen', () => {
     await wrap(<NoteDetailScreen />);
 
     expect(screen.getByLabelText('Note title').props.value).toBe('Robotics');
-    expect(screen.getByLabelText('Note tag').props.value).toBe('hardware');
     expect(screen.getByText('M3 screws')).toBeTruthy();
     // The todo bullet is a checkbox; the plain one is not.
     expect(screen.getByLabelText('Order standoffs').props.accessibilityState).toMatchObject({
       checked: false,
     });
+  });
+
+  /**
+   * The tag is the note's grouping key and half of the unique (title, tag)
+   * pair, so it cannot be typed over in place: the chip only opens the picker.
+   */
+  it('changes the tag through the picker, not a text field', async () => {
+    const mutations = setup(NOTE);
+    hooks.useNoteTags!.mockReturnValue(query([{ tag: 'travel', count: 2 }]));
+    await wrap(<NoteDetailScreen />);
+
+    expect(screen.queryByLabelText('Note tag')).toBeNull();
+
+    await fireEvent.press(screen.getByLabelText('hardware'));
+    expect(screen.getByText('Change tag')).toBeTruthy();
+
+    await fireEvent.press(screen.getByLabelText('travel'));
+    expect(mutations.useUpdateNote).toHaveBeenCalledWith(
+      { id: 'n1', patch: { categoryTag: 'travel' } },
+      expect.anything(),
+    );
+  });
+
+  /**
+   * The bulk "turn N bullets into todos" wrote to every plain bullet from a
+   * menu row that never said which ones. Promotion is per bullet now, on the
+   * row it changes.
+   */
+  it('offers no bulk edit in the note menu', async () => {
+    setup(NOTE);
+    await wrap(<NoteDetailScreen />);
+
+    // The plain bullet is still promoted, one row at a time.
+    await fireEvent.press(screen.getByLabelText('Actions for M3 screws'));
+    expect(screen.getByLabelText('Make this a todo')).toBeTruthy();
+
+    await fireEvent.press(screen.getByLabelText('Note actions'));
+
+    expect(screen.getByText('Share')).toBeTruthy();
+    expect(screen.queryByText(/into todos/)).toBeNull();
   });
 
   it('ticks a todo bullet off', async () => {
@@ -167,19 +190,5 @@ describe('note detail screen', () => {
     setup(null);
     await wrap(<NoteDetailScreen />);
     expect(screen.getByText('That note is gone')).toBeTruthy();
-  });
-});
-
-describe('checklists screen', () => {
-  it('expands every list and sinks completed items to the bottom', async () => {
-    setup(NOTE);
-    router.__params = {};
-    await wrap(<ChecklistsScreen />);
-
-    expect(screen.getByText('1 list · 1 still open')).toBeTruthy();
-    const rows = screen.getAllByRole('checkbox');
-    expect(rows[0]?.props.accessibilityLabel).toBe('Milk');
-    expect(rows[1]?.props.accessibilityLabel).toBe('Bread');
-    expect(screen.getByText('Clear 1 done')).toBeTruthy();
   });
 });

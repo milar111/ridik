@@ -2,12 +2,13 @@
  * Saved places and the reminders anchored to them.
  *
  * TODO(map): the brief asks for a map picker. `react-native-maps` is not in
- * this build and adding a native dependency is out of scope here, so the picker
- * below is an honest coordinate + radius editor: a one-tap "use my location"
- * shortcut, manual latitude/longitude, and a reverse-geocoded address line so
- * the numbers can be checked against something human. Swap this block for a
- * `<MapView>` with a draggable pin and a `<Circle>` bound to `radiusMeters`
- * once the dependency lands; nothing else on this screen has to change.
+ * this build and adding a native dependency is out of scope here, so a pin comes
+ * from the phone's own fix and is described by its reverse-geocoded address.
+ * Typed coordinates were the earlier stand-in and are gone: one wrong digit puts
+ * a geofence in another country, and without a map there is nothing to catch it
+ * against. Swap this block for a `<MapView>` with a draggable pin and a
+ * `<Circle>` bound to `radiusMeters` once the dependency lands; nothing else on
+ * this screen has to change.
  */
 import { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -29,16 +30,19 @@ import {
   useCurrentPosition,
   useGeofenceStatus,
   useRefreshGeofences,
+  useGeocodeAddress,
   useReverseGeocode,
 } from '@/hooks/useSystem';
 import type { GeofenceTrigger, SavedPlace } from '@/db/schema';
 import { MAX_MONITORED_REGIONS } from '@/repositories/geofences';
+import type { Coords } from '@/repositories/places';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
 import {
   Badge,
   Button,
   Card,
+  Chip,
   Divider,
   EmptyState,
   Input,
@@ -48,39 +52,44 @@ import {
   useToast,
 } from '@/ui/components';
 
-const RADIUS_MIN = 50;
-const RADIUS_MAX = 1000;
-const RADIUS_STEP = 25;
+/**
+ * Named sizes, not a stepper. Nobody can tell 425 m from 450 m on the ground,
+ * and every value the stepper could reach below ~100 m is one a phone misses.
+ */
+const RADIUS_CHOICES = [
+  { label: 'Right here', meters: 150 },
+  { label: 'This building', meters: 300 },
+  { label: 'This block', meters: 600 },
+] as const;
+
 /** Comfortable walking pace, in metres per minute. */
 const WALK_METRES_PER_MINUTE = 80;
 
 type Draft = {
   id: string | null;
-  originalLabel: string | null;
   label: string;
-  latitude: string;
-  longitude: string;
+  coords: Coords | null;
   address: string;
   radiusMeters: number;
 };
 
 const blankDraft = (): Draft => ({
   id: null,
-  originalLabel: null,
   label: '',
-  latitude: '',
-  longitude: '',
+  coords: null,
   address: '',
-  radiusMeters: 150,
+  radiusMeters: RADIUS_CHOICES[0].meters,
 });
 
 const toDraft = (place: SavedPlace): Draft => ({
   id: place.id,
-  originalLabel: place.label,
   label: place.label,
-  latitude: String(place.latitude),
-  longitude: String(place.longitude),
+  coords: { latitude: place.latitude, longitude: place.longitude },
   address: place.address ?? '',
+  // Kept exactly as stored, even when no chip matches it. `place_save` lets the
+  // voice path set anything from 50 m to 5 km, and snapping to the nearest name
+  // would show "This block" over a 2 km circle and then shrink it for real on
+  // the next save — a save the user made to move the pin, not to resize it.
   radiusMeters: place.radiusMeters,
 });
 
@@ -255,6 +264,7 @@ function TriggerRow({ trigger }: { trigger: GeofenceTrigger }) {
   // switched off, and fires it on the next crossing.
   const refreshRegions = useRefreshGeofences();
   const rearm = () => refreshRegions.mutate();
+  const [confirming, setConfirming] = useState(false);
 
   return (
     <View style={[styles.row, { paddingHorizontal: spacing.md }]}>
@@ -267,53 +277,78 @@ function TriggerRow({ trigger }: { trigger: GeofenceTrigger }) {
         <Txt variant="body" numberOfLines={2}>
           {trigger.actionDescription}
         </Txt>
-        <Txt variant="caption" tone="tertiary" numberOfLines={1}>
-          {trigger.triggerType === 'ENTER' ? 'Arriving at' : 'Leaving'} {trigger.label}
-        </Txt>
-        {trigger.lastTriggeredAt ? (
+        {confirming ? (
+          <Txt variant="caption" tone="danger" numberOfLines={1}>
+            Delete this reminder for good?
+          </Txt>
+        ) : (
+          <Txt variant="caption" tone="tertiary" numberOfLines={1}>
+            {trigger.triggerType === 'ENTER' ? 'Arriving at' : 'Leaving'} {trigger.label}
+          </Txt>
+        )}
+        {trigger.lastTriggeredAt && !confirming ? (
           <Txt variant="micro" tone="tertiary">
             Last fired {formatRelative(trigger.lastTriggeredAt)}
           </Txt>
         ) : null}
       </View>
-      <Badge
-        label={trigger.registered ? 'WATCHING' : 'QUEUED'}
-        tone={trigger.registered ? 'success' : 'warning'}
-      />
-      {/* 17pt glyphs centred in a 44pt box: these two sit next to each other and
-          one is destructive, so the target has to be the full minimum. */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Switch off the reminder at ${trigger.label}`}
-        style={({ pressed }) => [styles.iconButton, { opacity: pressed ? 0.6 : 1 }]}
-        onPress={() =>
-          deactivate.mutate(trigger.id, {
-            onSuccess: () => {
-              rearm();
-              toast.show({ message: 'Reminder switched off', tone: 'neutral' });
-            },
-            onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
-          })
-        }
-      >
-        <Ionicons name="power" size={17} color={colors.textSecondary} />
-      </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Delete the reminder at ${trigger.label}`}
-        style={({ pressed }) => [styles.iconButton, { opacity: pressed ? 0.6 : 1 }]}
-        onPress={() =>
-          remove.mutate(trigger.id, {
-            onSuccess: () => {
-              rearm();
-              toast.show({ message: 'Reminder deleted', tone: 'neutral' });
-            },
-            onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
-          })
-        }
-      >
-        <Ionicons name="trash-outline" size={17} color={colors.danger} />
-      </Pressable>
+      {confirming ? (
+        <>
+          <Button
+            label="Delete"
+            size="sm"
+            variant="danger"
+            loading={remove.isPending}
+            accessibilityLabel={`Yes, delete the reminder at ${trigger.label}`}
+            onPress={() =>
+              remove.mutate(trigger.id, {
+                onSuccess: () => {
+                  rearm();
+                  toast.show({ message: 'Reminder deleted', tone: 'neutral' });
+                },
+                onError: (error) => {
+                  setConfirming(false);
+                  toast.show({ message: error.message, tone: 'danger' });
+                },
+              })
+            }
+          />
+          <Button label="Keep" size="sm" variant="ghost" onPress={() => setConfirming(false)} />
+        </>
+      ) : (
+        <>
+          <Badge
+            label={trigger.registered ? 'WATCHING' : 'QUEUED'}
+            tone={trigger.registered ? 'success' : 'warning'}
+          />
+          {/* 17pt glyphs centred in a 44pt box: these two sit next to each other
+              and one is destructive, so the target has to be the full minimum. */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Switch off the reminder at ${trigger.label}`}
+            style={({ pressed }) => [styles.iconButton, { opacity: pressed ? 0.6 : 1 }]}
+            onPress={() =>
+              deactivate.mutate(trigger.id, {
+                onSuccess: () => {
+                  rearm();
+                  toast.show({ message: 'Reminder switched off', tone: 'neutral' });
+                },
+                onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
+              })
+            }
+          >
+            <Ionicons name="power" size={17} color={colors.textSecondary} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Delete the reminder at ${trigger.label}`}
+            style={({ pressed }) => [styles.iconButton, { opacity: pressed ? 0.6 : 1 }]}
+            onPress={() => setConfirming(true)}
+          >
+            <Ionicons name="trash-outline" size={17} color={colors.danger} />
+          </Pressable>
+        </>
+      )}
     </View>
   );
 }
@@ -360,37 +395,40 @@ function PlaceSheet({
   const geocode = useReverseGeocode();
   // A pin that moved is a region in the wrong place until the OS is told.
   const refreshRegions = useRefreshGeofences();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [search, setSearch] = useState('');
+  const addressSearch = useGeocodeAddress();
+
+  const runSearch = () => {
+    addressSearch.mutate(search, {
+      onSuccess: (found) => {
+        if (!found) {
+          toast.show({ message: 'No place found by that name.', tone: 'warning' });
+          return;
+        }
+        onChange((previous) => ({ ...previous, coords: found.coords, address: found.address }));
+        setSearch('');
+      },
+      onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
+    });
+  };
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     onChange((previous) => ({ ...previous, [key]: value }));
 
-  const latitude = Number(draft.latitude);
-  const longitude = Number(draft.longitude);
+  const coords = draft.coords;
   const labelError = draft.label.trim() ? null : 'A place needs a name.';
-  const latError =
-    draft.latitude.trim() && Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
-      ? null
-      : 'Latitude runs from −90 to 90.';
-  const lonError =
-    draft.longitude.trim() && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180
-      ? null
-      : 'Longitude runs from −180 to 180.';
-  const invalid = Boolean(labelError || latError || lonError);
-
-  const renamed =
-    draft.originalLabel !== null &&
-    draft.label.trim().toLowerCase() !== draft.originalLabel.toLowerCase();
+  const invalid = Boolean(labelError) || coords === null;
 
   const useMyLocation = () => {
     locate.mutate(undefined, {
-      onSuccess: (coords) => {
-        onChange((previous) => ({
-          ...previous,
-          latitude: coords.latitude.toFixed(6),
-          longitude: coords.longitude.toFixed(6),
-        }));
+      onSuccess: (fix) => {
+        // The old address described the old pin, and there is no longer a field
+        // to correct it in: it goes with the pin that earned it, so a lookup
+        // that fails leaves coordinates on screen rather than the wrong street.
+        onChange((previous) => ({ ...previous, coords: fix, address: '' }));
         // The address is a nicety; a failed lookup must not cost the pin.
-        geocode.mutate(coords, {
+        geocode.mutate(fix, {
           onSuccess: (address) => {
             if (address) set('address', address);
           },
@@ -400,37 +438,18 @@ function PlaceSheet({
     });
   };
 
-  const lookUpAddress = () => {
-    if (latError || lonError) return;
-    geocode.mutate(
-      { latitude, longitude },
-      {
-        onSuccess: (address) =>
-          address
-            ? set('address', address)
-            : toast.show({ message: 'No address at those coordinates', tone: 'neutral' }),
-        onError: (error) => toast.show({ message: error.message, tone: 'warning' }),
-      },
-    );
-  };
-
   const save = () => {
-    if (invalid) return;
+    if (invalid || !coords) return;
     upsert.mutate(
       {
         label: draft.label.trim(),
-        latitude,
-        longitude,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
         radiusMeters: draft.radiusMeters,
         address: draft.address.trim() || null,
       },
       {
         onSuccess: () => {
-          // `upsertPlace` keys on the label, so a rename inserts rather than
-          // renames; the row that used to hold this pin has to go by hand.
-          // Reminders already made keep their own coordinates, so none of them
-          // move — they only lose the link back to the place.
-          if (renamed && draft.id) removePlace.mutate(draft.id);
           refreshRegions.mutate();
           toast.show({ message: 'Place saved', tone: 'success' });
           onClose();
@@ -474,122 +493,143 @@ function PlaceSheet({
             <Button icon="close" size="sm" variant="ghost" accessibilityLabel="Close" onPress={onClose} />
           </View>
 
-          <Input
-            label="Name"
-            value={draft.label}
-            onChangeText={(text) => set('label', text)}
-            placeholder="the lab"
-            autoFocus={!draft.id}
-            error={draft.label.length > 0 ? (labelError ?? undefined) : undefined}
-          />
-          {renamed ? (
-            <Txt variant="micro" tone="warning">
-              Renaming replaces the old pin. Reminders you already made keep firing at their own
-              coordinates.
-            </Txt>
-          ) : null}
-
-          <Button
-            label="Use my current location"
-            icon="navigate-outline"
-            variant="secondary"
-            fullWidth
-            loading={locate.isPending}
-            onPress={useMyLocation}
-          />
-
-          <View style={{ flexDirection: 'row', gap: spacing.md }}>
+          {draft.id ? (
+            <View style={{ gap: 2 }}>
+              <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.6 }}>
+                NAME
+              </Txt>
+              <Txt variant="bodyStrong">{draft.label}</Txt>
+              <Txt variant="micro" tone="tertiary">
+                Reminders are anchored to this name, so it cannot be changed here. Add the place
+                again under the name you want, then delete this one.
+              </Txt>
+            </View>
+          ) : (
             <Input
-              label="Latitude"
-              containerStyle={{ flex: 1 }}
-              value={draft.latitude}
-              onChangeText={(text) => set('latitude', text)}
-              placeholder="42.6977"
-              keyboardType="numbers-and-punctuation"
-              error={draft.latitude.length > 0 ? (latError ?? undefined) : undefined}
+              label="Name"
+              testID="place-name"
+              value={draft.label}
+              onChangeText={(text) => set('label', text)}
+              placeholder="the lab"
+              autoFocus
+              error={draft.label.length > 0 ? (labelError ?? undefined) : undefined}
             />
-            <Input
-              label="Longitude"
-              containerStyle={{ flex: 1 }}
-              value={draft.longitude}
-              onChangeText={(text) => set('longitude', text)}
-              placeholder="23.3219"
-              keyboardType="numbers-and-punctuation"
-              error={draft.longitude.length > 0 ? (lonError ?? undefined) : undefined}
-            />
-          </View>
-
-          <Input
-            label="Address"
-            value={draft.address}
-            onChangeText={(text) => set('address', text)}
-            placeholder="Looked up from the coordinates"
-          />
-          <Button
-            label="Look up address"
-            icon="search-outline"
-            size="sm"
-            variant="ghost"
-            disabled={Boolean(latError || lonError)}
-            loading={geocode.isPending}
-            onPress={lookUpAddress}
-          />
+          )}
 
           <View style={{ gap: spacing.sm }}>
             <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.6 }}>
-              RADIUS
+              PIN
             </Txt>
-            <View style={styles.stepper}>
-              <Button
-                icon="remove"
-                size="md"
-                accessibilityLabel="Smaller radius"
-                disabled={draft.radiusMeters <= RADIUS_MIN}
-                onPress={() => set('radiusMeters', Math.max(RADIUS_MIN, draft.radiusMeters - RADIUS_STEP))}
+            <Txt variant="caption" tone={coords ? 'secondary' : 'tertiary'}>
+              {coords
+                ? draft.address.trim() ||
+                  `${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`
+                : 'Not pinned yet.'}
+            </Txt>
+            <Button
+              label="Use my current location"
+              icon="navigate-outline"
+              variant="secondary"
+              fullWidth
+              loading={locate.isPending}
+              onPress={useMyLocation}
+            />
+            {/*
+              The other half of pinning: you are rarely standing in the place
+              you want to be reminded about. An address is something a person
+              can read back and check, which is exactly what a latitude was not.
+            */}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm }}>
+              <Input
+                containerStyle={{ flex: 1 }}
+                label="Or search an address"
+                testID="place-address-search"
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Technical University, Sofia"
+                autoCapitalize="words"
+                returnKeyType="search"
+                onSubmitEditing={runSearch}
               />
-              <Txt variant="mono" tone="accent" style={{ flex: 1, textAlign: 'center' }}>
-                {draft.radiusMeters} m
-              </Txt>
               <Button
-                icon="add"
-                size="md"
-                accessibilityLabel="Larger radius"
-                disabled={draft.radiusMeters >= RADIUS_MAX}
-                onPress={() => set('radiusMeters', Math.min(RADIUS_MAX, draft.radiusMeters + RADIUS_STEP))}
+                label="Find"
+                icon="search-outline"
+                loading={addressSearch.isPending}
+                disabled={search.trim().length === 0}
+                onPress={runSearch}
               />
             </View>
-            <Txt variant="micro" tone="tertiary">
-              {describeRadius(draft.radiusMeters)}. Under about 100 m a phone often misses the
-              crossing entirely.
-            </Txt>
           </View>
 
-          <View style={styles.actions}>
-            <Button
-              label={draft.id ? 'Save place' : 'Add place'}
-              variant="primary"
-              disabled={invalid}
-              loading={upsert.isPending}
-              onPress={save}
-            />
-            {draft.id ? (
+          {coords ? (
+            <View style={{ gap: spacing.sm }}>
+              <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.6 }}>
+                SIZE
+              </Txt>
+              <View style={styles.choices}>
+                {RADIUS_CHOICES.map((choice) => (
+                  <Chip
+                    key={choice.meters}
+                    label={`${choice.label} · ${choice.meters} m`}
+                    selected={draft.radiusMeters === choice.meters}
+                    onPress={() => set('radiusMeters', choice.meters)}
+                  />
+                ))}
+              </View>
+              <Txt variant="micro" tone="tertiary">
+                {describeRadius(draft.radiusMeters)}.
+              </Txt>
+            </View>
+          ) : null}
+
+          {confirmingDelete ? (
+            <View style={{ gap: spacing.sm }}>
+              <Txt variant="caption" tone="secondary">
+                Delete “{draft.label}”? Reminders you set here keep firing at their own coordinates,
+                but nothing points at this pin any more.
+              </Txt>
+              <View style={styles.actions}>
+                <Button
+                  label="Delete"
+                  variant="danger"
+                  icon="trash-outline"
+                  loading={removePlace.isPending}
+                  onPress={() =>
+                    removePlace.mutate(draft.id!, {
+                      onSuccess: () => {
+                        refreshRegions.mutate();
+                        toast.show({ message: 'Place deleted', tone: 'neutral' });
+                        onClose();
+                      },
+                      onError: (error) => {
+                        setConfirmingDelete(false);
+                        toast.show({ message: error.message, tone: 'danger' });
+                      },
+                    })
+                  }
+                />
+                <Button label="Keep" variant="ghost" onPress={() => setConfirmingDelete(false)} />
+              </View>
+            </View>
+          ) : (
+            <View style={styles.actions}>
               <Button
-                label="Delete"
-                variant="danger"
-                loading={removePlace.isPending}
-                onPress={() =>
-                  removePlace.mutate(draft.id!, {
-                    onSuccess: () => {
-                      refreshRegions.mutate();
-                      toast.show({ message: 'Place deleted', tone: 'neutral' });
-                      onClose();
-                    },
-                    onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
-                  })
-                }
+                label={draft.id ? 'Save place' : 'Add place'}
+                variant="primary"
+                disabled={invalid}
+                loading={upsert.isPending}
+                onPress={save}
               />
-            ) : null}
-          </View>
+              {draft.id ? (
+                <Button
+                  label="Delete"
+                  variant="danger"
+                  icon="trash-outline"
+                  onPress={() => setConfirmingDelete(true)}
+                />
+              ) : null}
+            </View>
+          )}
         </ScrollView>
       </View>
     </Modal>
@@ -642,6 +682,6 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
 });

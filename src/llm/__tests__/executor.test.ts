@@ -772,6 +772,8 @@ describe('executor', () => {
 
       expect(result.summary).toContain('Added 1 item');
       expect(result.detail).toContain('Milk');
+      // The Lists pane of the Notes tab is the only screen a checklist has.
+      expect(result.href).toBe('/notes?pane=lists&list=Shopping');
       expect(await repos.checklists.itemsForList('shopping')).toHaveLength(2);
     });
 

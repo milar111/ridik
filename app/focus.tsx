@@ -69,7 +69,7 @@ function FocusBody() {
   return (
     <>
       {live ? <RunningSession snapshot={live} phases={phases} /> : <QuickStart />}
-      <History idle={!live} />
+      <History />
     </>
   );
 }
@@ -186,10 +186,7 @@ function RunningSession({ snapshot, phases }: { snapshot: FocusSnapshot; phases:
   );
 }
 
-/**
- * The plan as a row of pills: done and current are filled, the rest outlined.
- * `current` is -1 for the builder's preview, where no phase has started yet.
- */
+/** The plan as a row of pills: done and current are filled, the rest outlined. */
 function PhaseStrip({ phases, current }: { phases: SessionPhase[]; current: number }) {
   const { colors, spacing } = useTheme();
   return (
@@ -229,186 +226,121 @@ function PhaseStrip({ phases, current }: { phases: SessionPhase[]; current: numb
 
 /* ------------------------------------------------------------ quick start -- */
 
+/**
+ * The presets, plus what the session is about.
+ *
+ * There is no numeric builder: total / focus / break had to agree with one
+ * another and with a cycle cap the screen never showed, so a typed 9999 ran as
+ * something else entirely. Any plan the presets do not cover is one spoken
+ * sentence away — `timer_start` in the executor builds it.
+ */
 function QuickStart() {
   const { colors, spacing } = useTheme();
   const toast = useToast();
   const start = useStartFocusPlan();
   const projects = useProjects('active');
 
-  const [totalMinutes, setTotalMinutes] = useState('60');
-  const [focusMinutes, setFocusMinutes] = useState('25');
-  const [breakMinutes, setBreakMinutes] = useState('5');
   const [subject, setSubject] = useState('');
   const [projectId, setProjectId] = useState<string | null>(null);
 
-  const custom = useMemo<FocusPlanInput>(() => {
+  const launch = (preset: Preset) => {
+    // A row cannot go grey the way the old Start button did, and starting twice
+    // retires the first session as "cancelled" — so the guard moves in here.
+    if (start.isPending) return;
     const project = projects.data?.find((p) => p.id === projectId) ?? null;
-    return {
-      label: subject.trim() || project?.name || 'Focus session',
-      subject: subject.trim() || null,
-      projectId,
-      totalMinutes: toMinutes(totalMinutes, 60),
-      focusMinutes: toMinutes(focusMinutes, 25),
-      breakMinutes: toMinutes(breakMinutes, 5, 0),
-    };
-  }, [breakMinutes, focusMinutes, projectId, projects.data, subject, totalMinutes]);
-
-  const preview = useMemo(() => previewFocusPlan(custom), [custom]);
-
-  const launch = (input: FocusPlanInput) => {
-    start.mutate(input, {
-      onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
-    });
+    start.mutate(
+      {
+        // What the session is about beats what its rhythm is called: "Physics"
+        // is what the lock screen should say, not "Pomodoro".
+        label: subject.trim() || project?.name || preset.label,
+        subject: subject.trim() || null,
+        projectId,
+        ...preset.plan,
+      },
+      { onError: (error) => toast.show({ message: error.message, tone: 'danger' }) },
+    );
   };
 
   return (
-    <>
-      <Section title="Quick start">
-        <Card padded={false}>
-          {PRESETS.map((preset, index) => {
-            const phases = previewFocusPlan({ label: preset.label, ...preset.plan });
-            return (
-              <View key={preset.key}>
-                {index > 0 ? <Divider inset={44} /> : null}
-                <Card
-                  padded={false}
-                  onPress={() => launch({ label: preset.label, ...preset.plan })}
-                  style={{ borderWidth: 0, backgroundColor: 'transparent' }}
-                >
-                  <View style={styles.presetRow}>
-                    <Ionicons name={preset.icon} size={19} color={colors.accent} />
-                    <View style={{ flex: 1, gap: 1 }}>
-                      <Txt variant="bodyStrong">{preset.label}</Txt>
-                      <Txt variant="caption" tone="tertiary">
-                        {describePlan(phases)}
-                      </Txt>
-                    </View>
-                    <Ionicons name="play" size={16} color={colors.textTertiary} />
-                  </View>
-                </Card>
-              </View>
-            );
-          })}
-        </Card>
-      </Section>
+    <Section title="Quick start">
+      <Card padded={false}>
+        <View style={{ padding: spacing.md, gap: spacing.md }}>
+          <Input
+            label="Subject"
+            value={subject}
+            onChangeText={setSubject}
+            placeholder="Optional — Math, thesis, inbox…"
+          />
 
-      <Section title="Custom">
-        <Card>
-          <View style={{ gap: spacing.md }}>
-            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-              <Input
-                label="Total min"
-                value={totalMinutes}
-                onChangeText={setTotalMinutes}
-                keyboardType="number-pad"
-                containerStyle={{ flex: 1 }}
-              />
-              <Input
-                label="Focus min"
-                value={focusMinutes}
-                onChangeText={setFocusMinutes}
-                keyboardType="number-pad"
-                containerStyle={{ flex: 1 }}
-              />
-              <Input
-                label="Break min"
-                value={breakMinutes}
-                onChangeText={setBreakMinutes}
-                keyboardType="number-pad"
-                containerStyle={{ flex: 1 }}
-              />
-            </View>
-
-            <Input
-              label="Subject"
-              value={subject}
-              onChangeText={setSubject}
-              placeholder="Optional — Math, thesis, inbox…"
-            />
-
-            {projects.data && projects.data.length > 0 ? (
-              <View style={{ gap: spacing.xs }}>
-                <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.6 }}>
-                  PROJECT
-                </Txt>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: spacing.xs }}
-                >
-                  {projects.data.map((project) => (
-                    <Chip
-                      key={project.id}
-                      label={project.name}
-                      selected={projectId === project.id}
-                      // Tapping the selected one clears it: the field is optional.
-                      onPress={() => setProjectId(projectId === project.id ? null : project.id)}
-                    />
-                  ))}
-                </ScrollView>
-              </View>
-            ) : null}
-
+          {projects.data && projects.data.length > 0 ? (
             <View style={{ gap: spacing.xs }}>
               <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.6 }}>
-                PLAN
+                PROJECT
               </Txt>
-              {preview.length > 0 ? (
-                <>
-                  <PhaseStrip phases={preview} current={-1} />
-                  <Txt variant="caption" tone="secondary">
-                    {describePlan(preview)}
-                  </Txt>
-                </>
-              ) : (
-                <Txt variant="caption" tone="danger">
-                  Those numbers do not make a session.
-                </Txt>
-              )}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: spacing.xs }}
+              >
+                {projects.data.map((project) => (
+                  <Chip
+                    key={project.id}
+                    label={project.name}
+                    selected={projectId === project.id}
+                    // Tapping the selected one clears it: the field is optional.
+                    onPress={() => setProjectId(projectId === project.id ? null : project.id)}
+                  />
+                ))}
+              </ScrollView>
             </View>
+          ) : null}
+        </View>
 
-            <Button
-              label="Start session"
-              icon="play"
-              variant="primary"
-              fullWidth
-              loading={start.isPending}
-              disabled={preview.length === 0}
-              onPress={() => launch(custom)}
-            />
-          </View>
-        </Card>
-      </Section>
-    </>
+        {PRESETS.map((preset) => {
+          const phases = previewFocusPlan({ label: preset.label, ...preset.plan });
+          return (
+            <View key={preset.key}>
+              <Divider />
+              <Card
+                padded={false}
+                onPress={() => launch(preset)}
+                style={{ borderWidth: 0, backgroundColor: 'transparent' }}
+                accessibilityLabel={`Start ${preset.label}`}
+              >
+                <View style={styles.presetRow}>
+                  <Ionicons name={preset.icon} size={19} color={colors.accent} />
+                  <View style={{ flex: 1, gap: 1 }}>
+                    <Txt variant="bodyStrong">{preset.label}</Txt>
+                    <Txt variant="caption" tone="tertiary">
+                      {describePlan(phases)}
+                    </Txt>
+                  </View>
+                  <Ionicons name="play" size={16} color={colors.textTertiary} />
+                </View>
+              </Card>
+            </View>
+          );
+        })}
+      </Card>
+
+      <Txt variant="caption" tone="tertiary">
+        {VOICE_HINT}
+      </Txt>
+    </Section>
   );
 }
 
 /* --------------------------------------------------------------- history -- */
 
-function History({ idle }: { idle: boolean }) {
+/** A record, not a launcher: a session is started above, or by saying so. */
+function History() {
   const { colors, spacing } = useTheme();
-  const toast = useToast();
-  const start = useStartFocusPlan();
   const { summaries, isLoading, isError, refetch } = useRecentFocusSummaries();
 
   // Fixed on mount: the week only turns over at midnight on Monday, and a fresh
   // range on every render would be a new query key every render.
   const week = useMemo(() => weekRange(), []);
   const weekMinutes = useFocusMinutes(week.start, week.end);
-
-  const repeat = (summary: (typeof summaries)[number]) => {
-    const plan = planFrom(summary.phases);
-    if (!plan) return;
-    start.mutate(
-      {
-        label: summary.session.label,
-        subject: summary.session.subject,
-        projectId: summary.session.projectId,
-        ...plan,
-      },
-      { onError: (error) => toast.show({ message: error.message, tone: 'danger' }) },
-    );
-  };
 
   return (
     <Section title="History">
@@ -436,12 +368,25 @@ function History({ idle }: { idle: boolean }) {
         ) : summaries.length === 0 ? (
           <>
             <Divider />
-            <EmptyState icon="timer-outline" title="No sessions yet" hint={VOICE_HINT} />
+            <EmptyState
+              icon="timer-outline"
+              title="No sessions yet"
+              hint="Every session you run is logged here."
+            />
           </>
         ) : (
-          summaries.map((summary) => {
-            const row = (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.md, paddingVertical: 10 }}>
+          summaries.map((summary) => (
+            <View key={summary.session.id}>
+              <Divider />
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: spacing.md,
+                  paddingHorizontal: spacing.md,
+                  paddingVertical: 10,
+                }}
+              >
                 <View style={{ flex: 1, gap: 1 }}>
                   <Txt variant="body" numberOfLines={1}>
                     {summary.session.label}
@@ -452,33 +397,12 @@ function History({ idle }: { idle: boolean }) {
                     {summary.session.status === 'cancelled' ? ' · stopped early' : ''}
                   </Txt>
                 </View>
-                <Txt
-                  variant="mono"
-                  tone={summary.minutes > 0 ? 'success' : 'tertiary'}
-                >
+                <Txt variant="mono" tone={summary.minutes > 0 ? 'success' : 'tertiary'}>
                   {formatDuration(summary.minutes)}
                 </Txt>
-                {idle ? <Ionicons name="refresh" size={15} color={colors.textTertiary} /> : null}
               </View>
-            );
-            return (
-              <View key={summary.session.id}>
-                <Divider />
-                {idle && summary.phases.length > 0 ? (
-                  <Card
-                    padded={false}
-                    onPress={() => repeat(summary)}
-                    style={{ borderWidth: 0, backgroundColor: 'transparent' }}
-                    accessibilityLabel={`Run ${summary.session.label} again`}
-                  >
-                    {row}
-                  </Card>
-                ) : (
-                  row
-                )}
-              </View>
-            );
-          })
+            </View>
+          ))
         )}
       </Card>
     </Section>
@@ -521,12 +445,6 @@ function InlineError({ message, onRetry }: { message: string; onRetry: () => voi
 
 /* ---------------------------------------------------------------- helpers -- */
 
-function toMinutes(raw: string, fallback: number, min = 1): number {
-  const value = Number.parseInt(raw, 10);
-  if (!Number.isFinite(value)) return fallback;
-  return Math.max(min, value);
-}
-
 function describePlan(phases: SessionPhase[]): string {
   const { totalMinutes } = focusPlanTotals(phases);
   const focus = phases.filter((phase) => phase.kind === 'focus');
@@ -536,17 +454,6 @@ function describePlan(phases: SessionPhase[]): string {
   const blocks =
     focus.length > 1 ? `${focus.length} × ${formatDuration(first)}` : formatDuration(first);
   return `${blocks} · ${breaks} · ${formatDuration(totalMinutes)} total`;
-}
-
-/** Rebuilds the input that produced a plan, so a past session can be re-run. */
-function planFrom(phases: SessionPhase[]): Pick<FocusPlanInput, 'focusMinutes' | 'breakMinutes' | 'cycles'> | null {
-  const focus = phases.filter((phase) => phase.kind === 'focus');
-  if (focus.length === 0) return null;
-  return {
-    focusMinutes: focus[0]!.minutes,
-    breakMinutes: phases.find((phase) => phase.kind === 'break')?.minutes ?? 0,
-    cycles: focus.length,
-  };
 }
 
 const styles = StyleSheet.create({

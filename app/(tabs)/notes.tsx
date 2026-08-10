@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
+import { countLabel } from '@/core/format';
 import {
   ChecklistSection,
   ErrorRow,
+  NewListDialog,
   NoteActionsSheet,
   NoteRow,
   SkeletonRows,
@@ -14,7 +16,16 @@ import {
 } from '@/features/notes';
 import { useChecklistNames, useNoteSearch, useNoteTags, useNotes } from '@/hooks';
 import type { NoteWithBullets } from '@/repositories/notes';
-import { Button, Divider, EmptyState, Input, MIC_CLEARANCE, Screen, Segmented } from '@/ui/components';
+import {
+  Button,
+  Divider,
+  EmptyState,
+  Input,
+  MIC_CLEARANCE,
+  Screen,
+  Segmented,
+  Txt,
+} from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
 
@@ -24,10 +35,22 @@ type Pane = 'notes' | 'lists';
  * Two capture surfaces that the brief keeps strictly apart, behind one control.
  * Notes are things you keep and re-read; lists are things you tick off and
  * throw away. Mixing them in one feed loses both.
+ *
+ * `?pane=lists&list=Shopping` is the only address a checklist has: it is what a
+ * voice result deep-links to, so the pane has to be part of the URL.
  */
 export default function NotesScreen() {
   const { spacing } = useTheme();
-  const [pane, setPane] = useState<Pane>('notes');
+  const { pane: wanted, list } = useLocalSearchParams<{ pane?: string; list?: string }>();
+  const [pane, setPane] = useState<Pane>(wanted === 'lists' || list ? 'lists' : 'notes');
+
+  // A result is usually tapped while this tab is already open on Notes, so the
+  // URL has to be able to move the pane and not merely choose it on mount.
+  // Pressing the segmented control changes neither dep, so the user's own
+  // choice is never overridden afterwards.
+  useEffect(() => {
+    if (wanted === 'lists' || list) setPane('lists');
+  }, [wanted, list]);
 
   return (
     <Screen title="Notes" scroll={false} contentStyle={{ flex: 1, gap: spacing.sm }}>
@@ -40,7 +63,7 @@ export default function NotesScreen() {
         ]}
       />
       <ErrorBoundary label={pane === 'notes' ? 'notes list' : 'checklists'}>
-        {pane === 'notes' ? <NotesPane /> : <ListsPane />}
+        {pane === 'notes' ? <NotesPane /> : <ListsPane focus={list} />}
       </ErrorBoundary>
     </Screen>
   );
@@ -188,11 +211,11 @@ function NotesEmpty({
 
 /* ------------------------------------------------------------------ lists -- */
 
-function ListsPane() {
-  const router = useRouter();
+function ListsPane({ focus }: { focus?: string }) {
   const { spacing } = useTheme();
   const names = useChecklistNames();
 
+  const [creating, setCreating] = useState(false);
   // `null` means "untouched", so the first list can start open without that
   // choice sticking after the user has collapsed it.
   const [opened, setOpened] = useState<Set<string> | null>(null);
@@ -202,6 +225,18 @@ function ListsPane() {
     [lists],
   );
   const expanded = opened ?? fallback;
+
+  // A link carries the list in whatever words produced it; the sections are
+  // keyed on the stored name.
+  const target = useMemo(() => {
+    const wanted = focus?.trim().toLowerCase();
+    if (!wanted) return undefined;
+    return lists.find((entry) => entry.name.toLowerCase() === wanted)?.name;
+  }, [focus, lists]);
+
+  useEffect(() => {
+    if (target) setOpened(new Set([target]));
+  }, [target]);
 
   const toggle = (name: string) =>
     setOpened(() => {
@@ -222,38 +257,63 @@ function ListsPane() {
     );
   }
 
+  const stillOpen = lists.reduce((sum, entry) => sum + entry.open, 0);
+
   return (
-    <FlatList
-      data={lists}
-      keyExtractor={(list) => list.name}
-      keyboardShouldPersistTaps="handled"
-      ItemSeparatorComponent={Divider}
-      contentContainerStyle={{ paddingBottom: MIC_CLEARANCE }}
-      ListEmptyComponent={
-        <EmptyState
-          icon="list-outline"
-          title="No lists yet"
-          hint="Try: “add M3 screws to my hardware list”"
-        />
-      }
-      ListFooterComponent={
-        <View style={{ paddingTop: spacing.md, alignItems: 'flex-start' }}>
-          <Button
-            label={lists.length > 0 ? 'Open all lists' : 'Start a list'}
-            icon="open-outline"
-            size="sm"
-            variant="ghost"
-            onPress={() => router.push('/checklists')}
+    <>
+      <FlatList
+        data={lists}
+        keyExtractor={(list) => list.name}
+        keyboardShouldPersistTaps="handled"
+        ItemSeparatorComponent={Divider}
+        contentContainerStyle={{ paddingBottom: MIC_CLEARANCE }}
+        ListHeaderComponent={
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.sm,
+              paddingBottom: spacing.xs,
+            }}
+          >
+            {lists.length > 0 ? (
+              <Txt variant="caption" tone="tertiary" style={{ flex: 1 }}>
+                {countLabel(lists.length, 'list')} · {stillOpen} still open
+              </Txt>
+            ) : (
+              <View style={{ flex: 1 }} />
+            )}
+            <Button
+              label="New list"
+              icon="add"
+              size="sm"
+              variant="ghost"
+              onPress={() => setCreating(true)}
+            />
+          </View>
+        }
+        ListEmptyComponent={
+          <EmptyState
+            icon="list-outline"
+            title="No lists yet"
+            hint="Try: “add M3 screws to my hardware list”"
           />
-        </View>
-      }
-      renderItem={({ item }) => (
-        <ChecklistSection
-          summary={item}
-          expanded={expanded.has(item.name)}
-          onToggleExpanded={() => toggle(item.name)}
-        />
-      )}
-    />
+        }
+        renderItem={({ item }) => (
+          <ChecklistSection
+            summary={item}
+            expanded={expanded.has(item.name)}
+            onToggleExpanded={() => toggle(item.name)}
+          />
+        )}
+      />
+
+      <NewListDialog
+        visible={creating}
+        onClose={() => setCreating(false)}
+        // A list you have just started is the one you are about to fill.
+        onCreated={(name) => setOpened(new Set([name]))}
+      />
+    </>
   );
 }

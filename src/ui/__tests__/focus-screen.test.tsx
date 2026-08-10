@@ -93,10 +93,29 @@ function wrap() {
   );
 }
 
+const FINISHED = {
+  session: {
+    id: 'f1',
+    label: 'Maths revision',
+    subject: 'Maths',
+    projectId: null,
+    startedAt: Date.UTC(2026, 0, 5, 9, 0),
+    status: 'completed',
+  },
+  minutes: 50,
+  phases: [
+    { kind: 'focus', minutes: 25 },
+    { kind: 'break', minutes: 5 },
+    { kind: 'focus', minutes: 25 },
+  ],
+};
+
 describe('focus screen', () => {
   beforeEach(() => {
     mockLive = { snapshot: null, phases: [], isLoading: false };
     mockSummaries = [];
+    mockControl.mutate.mockClear();
+    mockStart.mutate.mockClear();
   });
 
   it('teaches the voice path when nothing has ever run', async () => {
@@ -126,5 +145,42 @@ describe('focus screen', () => {
 
     await fireEvent.press(screen.getByText('Pause'));
     expect(mockControl.mutate).toHaveBeenCalledWith('pause', expect.anything());
+  });
+
+  /* Three numeric fields that had to agree with each other — and with a cycle
+     cap the screen never showed — are a puzzle, not a control. The presets
+     carry the subject; anything else is spoken. */
+  it('starts a preset with the subject typed above it, and has no numeric builder', async () => {
+    await wrap();
+
+    expect(screen.queryByText('TOTAL MIN')).toBeNull();
+    expect(screen.queryByText('FOCUS MIN')).toBeNull();
+    expect(screen.queryByText('BREAK MIN')).toBeNull();
+    expect(screen.queryByText('Start session')).toBeNull();
+
+    await fireEvent.changeText(screen.getByPlaceholderText(/Math, thesis/), 'Physics');
+    await fireEvent.press(screen.getByText('Pomodoro'));
+
+    expect(mockStart.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        label: 'Physics',
+        subject: 'Physics',
+        focusMinutes: 25,
+        breakMinutes: 5,
+        cycles: 4,
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('keeps history as a record, not a third way to start a session', async () => {
+    mockSummaries = [FINISHED];
+    await wrap();
+
+    expect(screen.getByText('Maths revision')).toBeTruthy();
+    expect(screen.queryByLabelText(/again$/)).toBeNull();
+
+    await fireEvent.press(screen.getByText('Maths revision'));
+    expect(mockStart.mutate).not.toHaveBeenCalled();
   });
 });

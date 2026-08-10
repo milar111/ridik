@@ -1,8 +1,10 @@
-import { render, screen } from '@testing-library/react-native';
+import { render, screen, fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Alert } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { currentZone, epochToLocal, todayLocalDate } from '@/core/time';
+import type { Transaction } from '@/db/schema';
 import type { ActivitySummary } from '@/repositories/activity';
 import type { LedgerQueryResult } from '@/repositories/ledger';
 
@@ -16,6 +18,10 @@ const mockRepos = {
     query: jest.fn(),
     listRecent: jest.fn(),
     monthlyTotals: jest.fn(),
+    distinctCategories: jest.fn(),
+  },
+  crm: {
+    listEntities: jest.fn(),
   },
   habits: {
     listHabits: jest.fn(),
@@ -71,6 +77,34 @@ function emptyLedger(overrides: Partial<LedgerQueryResult> = {}): LedgerQueryRes
   };
 }
 
+function transaction(over: Partial<Transaction> = {}): Transaction {
+  return {
+    id: 't1',
+    amount: 12.5,
+    currency: 'EUR',
+    category: 'filament',
+    entityName: null,
+    description: 'Spool of PLA',
+    createdAt: Date.now(),
+    direction: 'expense',
+    projectId: null,
+    localDate: TODAY,
+    ...over,
+  };
+}
+
+/** A period the ledger will render rows for, holding exactly `transaction()`. */
+function oneTransactionPeriod(): LedgerQueryResult {
+  return emptyLedger({
+    count: 1,
+    from: Date.now() - 86_400_000,
+    to: Date.now() + 1,
+    primaryCurrency: 'EUR',
+    expenseByCurrency: { EUR: 12.5 },
+    netByCurrency: { EUR: -12.5 },
+  });
+}
+
 function emptySummary(overrides: Partial<ActivitySummary> = {}): ActivitySummary {
   return { entries: [], totalMinutes: 0, byDay: [], byProject: [], byHabit: [], ...overrides };
 }
@@ -114,6 +148,8 @@ beforeEach(() => {
   mockRepos.ledger.query.mockResolvedValue(emptyLedger());
   mockRepos.ledger.listRecent.mockResolvedValue([]);
   mockRepos.ledger.monthlyTotals.mockResolvedValue([]);
+  mockRepos.ledger.distinctCategories.mockResolvedValue([]);
+  mockRepos.crm.listEntities.mockResolvedValue([]);
   mockRepos.habits.listHabits.mockResolvedValue([]);
   mockRepos.habits.habitHistory.mockResolvedValue([]);
   mockRepos.activity.summarise.mockResolvedValue(emptySummary());
@@ -160,6 +196,55 @@ describe('ledger screen', () => {
     // Recent rows are windowed; the count says how much of the period is shown.
     expect(screen.getByText('latest 0 of 2')).toBeTruthy();
   });
+
+  /* Both fields are join keys: the category is what the breakdown groups on and
+     the entity name is the only link to a person's Money section. Typed freely,
+     one slip forks the chart or detaches the row, and nothing merges them back
+     — so the sheet offers the spellings that already exist. */
+  it('picks the category and the person from what already exists', async () => {
+    mockRepos.ledger.query.mockResolvedValue(oneTransactionPeriod());
+    mockRepos.ledger.listRecent.mockResolvedValue([transaction()]);
+    mockRepos.ledger.distinctCategories.mockResolvedValue(['filament', 'coffee']);
+    mockRepos.crm.listEntities.mockResolvedValue([
+      {
+        entity: { id: 'e1', name: 'Ivo Petrov' },
+        aliases: [],
+        openCommitments: 0,
+        interactionCount: 0,
+        lastInteractionAt: null,
+      },
+    ]);
+
+    await wrap(<LedgerScreen />);
+    await fireEvent.press(await screen.findByLabelText('Spool of PLA, spent €12.50'));
+
+    expect(await screen.findByLabelText('coffee')).toBeTruthy();
+    expect(screen.getByLabelText('filament').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+    expect(screen.getByLabelText('Ivo Petrov')).toBeTruthy();
+    // No entity on this row, and "None" says so rather than an empty box.
+    expect(screen.getByLabelText('None').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+  });
+
+  it('deletes from inside the edit sheet, never from the row that opens it', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockRepos.ledger.query.mockResolvedValue(oneTransactionPeriod());
+    mockRepos.ledger.listRecent.mockResolvedValue([transaction()]);
+
+    await wrap(<LedgerScreen />);
+    const row = await screen.findByLabelText('Spool of PLA, spent €12.50');
+
+    expect(row.props.accessibilityHint).toBe('Tap to edit');
+    await fireEvent(row, 'longPress');
+    expect(alert).not.toHaveBeenCalled();
+
+    await fireEvent.press(row);
+    await fireEvent.press(await screen.findByLabelText('Delete'));
+    expect(alert.mock.calls[0]?.[0]).toBe('Delete this transaction?');
+  });
 });
 
 describe('habits screen', () => {
@@ -180,10 +265,36 @@ describe('habits screen', () => {
     await wrap(<HabitsScreen />);
     expect(await screen.findByText("Try: 'logged 45 minutes of workout'")).toBeTruthy();
   });
+
+  /* Nothing reads a habit's unit — the grid counts days either way — so the
+     new-habit form asks for the name and nothing else. */
+  it('asks only for a name when a habit is added', async () => {
+    await wrap(<HabitsScreen />);
+    await fireEvent.press(await screen.findByLabelText('Add a habit'));
+
+    expect(screen.getByText('NEW HABIT')).toBeTruthy();
+    expect(screen.queryByText('UNIT')).toBeNull();
+    expect(screen.queryByText('Minutes')).toBeNull();
+  });
+
+  /* The card itself logs the day, so a long press is one slip away from every
+     tap — nothing behind it may destroy the streak. */
+  it('offers archive and nothing destructive on a long press', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockRepos.habits.listHabits.mockResolvedValue([
+      habitRow({ name: 'Anki', lastCompletedDate: TODAY, streak: 4 }),
+    ]);
+
+    await wrap(<HabitsScreen />);
+    await fireEvent(await screen.findByText('Anki'), 'longPress');
+
+    const buttons = alert.mock.calls[0]?.[2] ?? [];
+    expect(buttons.map((button) => button.text)).toEqual(['Cancel', 'Archive']);
+  });
 });
 
 describe('activity screen', () => {
-  it('summarises the period and offers the export once there is something to export', async () => {
+  function withOneEntry() {
     const entry = {
       id: 'e1',
       habitId: null,
@@ -202,6 +313,10 @@ describe('activity screen', () => {
         byProject: [{ id: 'p1', name: 'Pump', count: 1, minutes: 90 }],
       }),
     );
+  }
+
+  it('summarises the period and offers the export once there is something to export', async () => {
+    withOneEntry();
 
     await wrap(<ActivityScreen />);
 
@@ -217,5 +332,44 @@ describe('activity screen', () => {
     await wrap(<ActivityScreen />);
     const button = await screen.findByLabelText('Export');
     expect(button.props.accessibilityState).toMatchObject({ disabled: true });
+  });
+
+  /* One markdown document, two ways out. Mail and PDF are what the OS share
+     sheet does with the file, not rows this app has to own. */
+  it('hands the export to the clipboard or the share sheet and nowhere else', async () => {
+    withOneEntry();
+
+    await wrap(<ActivityScreen />);
+    await fireEvent.press(await screen.findByLabelText('Export'));
+
+    expect(await screen.findByLabelText('Copy markdown')).toBeTruthy();
+    expect(screen.getByLabelText('Share file')).toBeTruthy();
+    expect(screen.queryByLabelText('Export PDF')).toBeNull();
+    expect(screen.queryByLabelText('Email')).toBeNull();
+  });
+
+  /* `activity_log` is the only activity tool in the LLM contract: voice writes
+     the log and nothing removes from it. Until an `activity_delete` exists,
+     this row is the one route out of a mis-logged entry, so it keeps both the
+     gesture and the accessibility action that reaches it without one. */
+  it('deletes a mis-logged entry from the row, by gesture or by screen reader', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    withOneEntry();
+
+    await wrap(<ActivityScreen />);
+    const row = await screen.findByLabelText('Rewrote the pump firmware');
+
+    expect(row.props.accessibilityActions).toEqual([
+      { name: 'longpress', label: 'Delete entry' },
+    ]);
+
+    await fireEvent(row, 'longPress');
+    expect(alert.mock.calls[0]?.[0]).toBe('Delete this entry?');
+
+    alert.mockClear();
+    await fireEvent(row, 'accessibilityAction', {
+      nativeEvent: { actionName: 'longpress' },
+    });
+    expect(alert.mock.calls[0]?.[0]).toBe('Delete this entry?');
   });
 });

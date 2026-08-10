@@ -5,6 +5,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   View,
 } from 'react-native';
@@ -15,7 +16,9 @@ import { toAppError } from '@/core/result';
 import { currentZone, epochToLocal, formatDayHeading, formatTime, localDateOf } from '@/core/time';
 import type { Transaction } from '@/db/schema';
 import {
+  useCrmEntities,
   useDeleteTransaction,
+  useLedgerCategories,
   useLedgerQuery,
   useMonthlyTotals,
   useRecentTransactions,
@@ -170,7 +173,10 @@ function LedgerBody({ period }: { period: Period }) {
           style: 'destructive',
           onPress: () =>
             remove.mutate(tx.id, {
-              onSuccess: () => toast.show({ message: 'Transaction deleted' }),
+              onSuccess: () => {
+                setEditing(null);
+                toast.show({ message: 'Transaction deleted' });
+              },
               onError: (error) =>
                 toast.show({ message: 'Could not delete that', detail: reason(error), tone: 'danger' }),
             }),
@@ -230,7 +236,7 @@ function LedgerBody({ period }: { period: Period }) {
       </View>
 
       {currencies.length > 1 && currency ? (
-        <View style={styles.currencyRow}>
+        <View style={styles.chipRow}>
           {currencies.map((code) => (
             <Chip
               key={code}
@@ -326,11 +332,7 @@ function LedgerBody({ period }: { period: Period }) {
                 {entries.map((tx, i) => (
                   <View key={tx.id}>
                     {i > 0 ? <Divider inset={spacing.md} /> : null}
-                    <TransactionRow
-                      tx={tx}
-                      onEdit={() => setEditing(tx)}
-                      onDelete={() => confirmDelete(tx)}
-                    />
+                    <TransactionRow tx={tx} onEdit={() => setEditing(tx)} />
                   </View>
                 ))}
               </Card>
@@ -340,7 +342,12 @@ function LedgerBody({ period }: { period: Period }) {
       </Section>
 
       {editing ? (
-        <EditSheet key={editing.id} tx={editing} onClose={() => setEditing(null)} />
+        <EditSheet
+          key={editing.id}
+          tx={editing}
+          onClose={() => setEditing(null)}
+          onDelete={() => confirmDelete(editing)}
+        />
       ) : null}
     </View>
   );
@@ -456,15 +463,7 @@ function BreakdownBar({
   );
 }
 
-function TransactionRow({
-  tx,
-  onEdit,
-  onDelete,
-}: {
-  tx: Transaction;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
+function TransactionRow({ tx, onEdit }: { tx: Transaction; onEdit: () => void }) {
   const { colors, spacing } = useTheme();
   const income = tx.direction === 'income';
   const money = formatMoney(tx.amount, tx.currency);
@@ -474,9 +473,8 @@ function TransactionRow({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${title}, ${income ? 'received' : 'spent'} ${money}`}
-      accessibilityHint="Tap to edit, long press to delete"
+      accessibilityHint="Tap to edit"
       onPress={onEdit}
-      onLongPress={onDelete}
       style={({ pressed }) => [
         styles.txRow,
         { paddingHorizontal: spacing.md, opacity: pressed ? 0.6 : 1 },
@@ -505,11 +503,21 @@ function TransactionRow({
   );
 }
 
-function EditSheet({ tx, onClose }: { tx: Transaction; onClose: () => void }) {
+function EditSheet({
+  tx,
+  onClose,
+  onDelete,
+}: {
+  tx: Transaction;
+  onClose: () => void;
+  onDelete: () => void;
+}) {
   const { colors, radius, spacing } = useTheme();
   const insets = useSafeAreaInsets();
   const toast = useToast();
   const update = useUpdateTransaction();
+  const categories = useLedgerCategories();
+  const entities = useCrmEntities();
 
   const [amount, setAmount] = useState(String(tx.amount));
   const [category, setCategory] = useState(tx.category);
@@ -517,11 +525,20 @@ function EditSheet({ tx, onClose }: { tx: Transaction; onClose: () => void }) {
   const [entity, setEntity] = useState(tx.entityName ?? '');
   const [direction, setDirection] = useState<Direction>(tx.direction);
 
+  const entityNames = useMemo(
+    () => (entities.data ?? []).map((summary) => summary.entity.name),
+    [entities.data],
+  );
+
   const save = () => {
     // Comma decimals are what a European keyboard offers first.
     const parsed = Number(amount.replace(',', '.'));
     if (!Number.isFinite(parsed) || parsed <= 0) {
       toast.show({ message: 'That amount is not a number', tone: 'danger' });
+      return;
+    }
+    if (!category.trim()) {
+      toast.show({ message: 'Pick a category', tone: 'danger' });
       return;
     }
     update.mutate(
@@ -573,34 +590,47 @@ function EditSheet({ tx, onClose }: { tx: Transaction; onClose: () => void }) {
         >
           <Txt variant="heading">Edit transaction</Txt>
 
-          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+          <ScrollView
+            style={{ maxHeight: 420 }}
+            contentContainerStyle={{ gap: spacing.md }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             <Input
               label={`Amount (${tx.currency})`}
               value={amount}
               onChangeText={setAmount}
               keyboardType="decimal-pad"
-              containerStyle={{ flex: 1 }}
             />
-            <Input
+
+            <ChipField
               label="Category"
+              options={categories.data ?? []}
               value={category}
-              onChangeText={setCategory}
-              autoCapitalize="none"
-              containerStyle={{ flex: 1 }}
+              onChange={setCategory}
+              placeholder="New category"
             />
-          </View>
 
-          <Input label="Description" value={description} onChangeText={setDescription} />
-          <Input label="Person or place" value={entity} onChangeText={setEntity} />
+            <Input label="Description" value={description} onChangeText={setDescription} />
 
-          <Segmented
-            value={direction}
-            onChange={setDirection}
-            options={[
-              { value: 'expense', label: 'Expense' },
-              { value: 'income', label: 'Income' },
-            ]}
-          />
+            <ChipField
+              label="Person or place"
+              options={entityNames}
+              value={entity}
+              onChange={setEntity}
+              noneLabel="None"
+              placeholder="New name"
+            />
+
+            <Segmented
+              value={direction}
+              onChange={setDirection}
+              options={[
+                { value: 'expense', label: 'Expense' },
+                { value: 'income', label: 'Income' },
+              ]}
+            />
+          </ScrollView>
 
           <View style={{ flexDirection: 'row', gap: spacing.sm }}>
             <Button
@@ -612,9 +642,94 @@ function EditSheet({ tx, onClose }: { tx: Transaction; onClose: () => void }) {
             />
             <Button label="Cancel" variant="ghost" onPress={onClose} />
           </View>
+
+          <Button label="Delete" icon="trash-outline" variant="danger" fullWidth onPress={onDelete} />
         </View>
       </KeyboardAvoidingView>
     </Modal>
+  );
+}
+
+/**
+ * A join key, offered as the spellings that already exist.
+ *
+ * Both fields this renders are keys, not labels: a category is what the
+ * "Where it went" breakdown groups on, and an entity name is the only thing
+ * tying a transaction to a person's Money section. Typed freely, "Groceries "
+ * forks the chart and "Ivo Petrov " detaches the row, and nothing in the app
+ * can merge either back — so typing is the second offer, not the first.
+ */
+function ChipField({
+  label,
+  options,
+  value,
+  onChange,
+  noneLabel,
+  placeholder,
+}: {
+  label: string;
+  options: readonly string[];
+  value: string;
+  onChange: (next: string) => void;
+  noneLabel?: string;
+  placeholder: string;
+}) {
+  // Latched by the New chip; otherwise derived, so a value that renders before
+  // its options arrive stops looking new the moment they land.
+  const [typing, setTyping] = useState(false);
+  const unlisted = value !== '' && !options.includes(value);
+  const editing = typing || unlisted;
+
+  const pick = (next: string) => {
+    setTyping(false);
+    onChange(next);
+  };
+
+  return (
+    <View style={{ gap: 5 }}>
+      <Txt variant="micro" tone="tertiary" style={styles.fieldLabel}>
+        {label.toUpperCase()}
+      </Txt>
+      <View style={styles.chipRow}>
+        {noneLabel ? (
+          <Chip
+            label={noneLabel}
+            size="sm"
+            selected={!editing && value === ''}
+            onPress={() => pick('')}
+          />
+        ) : null}
+        {options.map((option) => (
+          <Chip
+            key={option}
+            label={option}
+            size="sm"
+            color={colorForTag(option)}
+            selected={!editing && option === value}
+            onPress={() => pick(option)}
+          />
+        ))}
+        <Chip
+          label="New"
+          icon="add"
+          size="sm"
+          selected={editing}
+          onPress={() => {
+            setTyping(true);
+            if (!unlisted) onChange('');
+          }}
+        />
+      </View>
+      {editing ? (
+        <Input
+          value={value}
+          onChangeText={onChange}
+          placeholder={placeholder}
+          autoCapitalize="none"
+          autoFocus={typing}
+        />
+      ) : null}
+    </View>
   );
 }
 
@@ -656,7 +771,8 @@ function SkeletonRows({ count = 4 }: { count?: number }) {
 const styles = StyleSheet.create({
   spread: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   tracked: { letterSpacing: 0.8 },
-  currencyRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  fieldLabel: { letterSpacing: 0.6 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   share: { width: 34, textAlign: 'right' },
   track: { height: 6, borderRadius: 3, overflow: 'hidden' },
   trend: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, height: 82 },

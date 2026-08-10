@@ -1003,6 +1003,15 @@ export function createExecutor(ctx: ExecutionContext) {
 
   /* ------------------------------------------------------------ checklists -- */
 
+  /**
+   * The Lists pane of the Notes tab is the only screen a checklist has, so the
+   * address has to carry the pane as well as the list.
+   */
+  function checklistHref(listName?: string): string {
+    const name = listName?.trim();
+    return name ? `/notes?pane=lists&list=${encodeURIComponent(name)}` : '/notes?pane=lists';
+  }
+
   async function checklistAdd(params: ActionParams<'checklist_add'>): Promise<Outcome> {
     const projectId = await projectIdFor(params.project);
     const result = await repos.checklists.addItems(
@@ -1011,7 +1020,7 @@ export function createExecutor(ctx: ExecutionContext) {
       projectId ?? undefined,
     );
 
-    const href = `/checklists?list=${encodeURIComponent(params.list_name.trim())}`;
+    const href = checklistHref(params.list_name);
     const changed = result.added.length + result.reopened.length;
     return done(
       changed === 0
@@ -1037,10 +1046,10 @@ export function createExecutor(ctx: ExecutionContext) {
       itemQuery: params.item_query,
       completed: params.completed,
     });
-    if (!result.ok) return fromAppError(result.error, { href: '/checklists' });
+    if (!result.ok) return fromAppError(result.error, { href: checklistHref() });
 
     const row = result.value;
-    const href = `/checklists?list=${encodeURIComponent(row.listName)}`;
+    const href = checklistHref(row.listName);
     return done(
       params.completed
         ? `Ticked off ${row.itemText}.`
@@ -1560,7 +1569,7 @@ export function createExecutor(ctx: ExecutionContext) {
           consider(
             item.itemText,
             'checklist item',
-            `/checklists?list=${encodeURIComponent(item.listName)}`,
+            checklistHref(item.listName),
             item.listName,
           );
         }

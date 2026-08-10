@@ -28,6 +28,7 @@ jest.mock('react-native-reanimated', () => {
 
 const mockBack = jest.fn();
 const mockSpeech = { isSpeaking: false, play: jest.fn(), stop: jest.fn() };
+const mockSetTts = jest.fn();
 let mockTtsEnabled = true;
 
 jest.mock('expo-router', () => ({
@@ -41,12 +42,17 @@ jest.mock('expo-router', () => ({
 
 jest.mock('@/features/export', () => ({
   briefingMarkdown: () => '# Briefing',
-  copyToClipboard: jest.fn(),
   shareAsFile: jest.fn(),
 }));
 
 jest.mock('@/hooks', () => ({
-  useSetting: () => ({ value: mockTtsEnabled, isLoading: false, error: null, set: jest.fn(), isSaving: false }),
+  useSetting: () => ({
+    value: mockTtsEnabled,
+    isLoading: false,
+    error: null,
+    set: mockSetTts,
+    isSaving: false,
+  }),
 }));
 
 jest.mock('@/hooks/useBriefing', () => ({
@@ -99,6 +105,7 @@ function wrap() {
 describe('briefing screen', () => {
   beforeEach(() => {
     mockTtsEnabled = true;
+    jest.clearAllMocks();
   });
 
   it('shows the three bullets and plays the script for the chosen scope', async () => {
@@ -110,17 +117,30 @@ describe('briefing screen', () => {
     await fireEvent.press(screen.getByText('Tomorrow'));
     await fireEvent.press(screen.getByText('Play'));
     expect(mockSpeech.play).toHaveBeenCalledWith('tomorrow');
+
+    // Share opens the OS sheet, which copies too; two buttons for it is one.
+    expect(screen.getByLabelText('Share the briefing')).toBeTruthy();
+    expect(screen.queryByLabelText('Copy the briefing as markdown')).toBeNull();
   });
 
-  it('refuses to speak while speech is switched off, and can always be dismissed', async () => {
+  /* Play is the answer to "shall I speak?". A dead button beside a link to
+     another screen made the user go and say yes somewhere else first — but
+     "Speak replies" governs speech nobody asked for, so one press here must
+     not switch it back on for the whole app. */
+  it('speaks when "Speak replies" is off, without switching it on', async () => {
     mockTtsEnabled = false;
     await wrap();
 
-    expect(screen.getByText('Speech is off · Settings')).toBeTruthy();
-    expect(screen.getByLabelText('Play the spoken briefing').props.accessibilityState).toMatchObject(
-      { disabled: true },
-    );
+    const play = screen.getByLabelText('Play the spoken briefing');
+    expect(play.props.accessibilityState).toMatchObject({ disabled: false });
 
+    await fireEvent.press(play);
+    expect(mockSpeech.play).toHaveBeenCalledWith('today');
+    expect(mockSetTts).not.toHaveBeenCalled();
+  });
+
+  it('can always be dismissed', async () => {
+    await wrap();
     await fireEvent.press(screen.getByLabelText('Close briefing'));
     expect(mockBack).toHaveBeenCalled();
   });
