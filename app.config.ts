@@ -190,6 +190,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
      * codebase serves both "my free-tier key" and "paying customers".
      */
     assistantApiUrl: process.env.EXPO_PUBLIC_RIDIK_API_URL ?? '',
+    /**
+     * Both are required before an App Store submission that sells a
+     * subscription, and the Settings screen links to them. Left empty here on
+     * purpose: a placeholder URL that 404s is worse than an honest "not set up
+     * yet" in the app.
+     */
+    legal: {
+      privacy: process.env.EXPO_PUBLIC_PRIVACY_URL ?? '',
+      terms: process.env.EXPO_PUBLIC_TERMS_URL ?? '',
+    },
     googleOAuth: {
       iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '',
       androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? '',

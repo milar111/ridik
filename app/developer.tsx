@@ -1,0 +1,462 @@
+/**
+ * The engineering surface, reached by tapping Settings → Version seven times.
+ *
+ * Nothing here was deleted from the product; it was moved. These are the knobs
+ * that make the app worse when set wrong — a model name that has to be spelled
+ * exactly, thresholds that trade one kind of misrecognition for another, spend
+ * caps that only matter on a build using your own key — plus the read-outs that
+ * are only meaningful if you know what the app does internally.
+ *
+ * Keeping them in one place behind a deliberate gesture means the defaults stay
+ * honest: nobody has to be talked out of a bad value, because nobody stumbles
+ * into it.
+ */
+import { useMemo } from 'react';
+import { View } from 'react-native';
+import { useRouter } from 'expo-router';
+
+import { countLabel } from '@/core/format';
+import { formatDateTime, isValidZone } from '@/core/time';
+import { copyToClipboard } from '@/features/export';
+import {
+  Group,
+  Row,
+  SecretRow,
+  SliderRow,
+  SwitchRow,
+  ValidatedTextRow,
+  formatBytes,
+} from '@/features/settings';
+import { useAssistantUsage, useRebuildNoteSearchIndex, useSetting } from '@/hooks';
+import { useAssistantMode } from '@/hooks/useAssistant';
+import { formatCostMicros } from '@/llm/usage';
+import {
+  useBackgroundStatus,
+  useDatabaseStats,
+  useLogEntries,
+  usePermissions,
+  useRequestPermission,
+  useSecret,
+  useSyncCalendarNow,
+  type PermissionId,
+  type PermissionLevel,
+} from '@/hooks/useSystem';
+import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { useTheme } from '@/ui/ThemeProvider';
+import { Badge, Button, Card, Chip, Screen, Section, Txt, useToast } from '@/ui/components';
+
+/** Names the Gemini client will actually accept. Free text is how voice dies. */
+const MODEL_PRESETS = ['gemini-flash-latest', 'gemini-3-flash', 'gemini-3.1-flash-lite'] as const;
+
+export default function DeveloperScreen() {
+  const router = useRouter();
+  const developer = useSetting('developerMode');
+
+  return (
+    <Screen
+      title="Developer"
+      subtitle="Everything the main screen deliberately hides"
+      right={<Button label="Done" size="sm" onPress={() => router.back()} />}
+    >
+      <ErrorBoundary label="developer: assistant">
+        <AssistantGroup />
+      </ErrorBoundary>
+      <ErrorBoundary label="developer: recognition">
+        <RecognitionGroup />
+      </ErrorBoundary>
+      <ErrorBoundary label="developer: system">
+        <SystemGroup />
+      </ErrorBoundary>
+      <ErrorBoundary label="developer: storage">
+        <StorageGroup />
+      </ErrorBoundary>
+      <ErrorBoundary label="developer: diagnostics">
+        <DiagnosticsGroup />
+      </ErrorBoundary>
+
+      <Group title="Leave">
+        <Row
+          icon="eye-off-outline"
+          label="Hide developer options"
+          hint="Settings goes back to normal. Seven taps on the version brings it back."
+          right={
+            <Button
+              label="Hide"
+              size="sm"
+              onPress={() => {
+                developer.set(false);
+                router.back();
+              }}
+            />
+          }
+        />
+      </Group>
+    </Screen>
+  );
+}
+
+/* --------------------------------------------------------------- assistant */
+
+function AssistantGroup() {
+  const { spacing } = useTheme();
+  const mode = useAssistantMode();
+  const model = useSetting('llmModel');
+  const dailyCap = useSetting('llmDailyRequestCap');
+  const monthlyCap = useSetting('llmMonthlyRequestCap');
+  const usage = useAssistantUsage(dailyCap.value, monthlyCap.value).data;
+
+  const hosted = mode.data === 'hosted';
+
+  return (
+    <Group title="Assistant">
+      <Row
+        icon="git-branch-outline"
+        label="Mode"
+        value={
+          hosted
+            ? 'Hosted — requests go through your backend'
+            : mode.data === 'personal-key'
+              ? 'Personal key on this device'
+              : 'Offline — pattern matching only'
+        }
+        hint={hosted ? 'Model and quota are the server’s decision, not this screen’s.' : undefined}
+      />
+
+      {hosted ? null : (
+        <View style={{ padding: spacing.md, gap: spacing.sm }}>
+          <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.6 }}>
+            MODEL
+          </Txt>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+            {MODEL_PRESETS.map((preset) => (
+              <Chip
+                key={preset}
+                label={preset}
+                selected={model.value === preset}
+                onPress={() => model.set(preset)}
+              />
+            ))}
+          </View>
+          <Txt variant="micro" tone="tertiary">
+            Anything the provider does not recognise falls back to the built-in default.
+          </Txt>
+        </View>
+      )}
+
+      {hosted ? null : (
+        <SliderRow
+          label="Requests per day"
+          hint={
+            dailyCap.value === 0
+              ? 'Unlimited.'
+              : `${usage?.remainingToday ?? dailyCap.value} left today${
+                  usage ? ` · ${formatCostMicros(usage.today.costMicros)} so far` : ''
+                }.`
+          }
+          value={dailyCap.value}
+          min={0}
+          max={1000}
+          step={25}
+          format={(v) => (v === 0 ? 'Off' : String(Math.round(v)))}
+          onChange={(v) => dailyCap.set(Math.round(v))}
+        />
+      )}
+      {hosted ? null : (
+        <SliderRow
+          label="Requests per month"
+          hint={
+            monthlyCap.value === 0
+              ? 'Unlimited.'
+              : `${usage?.remainingThisMonth ?? monthlyCap.value} left${
+                  usage ? ` · ${formatCostMicros(usage.month.costMicros)} so far` : ''
+                }. Past the cap, commands fall back to pattern matching.`
+          }
+          value={monthlyCap.value}
+          min={0}
+          max={20_000}
+          step={250}
+          format={(v) => (v === 0 ? 'Off' : String(Math.round(v)))}
+          onChange={(v) => monthlyCap.set(Math.round(v))}
+        />
+      )}
+    </Group>
+  );
+}
+
+/* ------------------------------------------------------------- recognition */
+
+function RecognitionGroup() {
+  const confidence = useSetting('voiceConfidenceThreshold');
+  const silence = useSetting('silenceTimeoutMs');
+  const rate = useSetting('ttsRate');
+  const whisper = useSetting('whisperFallbackEnabled');
+  const whisperKey = useSecret('whisper');
+
+  return (
+    <Group title="Recognition">
+      <SliderRow
+        label="Confidence threshold"
+        hint="Below this, Ridik asks you to say it again instead of guessing."
+        value={confidence.value}
+        min={0}
+        max={1}
+        step={0.05}
+        format={(v) => `${Math.round(v * 100)}%`}
+        onChange={confidence.set}
+      />
+      <SliderRow
+        label="Silence before it stops"
+        value={silence.value}
+        min={200}
+        max={10_000}
+        step={100}
+        format={(v) => `${(v / 1000).toFixed(1)}s`}
+        onChange={(v) => silence.set(Math.round(v))}
+      />
+      <SliderRow
+        label="Speech rate"
+        value={rate.value}
+        min={0.5}
+        max={2}
+        step={0.05}
+        format={(v) => `${v.toFixed(2)}×`}
+        onChange={rate.set}
+      />
+      <SwitchRow
+        label="Whisper fallback"
+        hint="When the phone cannot hear you, send that one recording to OpenAI instead."
+        value={whisper.value}
+        onChange={whisper.set}
+      />
+      {whisper.value ? (
+        <SecretRow
+          slot="whisper"
+          label="Whisper key"
+          hint="Needed before any audio is ever uploaded."
+          state={whisperKey.data}
+        />
+      ) : null}
+    </Group>
+  );
+}
+
+/* ------------------------------------------------------------------ system */
+
+const LEVEL_TONE: Record<PermissionLevel, 'success' | 'warning' | 'danger' | 'neutral'> = {
+  granted: 'success',
+  partial: 'warning',
+  denied: 'warning',
+  blocked: 'danger',
+  unavailable: 'neutral',
+};
+
+const PERMISSION_LABEL: Record<PermissionId, string> = {
+  microphone: 'Microphone & speech',
+  calendar: 'Calendar',
+  location: 'Location',
+  notifications: 'Notifications',
+};
+
+function SystemGroup() {
+  const permissions = usePermissions();
+  const request = useRequestPermission();
+  const background = useBackgroundStatus();
+  const syncNow = useSyncCalendarNow();
+  const timezone = useSetting('timezone');
+  const week = useSetting('weekStartsOn');
+  const buffer = useSetting('defaultBufferMinutes');
+  const toast = useToast();
+
+  const ids = Object.keys(PERMISSION_LABEL) as PermissionId[];
+
+  return (
+    <Group title="System">
+      {ids.map((id) => {
+        const state = permissions.data?.[id];
+        const level = state?.level ?? 'unavailable';
+        return (
+          <Row
+            key={id}
+            label={PERMISSION_LABEL[id]}
+            value={state?.detail}
+            right={
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Badge label={level} tone={LEVEL_TONE[level]} />
+                {level === 'denied' ? (
+                  <Button
+                    label="Ask"
+                    size="sm"
+                    onPress={() =>
+                      request.mutate(id, {
+                        onError: (error) =>
+                          toast.show({ message: error.message, tone: 'danger' }),
+                      })
+                    }
+                  />
+                ) : null}
+              </View>
+            }
+          />
+        );
+      })}
+      <Row
+        label="Background refresh"
+        value={background.data?.availability ?? '…'}
+        hint={
+          background.data?.briefingAt
+            ? `Next briefing ${formatDateTime(background.data.briefingAt)}.`
+            : 'No briefing scheduled.'
+        }
+      />
+      <Row
+        label="Sync now"
+        hint="Drains the outbox immediately instead of waiting for the background pass."
+        right={
+          <Button
+            label="Sync"
+            size="sm"
+            loading={syncNow.isPending}
+            onPress={() =>
+              syncNow.mutate(undefined, {
+                onSuccess: (summary) =>
+                  toast.show({
+                    message: summary.queue.skipped
+                      ? `Skipped: ${summary.queue.skipped}`
+                      : `Pushed ${countLabel(summary.queue.succeeded, 'change')}`,
+                  }),
+                onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
+              })
+            }
+          />
+        }
+      />
+      <ValidatedTextRow
+        label="Time zone"
+        hint="Everything you say is resolved against this. A wrong value breaks every date."
+        value={timezone.value}
+        validate={(next) => (isValidZone(next) ? null : 'Not a time zone Ridik knows.')}
+        onCommit={timezone.set}
+      />
+      <SwitchRow
+        label="Week starts on Monday"
+        value={week.value === 1}
+        onChange={(next) => week.set(next ? 1 : 0)}
+      />
+      <SliderRow
+        label="Default travel buffer"
+        hint="Held before anything with a place attached."
+        value={buffer.value}
+        min={0}
+        max={60}
+        step={5}
+        format={(v) => `${Math.round(v)} min`}
+        onChange={(v) => buffer.set(Math.round(v))}
+      />
+    </Group>
+  );
+}
+
+/* ----------------------------------------------------------------- storage */
+
+function StorageGroup() {
+  const stats = useDatabaseStats();
+  const rebuild = useRebuildNoteSearchIndex();
+  const toast = useToast();
+
+  const top = useMemo(
+    () => stats.data?.tables.filter((t) => t.rows > 0).slice(0, 8) ?? [],
+    [stats.data],
+  );
+
+  return (
+    <Group title="Storage">
+      <Row
+        icon="server-outline"
+        label="On this device"
+        value={
+          stats.data
+            ? `${formatBytes(stats.data.bytes)} · ${countLabel(stats.data.totalRows, 'row')}`
+            : '…'
+        }
+        hint={
+          top.length > 0
+            ? top.map((t) => `${t.table.replace(/_/g, ' ')} ${t.rows}`).join(' · ')
+            : 'Nothing saved yet.'
+        }
+      />
+      <Row
+        icon="search-outline"
+        label="Rebuild search index"
+        hint="Do this if note search starts missing things."
+        right={
+          <Button
+            label="Rebuild"
+            size="sm"
+            loading={rebuild.isPending}
+            onPress={() =>
+              rebuild.mutate(undefined, {
+                onSuccess: (count) =>
+                  toast.show({
+                    message: `Reindexed ${countLabel(count, 'note')}`,
+                    tone: 'success',
+                  }),
+                onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
+              })
+            }
+          />
+        }
+      />
+    </Group>
+  );
+}
+
+/* ------------------------------------------------------------- diagnostics */
+
+const LOG_TONE = {
+  debug: 'tertiary',
+  info: 'secondary',
+  warn: 'warning',
+  error: 'danger',
+} as const;
+
+function DiagnosticsGroup() {
+  const { spacing } = useTheme();
+  const entries = useLogEntries(60);
+  const toast = useToast();
+
+  const newestFirst = useMemo(() => [...entries].reverse(), [entries]);
+
+  return (
+    <Section
+      title="Diagnostics"
+      right={
+        <Button
+          label="Copy"
+          size="sm"
+          variant="ghost"
+          onPress={() => {
+            void copyToClipboard(
+              newestFirst
+                .map((e) => `${new Date(e.at).toISOString()} ${e.level} [${e.scope}] ${e.message}`)
+                .join('\n'),
+            ).then(() => toast.show({ message: 'Log copied' }));
+          }}
+        />
+      }
+    >
+      <Card style={{ gap: spacing.xs }}>
+        {newestFirst.length === 0 ? (
+          <Txt variant="caption" tone="tertiary">
+            Nothing logged yet.
+          </Txt>
+        ) : (
+          newestFirst.slice(0, 40).map((entry) => (
+            <Txt key={entry.seq} variant="mono" tone={LOG_TONE[entry.level]} numberOfLines={2}>
+              [{entry.scope}] {entry.message}
+            </Txt>
+          ))
+        )}
+      </Card>
+    </Section>
+  );
+}

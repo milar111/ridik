@@ -25,6 +25,23 @@ you if you do not know them.
 - **Migrations are append-only.** `src/db/migrations.ts` is keyed on `PRAGMA user_version`. Never
   edit a shipped migration; add a new one. `src/db/schema.ts` must be kept in step with it.
 
+## What belongs on the Settings screen
+
+The test: **if a stranger set this to the worst possible value, would the app
+still work?** A timezone text field fails it — one typo and every date is wrong.
+A model name fails it. "Speak replies" passes.
+
+Everything that fails the test lives on `app/developer.tsx`, reached by tapping
+Settings → Version seven times. Nothing was deleted; it was moved, and
+`src/ui/__tests__/settings-screen.test.tsx` asserts each one stays off the main
+screen so they cannot drift back one convenience at a time.
+
+Permissions are surfaced **by need, not inventoried**. A list of four rows with
+green ticks is a developer's view of the system. The screen tells you about a
+permission only when something you switched on cannot work without it, and sends
+a hard-blocked one to system settings instead of offering a button the OS will
+never honour again.
+
 ## Environment gotchas
 
 - **Android needs JDK 21.** JDK 25 fails `configureCMakeDebug` with

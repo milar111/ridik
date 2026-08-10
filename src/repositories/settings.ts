@@ -60,6 +60,14 @@ export const SETTINGS = {
    */
   llmDailyRequestCap: define(z.number().int().min(0).max(100_000), () => 200),
   llmMonthlyRequestCap: define(z.number().int().min(0).max(1_000_000), () => 3_000),
+
+  /**
+   * Reveals the engineering surface — model override, thresholds, spend caps,
+   * the diagnostics log. Off by default and unlocked by tapping the version
+   * row, because every one of those knobs can make the app worse and none of
+   * them belongs in front of someone who just wants to talk to their phone.
+   */
+  developerMode: define(z.boolean(), () => false),
 };
 
 export type SettingsValues = {

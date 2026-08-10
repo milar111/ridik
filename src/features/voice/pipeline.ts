@@ -17,10 +17,15 @@
  *    microphone, a missing TTS voice or an unreadable keychain all degrade to a
  *    sentence the user can act on.
  */
-import Constants from 'expo-constants';
-import * as SecureStore from 'expo-secure-store';
 
 import { createLogger } from '@/core/logger';
+import {
+  ASSISTANT_TOKEN_STORE_KEY,
+  LLM_API_KEY_STORE_KEY,
+  WHISPER_API_KEY_STORE_KEY,
+  assistantApiUrl,
+  readSecret,
+} from './mode';
 import { currentZone } from '@/core/time';
 import { briefingScript } from '@/features/briefing';
 import {
@@ -49,32 +54,21 @@ import {
 
 const log = createLogger('voice-pipeline');
 
+// Re-exported so every existing import site keeps working; the definitions
+// live in ./mode so Settings can ask about them without loading the recogniser.
+export {
+  ASSISTANT_TOKEN_STORE_KEY,
+  LLM_API_KEY_STORE_KEY,
+  WHISPER_API_KEY_STORE_KEY,
+  assistantApiUrl,
+  assistantMode,
+  type AssistantMode,
+} from './mode';
+
 /** Where the Settings screen writes the assistant key. Never in SQLite. */
-export const LLM_API_KEY_STORE_KEY = 'ridik.llm.apiKey';
-/**
- * The session token a store build presents to your backend. Whatever issues
- * identity — RevenueCat, Supabase auth, your own sign-in — writes it here; the
- * app only ever reads it, and only ever over TLS to the URL baked into the build.
- */
-export const ASSISTANT_TOKEN_STORE_KEY = 'ridik.assistant.token';
 /** Optional: unlocks the Whisper rung of the transcription ladder. */
-export const WHISPER_API_KEY_STORE_KEY = 'ridik.whisper.apiKey';
 
-const SECURE_STORE_OPTIONS: SecureStore.SecureStoreOptions = {
-  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
-};
 
-/** A keychain that will not open is a missing key, not a crash. */
-async function readSecret(key: string): Promise<string | null> {
-  try {
-    const value = await SecureStore.getItemAsync(key, SECURE_STORE_OPTIONS);
-    const trimmed = value?.trim();
-    return trimmed ? trimmed : null;
-  } catch (error) {
-    log.warn('could not read a stored key', { key, error });
-    return null;
-  }
-}
 
 /* ----------------------------------------------------------------- effects -- */
 
@@ -126,19 +120,8 @@ let gemini: { model: string | undefined; client: LlmClient } | null = null;
 
 export type TurnClient = { client: LlmClient; metered: boolean; capped: string | null };
 
-/** Set in store builds; empty in your own. See `app.config.ts`. */
-export function assistantApiUrl(): string {
-  const extra = (Constants.expoConfig?.extra ?? {}) as { assistantApiUrl?: string };
-  return (extra.assistantApiUrl ?? '').trim();
-}
 
-export type AssistantMode = 'hosted' | 'personal-key' | 'offline';
 
-/** What the Settings screen shows, and what decides the provider below. */
-export async function assistantMode(): Promise<AssistantMode> {
-  if (assistantApiUrl()) return 'hosted';
-  return (await readSecret(LLM_API_KEY_STORE_KEY)) ? 'personal-key' : 'offline';
-}
 
 let hosted: LlmClient | null = null;
 

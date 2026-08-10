@@ -71,6 +71,14 @@ jest.mock('@/hooks/useSystem', () => ({
   useLogEntries: () => mockLogs,
 }));
 
+const mockPush = jest.fn();
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, back: jest.fn() }) }));
+
+let mockAssistantMode: 'hosted' | 'personal-key' | 'offline';
+jest.mock('@/hooks/useAssistant', () => ({
+  useAssistantMode: () => ({ data: mockAssistantMode, isLoading: false }),
+}));
+
 jest.mock('@/features/export', () => ({
   copyToClipboard: jest.fn(async () => ({ ok: true, value: undefined })),
 }));
@@ -114,6 +122,7 @@ function wrap(ui: React.ReactElement) {
 }
 
 beforeEach(() => {
+  mockAssistantMode = 'offline';
   mockSecret = { present: false, preview: null };
   mockPermissionLevel = {
     microphone: 'granted',
@@ -127,6 +136,7 @@ beforeEach(() => {
   mockLogs = [];
   mockErase.mockReset();
   mockRequestPermission.mockReset();
+  mockPush.mockReset();
   mockRepos.settings.getAll.mockResolvedValue(defaultSettings());
   mockRepos.settings.set.mockImplementation(async (_k: string, v: unknown) => v);
   mockRepos.syncQueue.listByStatus.mockResolvedValue([]);
@@ -136,57 +146,118 @@ beforeEach(() => {
 describe('settings screen', () => {
   /* A first launch has no rows, no key and no connection. Every group has to
      render something rather than throwing on an absent field. */
-  it('renders every group against a completely empty database', async () => {
+  it('renders against a completely empty database', async () => {
     await wrap(<SettingsScreen />);
 
-    expect(await screen.findByText('Voice, sync and what lives on this phone')).toBeTruthy();
-    for (const group of ['ACCOUNT', 'VOICE', 'SCHEDULE', 'PERMISSIONS', 'DATA', 'DIAGNOSTICS']) {
-      expect(screen.getByText(group)).toBeTruthy();
+    for (const group of ['VOICE', 'CALENDAR', 'SETUP', 'YOUR DATA', 'ABOUT']) {
+      expect(await screen.findByText(group)).toBeTruthy();
     }
-    expect(screen.getByText('Nothing saved yet.')).toBeTruthy();
-    expect(screen.getByText('Nothing logged this session.')).toBeTruthy();
   });
 
-  it('warns that no assistant key means pattern matching, not intelligence', async () => {
+  /*
+   * The point of the rewrite. Each of these was a control a person could set to
+   * a value that breaks the app — a misspelled model name kills voice, a bad
+   * timezone moves every date — and each now lives behind the developer gate.
+   * Asserting their absence is what stops them drifting back one convenience at
+   * a time.
+   */
+  it('keeps the knobs that can break the app off the main screen', async () => {
     await wrap(<SettingsScreen />);
-    expect(await screen.findByText('Running in offline mode')).toBeTruthy();
+    await screen.findByText('VOICE');
+
+    for (const gone of [
+      'Model',
+      'Time zone',
+      'Confidence threshold',
+      'Silence before it stops',
+      'Speech rate',
+      'Requests per day',
+      'Requests per month',
+      'Whisper fallback',
+      'Rebuild search index',
+      'Week starts on',
+      'Default travel buffer',
+    ]) {
+      expect(screen.queryByText(gone)).toBeNull();
+    }
   });
 
-  it('drops the offline warning and masks the key once one is stored', async () => {
+  it('offers the assistant key only where there is something to paste', async () => {
+    mockAssistantMode = 'offline';
+    const offline = await wrap(<SettingsScreen />);
+    expect(await screen.findByText('Assistant key')).toBeTruthy();
+    await offline.unmount();
+
+    // A store build routes through the backend; a key field there would invite
+    // someone to break something they cannot fix.
+    mockAssistantMode = 'hosted';
+    await wrap(<SettingsScreen />);
+    await screen.findByText('VOICE');
+    expect(screen.queryByText('Assistant key')).toBeNull();
+  });
+
+  it('masks a stored key rather than showing it', async () => {
     mockSecret = { present: true, preview: '••••••••9f2a' };
+    mockAssistantMode = 'personal-key';
     await wrap(<SettingsScreen />);
-
     expect(await screen.findByText('••••••••9f2a')).toBeTruthy();
-    expect(screen.queryByText('Running in offline mode')).toBeNull();
   });
 
-  /* The distinction that matters: a permission the OS will still prompt for
-     gets a Grant button, one the user has hard-denied can only be fixed in
-     system settings. Offering "Grant" there is a button that does nothing. */
-  it('offers Grant only where the OS will still ask, and Settings where it will not', async () => {
+  /*
+   * Permissions are surfaced by need, not inventoried. Microphone is the
+   * product so it always counts; notifications only once the briefing is on.
+   * A granted permission should say nothing at all.
+   */
+  it('says nothing about permissions that are granted or not yet needed', async () => {
+    mockPermissionLevel = {
+      microphone: 'granted',
+      calendar: 'denied',
+      location: 'denied',
+      notifications: 'denied',
+    };
     await wrap(<SettingsScreen />);
-    await screen.findByText('PERMISSIONS');
+    await screen.findByText('VOICE');
 
-    expect(screen.getByText('GRANTED')).toBeTruthy();
-    expect(screen.getByText('NOT ASKED')).toBeTruthy();
-    expect(screen.getByText('PARTIAL')).toBeTruthy();
-    expect(screen.getByText('BLOCKED')).toBeTruthy();
-
-    // calendar (denied) and location (partial) can still be asked; notifications
-    // (blocked) cannot, and microphone (granted) needs nothing.
-    expect(screen.getAllByText('Grant')).toHaveLength(2);
-
-    await fireEvent.press(screen.getAllByText('Grant')[0]!);
-    expect(mockRequestPermission).toHaveBeenCalledWith('calendar');
+    // Calendar and location are denied but nothing here needs them yet, and the
+    // briefing is off by default, so notifications are not asked for either.
+    expect(screen.queryByText('Needs your permission')).toBeNull();
   });
 
-  /* Erasing is the one irreversible action in the app. It must take two
-     deliberate steps and reject anything but the exact word. */
+  it('asks for the microphone, because without it there is no product', async () => {
+    mockPermissionLevel = {
+      microphone: 'denied',
+      calendar: 'granted',
+      location: 'granted',
+      notifications: 'granted',
+    };
+    await wrap(<SettingsScreen />);
+
+    expect(await screen.findByText('NEEDS YOUR PERMISSION')).toBeTruthy();
+    expect(screen.getByText('Ridik cannot hear you without it.')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Allow' }));
+    expect(mockRequestPermission).toHaveBeenCalledWith('microphone', expect.anything());
+  });
+
+  it('sends a blocked permission to system settings instead of a dead button', async () => {
+    mockPermissionLevel = {
+      microphone: 'blocked',
+      calendar: 'granted',
+      location: 'granted',
+      notifications: 'granted',
+    };
+    await wrap(<SettingsScreen />);
+
+    // "Allow" would be a button the OS will never honour again.
+    expect(await screen.findByRole('button', { name: 'Open settings' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull();
+  });
+
+  /* Erasing is the one irreversible action in the app. Two deliberate steps,
+     and nothing but the exact word. */
   it('will not erase until ERASE is typed exactly', async () => {
     await wrap(<SettingsScreen />);
 
-    // By role, not by text: the card's heading repeats the button's wording.
-    await fireEvent.press(await screen.findByRole('button', { name: 'Erase all data' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Delete' }));
     const field = await screen.findByPlaceholderText('ERASE');
     const confirm = () => screen.getByRole('button', { name: 'Erase everything' });
 
@@ -202,20 +273,16 @@ describe('settings screen', () => {
     expect(mockErase).toHaveBeenCalledTimes(1);
   });
 
-  it('reports what is actually on disk once there are rows', async () => {
-    mockStats = {
-      bytes: 2 * 1024 * 1024,
-      totalRows: 412,
-      schemaVersion: 2,
-      tables: [
-        { table: 'notes', rows: 300 },
-        { table: 'tasks', rows: 112 },
-        { table: 'habits', rows: 0 },
-      ],
-    };
-
+  /* The escape hatch for everything the screen hides. Seven taps is enough that
+     nobody arrives by accident and few enough to be discoverable when told. */
+  it('unlocks the developer screen after seven taps on the version', async () => {
     await wrap(<SettingsScreen />);
-    expect(await screen.findByText('2.0 MB · 412 rows')).toBeTruthy();
-    expect(screen.getByText('notes 300 · tasks 112')).toBeTruthy();
+    const version = await screen.findByRole('button', { name: 'Version' });
+
+    for (let i = 0; i < 6; i++) await fireEvent.press(version);
+    expect(mockRepos.settings.set).not.toHaveBeenCalledWith('developerMode', true);
+
+    await fireEvent.press(version);
+    expect(mockRepos.settings.set).toHaveBeenCalledWith('developerMode', true);
   });
 });

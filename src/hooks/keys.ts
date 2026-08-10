@@ -159,6 +159,11 @@ export const qk = {
     detail: (id: string) => [ROOT, 'geofences', 'detail', id] as const,
   },
 
+  assistant: {
+    all: [ROOT, 'assistant'] as const,
+    mode: () => [ROOT, 'assistant', 'mode'] as const,
+  },
+
   /** The assistant's own spend meter; invalidated after every metered turn. */
   usage: {
     all: [ROOT, 'usage'] as const,

@@ -11,29 +11,29 @@ type Entry = {
   hint: string;
 };
 
+/**
+ * Everything that is not one of the five tabs.
+ *
+ * Checklists deliberately do not appear here: they already live behind the
+ * Notes tab's Lists switch, and two doors into one room is how a hub stops
+ * being navigable. Setup — your week, places — moved into Settings, which is
+ * where people look for things they configure once.
+ */
 const GROUPS: { title: string; entries: Entry[] }[] = [
-  {
-    title: 'Capture',
-    entries: [
-      { href: '/checklists', icon: 'list-outline', label: 'Checklists', hint: 'Shopping, packing, BOMs' },
-      { href: '/activity', icon: 'pulse-outline', label: 'Activity log', hint: 'What you got done' },
-      { href: '/focus', icon: 'timer-outline', label: 'Focus sessions', hint: 'Timers and breaks' },
-    ],
-  },
   {
     title: 'Track',
     entries: [
+      { href: '/focus', icon: 'timer-outline', label: 'Focus', hint: 'Timers and breaks' },
       { href: '/habits', icon: 'flame-outline', label: 'Habits', hint: 'Streaks and consistency' },
-      { href: '/ledger', icon: 'wallet-outline', label: 'Ledger', hint: 'Spending by voice' },
+      { href: '/ledger', icon: 'wallet-outline', label: 'Money', hint: 'What you spent' },
       { href: '/people', icon: 'people-outline', label: 'People', hint: 'Commitments and history' },
+      { href: '/activity', icon: 'pulse-outline', label: 'Activity', hint: 'What you got done' },
     ],
   },
   {
-    title: 'Setup',
+    title: 'App',
     entries: [
-      { href: '/curriculum', icon: 'school-outline', label: 'Weekly programme', hint: 'Classes and recurring slots' },
-      { href: '/places', icon: 'location-outline', label: 'Places', hint: 'Location reminders' },
-      { href: '/settings', icon: 'settings-outline', label: 'Settings', hint: 'Voice, sync, account' },
+      { href: '/settings', icon: 'settings-outline', label: 'Settings', hint: 'Voice, calendar, your data' },
     ],
   },
 ];

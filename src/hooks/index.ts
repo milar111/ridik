@@ -29,3 +29,4 @@ export * from './useCurriculum';
 export * from './usePlaces';
 export * from './useSettings';
 export * from './useFocus';
+export * from './useAssistant';
