@@ -204,6 +204,10 @@ the first one.
 
 ## Widgets
 
+**`WIDGETS.md` is the contract** — geometry, copy, empty states and the three
+invariants, normative for both platforms. Read it before touching a face; read
+this section for what will bite you while you do.
+
 One payload, five faces per platform. `src/services/widgets/snapshot.ts` builds it; everything
 a widget draws is computed there, where it can be tested under plain Node, because neither
 WidgetKit nor an `AppWidgetProvider` can run this app's JavaScript or open its SQLite file.
