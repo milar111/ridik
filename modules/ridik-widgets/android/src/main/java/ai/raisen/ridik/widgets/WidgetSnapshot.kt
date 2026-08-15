@@ -148,6 +148,22 @@ internal data class WidgetSnapshot(
    * plausible — which is exactly the failure worth carrying a field for.
    */
   val zone: String,
+  /**
+   * The ember the user picked, as a name — never a colour.
+   *
+   * A colour on the wire would be resolved against whichever scheme the *app*
+   * happened to be in when it published, and the launcher draws the tile
+   * against its own; §5 is why `scheme` is deliberately not in the payload, and
+   * the same argument makes a colour one unthinkable. What travels is one of
+   * three names, and every resource it selects exists twice in the table with
+   * the launcher choosing the half.
+   *
+   * Always one of `EMBERS`. A payload from a build that does not send this, or
+   * that sends something this build has never heard of, draws the default —
+   * which is the current design, and the only wrong answer that is still a
+   * widget.
+   */
+  val ember: String,
   val day: WidgetDay,
   val month: WidgetMonth,
   val configured: WidgetConfigured,
@@ -166,8 +182,35 @@ internal data class WidgetSnapshot(
   val list: Checklist?,
 ) {
   companion object {
-    /** Must track `WIDGET_SNAPSHOT_VERSION`. Anything else is not readable here. */
-    const val SUPPORTED_VERSION = 3
+    /**
+     * Must track `WIDGET_SNAPSHOT_VERSION`. Anything else is not readable here.
+     *
+     * 4 adds `ember`. The bump is what stops an older widget from decoding a
+     * newer payload into half a face: it draws "Ridik was updated." instead,
+     * which is the whole point of the field.
+     */
+    const val SUPPORTED_VERSION = 4
+
+    /**
+     * What a fresh install draws, and the answer to every question this file
+     * cannot resolve.
+     *
+     * The mirror of `DEFAULT_EMBER` in `src/ui/theme.ts`, and of the layouts
+     * and drawables `plugins/withRidikAndroidWidget.js` writes for it — that
+     * plugin's `EMBER_NAMES` is the other end of `EMBERS` below.
+     */
+    const val DEFAULT_EMBER = "ember"
+
+    /**
+     * Checked rather than trusted, because the name is a *resource name*.
+     *
+     * An unrecognised string would be pasted straight into
+     * `Resources.getIdentifier`, resolve to 0, and leave the widget with no
+     * layout at all — a blank tile, with nothing failing anywhere. The set is
+     * the cheapest possible guard against a payload from a build that ships an
+     * ember this one has never generated.
+     */
+    private val EMBERS = setOf(DEFAULT_EMBER, "kiln", "rust")
 
     /** 07:00, in minutes, for a payload that somehow carries no window. */
     private const val DEFAULT_START_MINUTE = 7 * 60
@@ -206,6 +249,10 @@ internal data class WidgetSnapshot(
         version = root.optInt("version", 0),
         publishedAt = root.optLong("publishedAt", 0L),
         zone = root.string("zone") ?: "",
+        // Read outside the version gate on purpose: the face picks its layout
+        // before it knows whether it can read the rest, and the "Ridik was
+        // updated." tile should still be the colour the user chose.
+        ember = root.string("ember")?.takeIf { it in EMBERS } ?: DEFAULT_EMBER,
         day = root.optJSONObject("day")?.let { parseDay(it) } ?: COLD_DAY,
         month = root.optJSONObject("month")?.let { parseMonth(it) } ?: COLD_MONTH,
         configured = root.optJSONObject("configured")?.let { parseConfigured(it) }

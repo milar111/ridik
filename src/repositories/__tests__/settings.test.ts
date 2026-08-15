@@ -64,6 +64,7 @@ describe('settings repository', () => {
         onboardingComplete: false,
         weekStartsOn: 1,
         whisperFallbackEnabled: true,
+        ember: 'ember',
       });
     });
 
@@ -93,6 +94,27 @@ describe('settings repository', () => {
       expect(await repo.get('voiceConfidenceThreshold')).toBe(0.42);
       expect(await repo.get('googleCalendarId')).toBe('primary');
       expect(await repo.get('weekStartsOn')).toBe(0);
+    });
+
+    /* The colour the app is drawn in. It has to come back after a restart —
+       which for a repository means: written to the row, read by a repository
+       built fresh over the same database, exactly as the app does on launch. */
+    it('keeps a chosen ember across a restart', async () => {
+      await repo.set('ember', 'rust');
+
+      const afterRestart = createSettingsRepository(t.db, { logger: { warn } });
+      expect(await afterRestart.get('ember')).toBe('rust');
+      expect((await afterRestart.getAll()).ember).toBe('rust');
+    });
+
+    /* A colour nothing can resolve would leave every screen with no palette.
+       A closed set is what makes "set this to the worst value you can" safe. */
+    it('refuses an ember that does not exist, and forgets one that stops existing', async () => {
+      await expect(repo.set('ember', 'teal' as never)).rejects.toThrow(/not a valid value/i);
+
+      writeRaw('ember', JSON.stringify('teal'));
+      expect(await repo.get('ember')).toBe('ember');
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('ember'), expect.anything());
     });
 
     it('stores null distinctly from absent', async () => {

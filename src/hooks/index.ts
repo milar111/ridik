@@ -28,5 +28,6 @@ export * from './useCrm';
 export * from './useCurriculum';
 export * from './usePlaces';
 export * from './useSettings';
+export * from './useEmber';
 export * from './useFocus';
 export * from './useAssistant';

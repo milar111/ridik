@@ -18,6 +18,12 @@ import { currentZone } from '@/core/time';
 import type { RidikDatabase } from '@/db/migrator';
 import { appSettings } from '@/db/schema';
 
+// Tokens, not components: `@/ui/theme` is a constants module with no react and
+// no react-native in it, which the `logic` test project already proves by
+// loading it under plain Node. Naming the embers here as well would put the one
+// list this app has of them in two places.
+import { DEFAULT_EMBER, EMBER_NAMES, type EmberName } from '@/ui/theme';
+
 import { serialised, transactional } from './transaction';
 
 type SettingDefinition<T> = {
@@ -60,6 +66,14 @@ export const SETTINGS = {
   ttsEnabled: define(z.boolean(), () => false),
   ttsRate: define(z.number().min(0.1).max(2), () => 1),
   primaryCurrency: define(z.string().regex(/^[A-Z]{3}$/), () => 'EUR'),
+  /**
+   * Which ember the app and its home-screen widgets are drawn in.
+   *
+   * A closed set, so a hand-edited row or one written by a build that shipped a
+   * fourth ember decodes to the default rather than to a colour nothing can
+   * resolve. The palettes themselves live in `@/ui/theme`.
+   */
+  ember: define<EmberName>(z.enum(EMBER_NAMES as [EmberName, ...EmberName[]]), () => DEFAULT_EMBER),
   googleCalendarId: define<string | null>(z.string().min(1).nullable(), () => null),
   googleAccountEmail: define<string | null>(z.string().min(1).nullable(), () => null),
   onboardingComplete: define(z.boolean(), () => false),

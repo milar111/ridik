@@ -29,9 +29,10 @@ import type { LocalDate } from '@/core/time';
 import { DateTime, localDateOf, monthRange } from '@/core/time';
 import { buildAgenda } from '@/features/today/agenda';
 import { nextUp } from '@/features/home/next';
+import { DEFAULT_EMBER, type EmberName } from '@/ui/theme';
 
 /** Bumped when the shape changes, so a stale widget can tell and say nothing. */
-export const WIDGET_SNAPSHOT_VERSION = 3;
+export const WIDGET_SNAPSHOT_VERSION = 4;
 
 /**
  * Lists are capped hard. A widget draws four or five rows at most, and every
@@ -170,6 +171,16 @@ export type WidgetSnapshot = {
    * entirely plausible.
    */
   zone: string;
+  /**
+   * The ember the user chose, by name — never as colours.
+   *
+   * The *scheme* deliberately stays out of this payload (§5): the launcher can
+   * be dark while the app is light, and only the widget is in a position to
+   * know. An ember is the other kind of fact — a choice the person made, which
+   * no launcher can answer for — so it travels, and each platform resolves it
+   * against its own light/dark just as it already resolves the default.
+   */
+  ember: EmberName;
   day: WidgetDay;
   month: WidgetMonth;
   configured: WidgetConfigured;
@@ -245,6 +256,8 @@ export type BuildWidgetSnapshotInput = {
   counts?: { events: number; tasks: number; habits: number; lists: number };
   /** The waking window, from Settings. Defaults to 07:00–23:00. */
   window?: { startMinute: number; endMinute: number };
+  /** The chosen ember, from Settings. Defaults to the one a fresh install draws. */
+  ember?: EmberName;
 };
 
 export function buildWidgetSnapshot({
@@ -255,6 +268,7 @@ export function buildWidgetSnapshot({
   habitHistory = {},
   counts,
   window = DEFAULT_DAY_WINDOW,
+  ember = DEFAULT_EMBER,
 }: BuildWidgetSnapshotInput): WidgetSnapshot {
   const agenda = buildAgenda({
     events: snapshot.events,
@@ -272,6 +286,7 @@ export function buildWidgetSnapshot({
     version: WIDGET_SNAPSHOT_VERSION,
     publishedAt: now,
     zone: snapshot.zone,
+    ember,
     day,
     month: buildMonth({ snapshot, monthEvents, now }),
     configured: {
@@ -583,6 +598,10 @@ export function widgetSnapshotChanged(a: WidgetSnapshot | null, b: WidgetSnapsho
  */
 function digest(snapshot: WidgetSnapshot): string {
   return JSON.stringify([
+    // Not a section anything draws, and the one field here that would fail
+    // silently in a way nobody would think to look for: pick a new colour and
+    // the tiles keep the old one until the next time the day happens to change.
+    snapshot.ember,
     snapshot.agenda,
     snapshot.allDay,
     snapshot.tasks.rows,

@@ -67,11 +67,20 @@ internal object RidikRowsFace {
    */
   fun build(context: Context, kind: Kind, widthDp: Int, heightDp: Int): RemoteViews? {
     val size = drawnSize(kind, widthDp, heightDp)
-    val ids = WidgetIds(context, layoutFor(context, kind, size))
+    // Read before the layout is picked, not after: the ember is part of the
+    // layout's name. RemoteViews cannot recolour a `TextView` on a build that
+    // ships to API 26 — and a colour resolved in this process would be resolved
+    // against this process's night mode, which is the bug that cost a day — so
+    // an ember-tinted word is a different file, exactly as a 12-hour clock is.
+    val snapshot = WidgetSnapshotStore.read(context)?.let { WidgetSnapshot.parse(it) }
+    val ids = idsFor(
+      context,
+      layoutFor(context, kind, size),
+      snapshot?.ember ?: WidgetSnapshot.DEFAULT_EMBER,
+    )
     if (ids.layout == 0) return null
 
     val views = RemoteViews(context.packageName, ids.layout)
-    val snapshot = WidgetSnapshotStore.read(context)?.let { WidgetSnapshot.parse(it) }
     views.setOnClickPendingIntent(android.R.id.background, openApp(context, kind, snapshot))
 
     when {
@@ -133,6 +142,10 @@ internal object RidikRowsFace {
    * rendering fault. RemoteViews cannot set a width at runtime, so the choice is
    * a different file — made against the device's own setting rather than once at
    * build time. Faces with no clock in them need only one.
+   *
+   * The ember is the same kind of choice for the same kind of reason, and is
+   * appended by `idsFor` rather than here: this returns the base name, and
+   * every base has one file per ember behind it.
    */
   private fun layoutFor(context: Context, kind: Kind, size: WidgetSize): String {
     val ampm = if (DateFormat.is24HourFormat(context)) "" else "_ampm"
@@ -164,7 +177,7 @@ internal object RidikRowsFace {
    * cell, and §3.2 gives it to the *element*: the next thing is actionable and
    * today's date is not. Today on the plate keeps its ring and its own load
    * level — which is also the only way that ring is visible in light mode, where
-   * the ring and the hot fill are the same `#C7360F`.
+   * every ember draws the ring and the hot fill in the same colour.
    */
   private fun RemoteViews.calendar(
     context: Context,

@@ -17,7 +17,8 @@
  * something they switched on cannot work yet.
  */
 import { useCallback, useState } from 'react';
-import { Linking, Platform, View } from 'react-native';
+import { Linking, Platform, Pressable, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 
@@ -33,7 +34,7 @@ import {
   SliderRow,
   SwitchRow,
 } from '@/features/settings';
-import { useSetting } from '@/hooks';
+import { useEmber, useSetting } from '@/hooks';
 import { useEntitlement } from '@/hooks/useBilling';
 import { describePlan, describeRenewal, FREE } from '@/services/billing/entitlement';
 import {
@@ -45,6 +46,7 @@ import {
 } from '@/hooks/useSystem';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
+import type { EmberOption } from '@/ui/theme';
 import { useNavigateOnce } from '@/ui/useNavigateOnce';
 import { Button, Input, Screen, Txt, useToast } from '@/ui/components';
 
@@ -63,6 +65,9 @@ export default function SettingsScreen() {
       </ErrorBoundary>
       <ErrorBoundary label="profile: preferences">
         <PreferencesGroup />
+      </ErrorBoundary>
+      <ErrorBoundary label="profile: colour">
+        <ColourGroup />
       </ErrorBoundary>
       <ErrorBoundary label="profile: data">
         <DataGroup />
@@ -212,6 +217,92 @@ function PreferencesGroup() {
         onChange={tts.set}
       />
     </Group>
+  );
+}
+
+/* ------------------------------------------------------------------ colour */
+
+/**
+ * The one preference that changes what the app looks like.
+ *
+ * It belongs on this screen and not behind the developer gate, by the test the
+ * rest of the screen is held to: set it to the worst value you can and the app
+ * still works. There is no worst value — every ember is held to the same
+ * contrast rules as the default in `widget-tokens.test.ts`, which is what makes
+ * this a choice rather than a way to make your own widgets unreadable.
+ *
+ * The swatch is the family's own primitive rather than a dot: one colour at four
+ * opacities *is* the visual system, and it is what changes. It is drawn in the
+ * scheme currently on screen, because that is the one the user is looking at.
+ */
+function ColourGroup() {
+  const ember = useEmber();
+
+  return (
+    <Group title="Colour">
+      {ember.options.map((option) => (
+        <EmberRow
+          key={option.name}
+          option={option}
+          selected={option.name === ember.value}
+          onSelect={() => ember.set(option.name)}
+        />
+      ))}
+    </Group>
+  );
+}
+
+function EmberRow({
+  option,
+  selected,
+  onSelect,
+}: {
+  option: EmberOption;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const { colors, scheme, spacing, radius } = useTheme();
+  const ramp = option[scheme];
+
+  return (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      accessibilityLabel={option.label}
+      accessibilityHint={option.note}
+      onPress={onSelect}
+      style={({ pressed }) => ({
+        opacity: pressed ? 0.6 : 1,
+        backgroundColor: selected ? colors.accentMuted : 'transparent',
+      })}
+    >
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          padding: spacing.md,
+          gap: spacing.md,
+        }}
+      >
+        <View style={{ flexDirection: 'row', gap: 2 }}>
+          {[ramp.cold, ramp.low, ramp.mid, ramp.hot].map((fill, index) => (
+            <View
+              key={index}
+              style={{ width: 9, height: 22, borderRadius: radius.sm / 5, backgroundColor: fill }}
+            />
+          ))}
+        </View>
+        {/* `flex: 1` and not its own content: Android measures a text in a flex
+            row short and clips it rather than wrapping. */}
+        <View style={{ flex: 1, gap: 1 }}>
+          <Txt variant="body">{option.label}</Txt>
+          <Txt variant="micro" tone="tertiary">
+            {option.note}
+          </Txt>
+        </View>
+        {selected ? <Ionicons name="checkmark-circle" size={20} color={colors.accent} /> : null}
+      </View>
+    </Pressable>
   );
 }
 

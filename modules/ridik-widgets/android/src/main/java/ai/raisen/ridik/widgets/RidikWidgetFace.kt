@@ -42,14 +42,19 @@ internal object RidikWidgetFace {
     // height, and stretching them would leave a band of empty ground under the
     // ruler. Large gets the medium drawing.
     val size = sizeOf(widthDp, heightDp)
-    val layout = if (size == WidgetSize.SMALL) "ridik_today_small" else "ridik_today_medium"
-    val ids = WidgetIds(context, layout)
+    // Read before the layout is picked, not after: the ember is part of the
+    // layout's name. RemoteViews cannot recolour a `TextView` on a build that
+    // ships to API 26 — and a colour resolved in this process would be resolved
+    // against this process's night mode, which is the bug that cost a day — so
+    // an ember-tinted word is a different file, exactly as a 12-hour clock is.
+    val snapshot = WidgetSnapshotStore.read(context)?.let { WidgetSnapshot.parse(it) }
+    val base = if (size == WidgetSize.SMALL) "ridik_today_small" else "ridik_today_medium"
+    val ids = idsFor(context, base, snapshot?.ember ?: WidgetSnapshot.DEFAULT_EMBER)
     if (ids.layout == 0) return null
 
     val views = RemoteViews(context.packageName, ids.layout)
     views.setOnClickPendingIntent(android.R.id.background, openApp(context))
 
-    val snapshot = WidgetSnapshotStore.read(context)?.let { WidgetSnapshot.parse(it) }
     when {
       snapshot == null -> views.notice(
         ids,

@@ -106,6 +106,136 @@ const IDS = {
   tick: (i) => `ridik_tick_${i}`,
 };
 
+// --------------------------------------------------------------- the embers
+/**
+ * The three embers the user can choose between, and the mirror of `embers` in
+ * `src/ui/theme.ts`. Copied rather than imported for the same reason the ramp
+ * always was: this file writes XML, and an Android resource cannot import
+ * TypeScript. `src/ui/__tests__/widget-tokens.test.ts` is what holds the two
+ * together.
+ *
+ * **Why the ember cannot be a colour computed at draw time.** A colour resolved
+ * with `resources.getColor()` is resolved against the *app* process's
+ * configuration, while the launcher draws the tile against its own — flip the
+ * system to dark with the app last run in light and every runtime-coloured
+ * string lands near-black on a near-black tile. So the ember is not a value the
+ * Kotlin carries; it is a *name*, and everything it touches exists three times
+ * in the resource table with the launcher picking the light or dark half.
+ *
+ * That is why choosing a colour costs layouts: the ember tints text, text
+ * colour lives in the layout XML, and RemoteViews cannot restyle a `TextView`
+ * on a build that ships to API 26. Sixteen live layouts become forty-eight,
+ * exactly the way five sizes already become sixteen.
+ */
+const EMBERS = {
+  // #C7360F / #FF5A36 at 23 / 46 / 70 / 100 percent.
+  ember: {
+    light: { cold: '#F2BFA7', low: '#E59679', mid: '#D86B4A', hot: '#C7360F' },
+    dark: { cold: '#501F11', low: '#84311C', mid: '#BB4328', hot: '#FF5A36' },
+    /**
+     * The only accent that is not its own ramp's `hot`.
+     *
+     * `#FF8253` is the app's `darkColors.accent` and is what has shipped on
+     * every dark tile since the family was drawn; the ramp's dark hot is the
+     * vivid `#FF5A36`. The default keeps exactly what it has, because the whole
+     * point of a colour setting is that the current design is still the one a
+     * fresh install draws. See `accentOf` for where the other two come from.
+     */
+    accent: { light: '#C7360F', dark: '#FF8253' },
+    platePeak: 'mid',
+  },
+  // #A82318 / #F04B3C at 27 / 50 / 74 / 100.
+  kiln: {
+    light: { cold: '#E8B3A1', low: '#D48676', mid: '#BF5649', hot: '#A82318' },
+    dark: { cold: '#551E15', low: '#862C21', mid: '#B93B2E', hot: '#F04B3C' },
+    accent: { light: '#A82318', dark: '#F04B3C' },
+    platePeak: 'low',
+  },
+  // #96341A / #DE6038 at the same four.
+  rust: {
+    light: { cold: '#E3B7A2', low: '#CA8E77', mid: '#B1634A', hot: '#96341A' },
+    dark: { cold: '#502414', low: '#7D371F', mid: '#AC4B2B', hot: '#DE6038' },
+    accent: { light: '#96341A', dark: '#DE6038' },
+    platePeak: 'low',
+  },
+};
+
+const EMBER_NAMES = Object.keys(EMBERS);
+
+/** What a fresh install draws, and the one the gallery preview is built from. */
+const DEFAULT_EMBER = 'ember';
+
+/**
+ * Linen on a hot cell, and the ground showing through one. The same pair for all
+ * three embers — `onHeat` is the *inversion*, not the ember — so it stays a
+ * single shared token rather than three identical ones.
+ */
+const ON_HEAT = { light: '#FFF7F0', dark: '#1C0E06' };
+
+/**
+ * Every ember-tinted word on a tile: the eyebrow, the count beside it, the row
+ * leads, the countdown and the RIDIK label on the notice pane.
+ *
+ * For `kiln` and `rust` this is the ramp's own `hot`, which is the one colour
+ * in each palette already proved text-safe against the ground it sits on —
+ * light `hot` is what `widget-tokens.test.ts` measures ink against, and dark
+ * `hot` is measured against `onHeat`, which *is* the dark ground `#1C0E06`.
+ * Both clear 4.5:1 by a rule that is already enforced, so nothing here is a new
+ * colour anybody had to invent. `ember` is the exception and keeps the accent it
+ * shipped with.
+ */
+function accentOf(ember, scheme) {
+  return EMBERS[ember].accent[scheme];
+}
+
+/**
+ * The resting wash — 12% of the accent in light, 16% in dark.
+ *
+ * Nothing in the family draws it today; it is kept per-ember rather than shared
+ * because a wash that stayed orange under a rust tile would be wrong the moment
+ * anything did.
+ */
+function washOf(ember, scheme) {
+  const alpha = scheme === 'light' ? '1F' : '29';
+  return `#${alpha}${accentOf(ember, scheme).slice(1)}`;
+}
+
+const accentColour = (ember) => `ridik_widget_${ember}_accent`;
+const heatColour = (ember, level) => `ridik_widget_${ember}_heat_${level}`;
+
+/** A cell of the strip, the rails, the debt gauge or the checklist's marks. */
+const heatDrawable = (ember, level, today) =>
+  `ridik_heat_${ember}_${level}${today ? '_today' : ''}`;
+
+/**
+ * A cell of the *month plate*, which is not the same drawable and cannot be.
+ *
+ * The plate is the one place in the family where text sits on a filled cell, and
+ * a darker ember's `mid` is too dark for a near-black numeral on the sand
+ * ground — 3.78:1 for kiln, 3.87:1 for rust, against the 4.5 the rest of the
+ * family holds. `theme.ts` answers that with `platePeak`: those two cap the
+ * plate's load at `low` **in light mode only**, because dark has no such problem
+ * (4.98:1 and 4.89:1 there).
+ *
+ * The cap cannot be applied at draw time. Which scheme is on screen is the
+ * *launcher's* answer, not this app's, and a widget that capped in the app's
+ * process would flatten a dark plate every time the two disagreed. So it is
+ * applied here, in the resource: `drawable/ridik_plate_kiln_2` fills itself from
+ * `..._kiln_heat_1`, and `drawable-night/ridik_plate_kiln_2` from
+ * `..._kiln_heat_2`. The launcher picks the file, so the launcher applies the
+ * cap — which is the only process that knows whether it needs to.
+ */
+const plateDrawable = (ember, level, today) =>
+  `ridik_plate_${ember}_${level}${today ? '_today' : ''}`;
+
+/** The load level a plate cell may actually reach, in the scheme it is drawn in. */
+function plateLevel(ember, level, scheme) {
+  // `hot` is today, not load, and today carries no numeral on any face that
+  // draws one — the cap is about ink, so it stops at the levels ink lands on.
+  if (level > 2 || scheme === 'dark' || EMBERS[ember].platePeak === 'mid') return level;
+  return Math.min(level, 1);
+}
+
 // -------------------------------------------------------------- the geometry
 /**
  * Cells per graphic, per size. Every one of these has a twin in Kotlin
@@ -489,7 +619,7 @@ function attr(depth, name, value) {
  * Kotlin calls and a cell that is drawn two ways is a cell that will disagree
  * with itself.
  */
-function cell(depth, { id, level = 0, width, height, weight, marginEnd, marginStart, gravity, hidden }) {
+function cell(depth, { id, ember, level = 0, width, height, weight, marginEnd, marginStart, gravity, hidden }) {
   const pad = indent(depth + 4);
   return `${indent(depth)}<ImageView
 ${pad}android:id="@+id/${id}"
@@ -499,7 +629,7 @@ ${pad}android:layout_height="${height}"${attr(depth + 4, 'layout_weight', weight
     'layout_marginEnd',
     marginEnd,
   )}${attr(depth + 4, 'layout_marginStart', marginStart)}${attr(depth + 4, 'layout_gravity', gravity)}
-${pad}android:background="@drawable/ridik_heat_${level}"
+${pad}android:background="@drawable/${heatDrawable(ember, level, false)}"
 ${pad}android:importantForAccessibility="no"${attr(depth + 4, 'visibility', hidden ? 'gone' : null)} />`;
 }
 
@@ -511,7 +641,7 @@ ${pad}android:importantForAccessibility="no"${attr(depth + 4, 'visibility', hidd
  * ("2 LAT…"). The eyebrow is weighted rather than `wrap_content` and the count
  * has an explicit width for exactly that reason.
  */
-function header(depth, { eyebrow, count } = {}) {
+function header(depth, { ember, eyebrow, count } = {}) {
   const pad = indent(depth + 4);
   return `${indent(depth)}<LinearLayout
 ${pad}android:layout_width="match_parent"
@@ -529,7 +659,7 @@ ${indent(depth + 6)}android:fontFamily="monospace"
 ${indent(depth + 6)}android:letterSpacing="0.12"
 ${indent(depth + 6)}android:maxLines="1"${text(depth + 6, eyebrow)}
 ${indent(depth + 6)}android:textAllCaps="true"
-${indent(depth + 6)}android:textColor="@color/ridik_widget_ember"
+${indent(depth + 6)}android:textColor="@color/${accentColour(ember)}"
 ${indent(depth + 6)}android:textSize="10sp" />
 
 ${indent(depth + 2)}<TextView
@@ -544,7 +674,7 @@ ${indent(depth + 6)}android:maxLines="1"
 ${indent(depth + 6)}android:paddingEnd="2dp"
 ${indent(depth + 6)}android:paddingStart="2dp"${text(depth + 6, count)}
 ${indent(depth + 6)}android:textAllCaps="true"
-${indent(depth + 6)}android:textColor="@color/ridik_widget_ember"
+${indent(depth + 6)}android:textColor="@color/${accentColour(ember)}"
 ${indent(depth + 6)}android:textSize="10sp"${attr(depth + 6, 'visibility', count ? null : 'gone')} />
 ${indent(depth)}</LinearLayout>`;
 }
@@ -595,7 +725,7 @@ ${pad}android:visibility="gone" />`;
  * call RemoteViews does have — and 31 spacers would have cost more views than
  * the whole rest of the tile.
  */
-function element(depth, { size, sample }) {
+function element(depth, { ember, size, sample }) {
   const slots = DAY_SLOTS[size];
   const { height, spent: spentHeight } = ELEMENT[size];
   const per = sample ? sample.load.length / slots : 0;
@@ -625,6 +755,7 @@ ${pad}android:layout_weight="1"${
 
 ${cell(depth + 4, {
       id: IDS.cellFull(i),
+      ember,
       level,
       width: 'match_parent',
       height: 'match_parent',
@@ -633,6 +764,7 @@ ${cell(depth + 4, {
 
 ${cell(depth + 4, {
       id: IDS.cellSpent(i),
+      ember,
       level,
       width: 'match_parent',
       height: `${spentHeight}dp`,
@@ -710,9 +842,14 @@ ${indent(depth)}</LinearLayout>`;
  *
  * `todayIsHot` is false wherever the tile also draws an element — §3.2 gives the
  * one hot cell to the element, and today on the plate keeps its ring and its own
- * load level. That ring is only visible at all this way: `ridik_widget_ember`
- * and `ridik_widget_heat_3` are the same `#C7360F` in light mode, so a ring
- * around a hot fill is a ring around nothing.
+ * load level. That ring is only visible at all this way: every ember's accent
+ * and its own `heat_3` are the same colour in light mode, so a ring around a hot
+ * fill is a ring around nothing.
+ *
+ * The fills come from `plateDrawable` and not from `heatDrawable`, which is
+ * where `platePeak` lives — the darker embers cap the plate's load at `low` in
+ * light and keep all four in dark, and only the launcher knows which of the two
+ * it is drawing.
  *
  * The week row fills and the cell inside it is capped, which is the rails' rule
  * applied to a grid: weighted rows of `match_parent` cells turned a tall tile's
@@ -724,7 +861,7 @@ ${indent(depth)}</LinearLayout>`;
  * calendar in most of the world. What is baked here is the fallback and what
  * the picker shows.
  */
-function plate(depth, { size, numerals, sample, todayIsHot = true }) {
+function plate(depth, { ember, size, numerals, sample, todayIsHot = true }) {
   const cellHeight = PLATE_CELL[size];
   const gap = PLATE_GAP[size];
 
@@ -769,7 +906,7 @@ ${pad}android:id="@+id/${IDS.plate(index)}"
 ${pad}android:layout_width="0dp"
 ${pad}android:layout_height="${cellHeight}dp"
 ${pad}android:layout_weight="1"${column === 6 ? '' : `\n${pad}android:layout_marginEnd="${gap}dp"`}
-${pad}android:background="@drawable/ridik_heat_${level}${today ? '_today' : ''}"
+${pad}android:background="@drawable/${plateDrawable(ember, level, today)}"
 ${pad}android:fontFamily="monospace"
 ${pad}android:gravity="center"
 ${pad}android:includeFontPadding="false"
@@ -829,7 +966,7 @@ ${indent(depth)}</LinearLayout>`;
  * Cells are vertical bars rather than squares. Width is the constrained axis and
  * height is free, so the readable dimension is bought with the one there is.
  */
-function rails(depth, { size, sample }) {
+function rails(depth, { ember, size, sample }) {
   const days = RAIL_DAYS[size];
   const ideal = GUTTER[size];
   // Content width is the tile less the root padding on both sides.
@@ -872,6 +1009,7 @@ ${pad}android:textSize="${sizeSp}sp" />`;
       bars.push(
         cell(depth + 4, {
           id: IDS.railCell(rail, day),
+          ember,
           level,
           width: '0dp',
           height: `${RAIL_HEIGHT[size]}dp`,
@@ -985,12 +1123,13 @@ ${indent(depth)}</LinearLayout>`;
  * the spacer at the end, which is what "extra space buys air" means on the one
  * axis this face does not grow along.
  */
-function debt(depth, { size, sample }) {
+function debt(depth, { ember, size, sample }) {
   const slots = DEBT_SLOTS[size];
   const { cell: width, height } = DEBT[size];
   const cells = Array.from({ length: slots }, (_, index) =>
     cell(depth + 2, {
       id: IDS.debt(index),
+      ember,
       level: sample ? Number(sample.debt[index] || 0) : 0,
       width: `${width}dp`,
       height: 'match_parent',
@@ -1063,7 +1202,7 @@ ${indent(depth)}</LinearLayout>`;
  * the Calendar at three and the checklist at five, and a picker that showed six
  * would be advertising a tile the widget never draws.
  */
-function rows(depth, { slots, leadWidth, sample, fill = true }) {
+function rows(depth, { ember, slots, leadWidth, sample, fill = true }) {
   const drawn = [];
   for (let index = 0; index < slots; index++) {
     const row = sample && index < sampleRows(sample) ? sample.rows[index] : null;
@@ -1083,7 +1222,7 @@ ${indent(depth + 8)}android:ellipsize="end"
 ${indent(depth + 8)}android:fontFamily="monospace"
 ${indent(depth + 8)}android:includeFontPadding="false"
 ${indent(depth + 8)}android:maxLines="1"${text(depth + 8, row ? row.lead : null)}
-${indent(depth + 8)}android:textColor="@color/ridik_widget_ember"
+${indent(depth + 8)}android:textColor="@color/${accentColour(ember)}"
 ${indent(depth + 8)}android:textSize="11sp" />
 
 ${indent(depth + 4)}<TextView
@@ -1148,7 +1287,7 @@ ${indent(depth)}</LinearLayout>`;
  * house style applied everywhere. The marks are still the family's primitive,
  * at its quietest: a 7dp cell with a 1dp inset of ground.
  */
-function tickRows(depth, { slots, sample, fill = true }) {
+function tickRows(depth, { ember, slots, sample, fill = true }) {
   const drawn = [];
   for (let index = 0; index < slots; index++) {
     const row = sample && index < sampleRows(sample) ? sample.rows[index] : null;
@@ -1162,6 +1301,7 @@ ${pad}android:orientation="horizontal"${attr(pad.length, 'visibility', row ? nul
 
 ${cell(depth + 4, {
       id: IDS.tick(index),
+      ember,
       level: row && row.done ? 2 : 0,
       width: '7dp',
       height: '7dp',
@@ -1213,7 +1353,7 @@ ${indent(depth)}</LinearLayout>`;
  * format string carries the location too, so the live line is one view rather
  * than a row that has to be re-measured every second.
  */
-function nextUp(depth, { stacked, sample }) {
+function nextUp(depth, { ember, stacked, sample }) {
   const pad = indent(depth + 6);
   // Small stacks the readout over the title; medium sets them on one baseline.
   // The only structural difference is the row that wraps them, so the two views
@@ -1273,7 +1413,7 @@ ${pad}android:layout_marginTop="3dp"
 ${pad}android:ellipsize="end"
 ${pad}android:includeFontPadding="false"
 ${pad}android:maxLines="1"
-${pad}android:textColor="@color/ridik_widget_ember"
+${pad}android:textColor="@color/${accentColour(ember)}"
 ${pad}android:textSize="11sp"
 ${pad}android:visibility="gone" />
 
@@ -1284,7 +1424,7 @@ ${pad}android:layout_height="wrap_content"
 ${pad}android:layout_marginTop="3dp"
 ${pad}android:ellipsize="end"
 ${pad}android:maxLines="1"${text(pad.length, sample ? sample.sub : null)}
-${pad}android:textColor="@color/ridik_widget_ember"
+${pad}android:textColor="@color/${accentColour(ember)}"
 ${pad}android:textSize="11sp"${attr(pad.length, 'visibility', sample ? null : 'gone')} />
 ${indent(depth)}</LinearLayout>`;
 }
@@ -1332,7 +1472,7 @@ ${pad}android:textSize="12sp"${attr(
  * sample day drawn before anything was published would be indistinguishable
  * from live data. Previews invert exactly that, and only that.
  */
-function face({ body, preview }) {
+function face({ ember, body, preview }) {
   const pad = indent(6);
   return `<?xml version="1.0" encoding="utf-8"?>
 <!-- ${GENERATED} -->
@@ -1369,7 +1509,7 @@ ${pad}android:letterSpacing="0.12"
 ${pad}android:maxLines="1"
 ${pad}android:text="RIDIK"
 ${pad}android:textAllCaps="true"
-${pad}android:textColor="@color/ridik_widget_ember"
+${pad}android:textColor="@color/${accentColour(ember)}"
 ${pad}android:textSize="10sp" />
 
     <TextView
@@ -1401,21 +1541,21 @@ ${pad}android:textSize="12sp" />
 // ------------------------------------------------------------------ the faces
 
 /** Today: the strip, its ruler, and the next thing under it. */
-function todayFace({ size, preview }) {
+function todayFace({ ember, size, preview }) {
   const sample = preview ? SAMPLE.today : null;
   const day = preview ? SAMPLE.day : null;
   const body = [
-    header(4, sample ? { eyebrow: sample.eyebrow, count: sample.count } : {}),
-    element(4, { size, sample: day }),
+    header(4, sample ? { ember, eyebrow: sample.eyebrow, count: sample.count } : { ember }),
+    element(4, { ember, size, sample: day }),
     // Today is the one face with nothing weighted in it, so every dp the
     // launcher gave beyond the strip and the readout collected at the bottom
     // as a void. This is the `Spacer` iOS has between the ruler and the
     // readout: it takes the slack, and on a tile with none it measures zero.
     slack(4),
-    nextUp(4, { stacked: size === 'small', sample }),
+    nextUp(4, { ember, stacked: size === 'small', sample }),
     copy(4),
   ].join('\n\n');
-  return face({ body, preview });
+  return face({ ember, body, preview });
 }
 
 /**
@@ -1426,19 +1566,22 @@ function todayFace({ size, preview }) {
  * widget that stays honest a week after the app was last opened: the plate goes
  * stale when the month turns over, the strip and the rows when the day does.
  */
-function calFace({ size, leadWidth, preview }) {
+function calFace({ ember, size, leadWidth, preview }) {
   const sample = preview ? SAMPLE.cal : null;
-  const parts = [header(4, sample ? { eyebrow: sample.eyebrow, count: sample.count } : {})];
+  const parts = [
+    header(4, sample ? { ember, eyebrow: sample.eyebrow, count: sample.count } : { ember }),
+  ];
 
   if (size === 'small') {
     // No element at this size, so the plate keeps the tile's one hot cell.
-    parts.push(plate(4, { size, numerals: false, sample: preview ? SAMPLE.month : null }));
+    parts.push(plate(4, { ember, size, numerals: false, sample: preview ? SAMPLE.month : null }));
     parts.push(copy(4));
   } else {
     if (size === 'large') {
       // The element below takes the hot cell; today keeps the ring — §3.2.
       parts.push(
         plate(4, {
+          ember,
           size,
           numerals: true,
           sample: preview ? SAMPLE.month : null,
@@ -1451,7 +1594,7 @@ function calFace({ size, leadWidth, preview }) {
     // caption on the month — the tile said one thing about August and then a
     // second, unrelated thing about the 13th, in that order.
     parts.push(allDayLine(4, { sample }));
-    parts.push(element(4, { size, sample: preview ? SAMPLE.day : null }));
+    parts.push(element(4, { ember, size, sample: preview ? SAMPLE.day : null }));
     // The rows sit on the bottom edge and the slack goes above them, which is
     // where iOS's `Spacer` puts it. Weighted rows top-aligned inside a
     // weighted box put every spare dp in one void under the last row instead —
@@ -1461,79 +1604,86 @@ function calFace({ size, leadWidth, preview }) {
     // The plate above is served first — see `PLATE_WEIGHT`.
     parts.push(slack(4));
     parts.push(copy(4));
-    parts.push(rows(4, { slots: ROW_SLOTS_BY_SIZE[size], leadWidth, sample, fill: false }));
+    parts.push(rows(4, { ember, slots: ROW_SLOTS_BY_SIZE[size], leadWidth, sample, fill: false }));
   }
 
-  return face({ body: parts.join('\n\n'), preview });
+  return face({ ember, body: parts.join('\n\n'), preview });
 }
 
-function habitsFace({ size, preview }) {
+function habitsFace({ ember, size, preview }) {
   const sample = preview ? SAMPLE.habits : null;
   const body = [
-    header(4, sample ? { eyebrow: sample.eyebrow, count: sample.count } : {}),
+    header(4, sample ? { ember, eyebrow: sample.eyebrow, count: sample.count } : { ember }),
     copy(4),
-    rails(4, { size, sample }),
+    rails(4, { ember, size, sample }),
   ].join('\n\n');
-  return face({ body, preview });
+  return face({ ember, body, preview });
 }
 
-function tasksFace({ size, leadWidth, preview }) {
+function tasksFace({ ember, size, leadWidth, preview }) {
   const sample = preview ? SAMPLE.tasks : null;
   // Small draws rows too. It used to draw none — the 40dp debt strip was the
   // whole tile — while iOS drew two from the same payload, which is one widget
   // behaving as two products. The lead is narrower here instead: dropping the
   // rows to buy the lead its 46dp was paying the wrong price.
   const parts = [
-    header(4, sample ? { eyebrow: sample.eyebrow, count: sample.count } : {}),
-    debt(4, { size, sample }),
+    header(4, sample ? { ember, eyebrow: sample.eyebrow, count: sample.count } : { ember }),
+    debt(4, { ember, size, sample }),
     footer(4, { sample }),
     slack(4),
     copy(4),
-    rows(4, { slots: ROW_SLOTS_BY_SIZE[size], leadWidth, sample, fill: false }),
+    rows(4, { ember, slots: ROW_SLOTS_BY_SIZE[size], leadWidth, sample, fill: false }),
   ];
-  return face({ body: parts.join('\n\n'), preview });
+  return face({ ember, body: parts.join('\n\n'), preview });
 }
 
-function listFace({ size, preview }) {
+function listFace({ ember, size, preview }) {
   const sample = preview ? SAMPLE.list : null;
   const body = [
-    header(4, sample ? { eyebrow: sample.eyebrow, count: sample.count } : {}),
+    header(4, sample ? { ember, eyebrow: sample.eyebrow, count: sample.count } : { ember }),
     // The marks first and the sentence under them — §4, and where iOS puts it.
     // "All twelve done." above the column it is about read as a heading for a
     // list that then contradicted it.
-    tickRows(4, { slots: ROW_SLOTS_BY_SIZE[size], sample, fill: false }),
+    tickRows(4, { ember, slots: ROW_SLOTS_BY_SIZE[size], sample, fill: false }),
     // Marks at the top, sentence on the bottom edge, air between: the two ends
     // of the tile are occupied, so a tall checklist reads as a tall checklist
     // rather than as a short one with a void under it.
     slack(4),
     copy(4),
   ].join('\n\n');
-  return face({ body, preview });
+  return face({ ember, body, preview });
 }
 
 /**
  * Every layout the five widgets can inflate.
  *
- * One file per size, and one more per size that draws a clock, because
- * RemoteViews cannot set a width at runtime and "3:15 PM" needs half again the
- * lead column of "15:15". `RidikRowsFace.layoutFor` is the other end of these
- * names.
+ * One file per size, one more per size that draws a clock, and all of that
+ * again per ember. RemoteViews cannot set a width at runtime and cannot recolour
+ * a `TextView` on a build that ships to API 26, so both the lead column and the
+ * ember are file names rather than runtime values. `RidikRowsFace.layoutFor` is
+ * the other end of these.
+ *
+ * Sixteen live faces × three embers, plus five previews, is fifty-three files.
+ * The previews are the *default* ember alone and deliberately: the gallery is
+ * where a widget is judged before one is placed, and it is judged on what a
+ * fresh install draws. A picker offering the same tile in three colours would be
+ * advertising a choice that lives in Settings.
  */
 function layouts() {
   const files = {};
 
-  const build = (widget, size, leadWidth, preview) => {
+  const build = (widget, size, leadWidth, preview, ember) => {
     switch (widget.kind) {
       case 'today':
-        return todayFace({ size, preview });
+        return todayFace({ ember, size, preview });
       case 'agenda':
-        return calFace({ size, leadWidth, preview });
+        return calFace({ ember, size, leadWidth, preview });
       case 'habits':
-        return habitsFace({ size, preview });
+        return habitsFace({ ember, size, preview });
       case 'tasks':
-        return tasksFace({ size, leadWidth, preview });
+        return tasksFace({ ember, size, leadWidth, preview });
       default:
-        return listFace({ size, preview });
+        return listFace({ ember, size, preview });
     }
   };
 
@@ -1544,14 +1694,23 @@ function layouts() {
 
   for (const widget of WIDGETS) {
     for (const size of widget.sizes) {
-      files[`layout/${widget.layout}_${size}.xml`] = build(widget, size, lead(size, false), false);
-      if (widget.clocked.includes(size)) {
-        files[`layout/${widget.layout}_${size}_ampm.xml`] = build(
+      for (const ember of EMBER_NAMES) {
+        files[`layout/${widget.layout}_${size}_${ember}.xml`] = build(
           widget,
           size,
-          lead(size, true),
+          lead(size, false),
           false,
+          ember,
         );
+        if (widget.clocked.includes(size)) {
+          files[`layout/${widget.layout}_${size}_ampm_${ember}.xml`] = build(
+            widget,
+            size,
+            lead(size, true),
+            false,
+            ember,
+          );
+        }
       }
     }
     files[`layout/${widget.layout}_preview.xml`] = build(
@@ -1559,6 +1718,7 @@ function layouts() {
       widget.previewSize,
       lead(widget.previewSize, false),
       true,
+      DEFAULT_EMBER,
     );
   }
 
@@ -1573,13 +1733,19 @@ function layouts() {
  * `RidikCells.sizeOf`. `updatePeriodMillis` is the platform floor of thirty
  * minutes: everything else is pushed from `RidikWidgets.redrawAll`, but the
  * element has to burn down on a day the app is never opened.
+ *
+ * `initialLayout` is the *default* ember, because it is what the launcher
+ * inflates before the widget has been handed anything at all — at which point
+ * nothing has told this process which ember the user picked, and the honest
+ * answer is the one a fresh install draws. The first `onUpdate` swaps in the
+ * chosen one.
  */
 function info(widget) {
   return `<?xml version="1.0" encoding="utf-8"?>
 <!-- ${GENERATED} -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/${widget.description}"
-    android:initialLayout="@layout/${widget.layout}_medium"
+    android:initialLayout="@layout/${widget.layout}_medium_${DEFAULT_EMBER}"
     android:maxResizeHeight="800dp"
     android:maxResizeWidth="800dp"
     android:minHeight="${widget.cells.height * 55}dp"
@@ -1647,45 +1813,72 @@ function keepRules() {
 }
 
 /**
- * The cell ramp, resolved, plus the two dark-only tokens.
+ * Every ember's ramp, resolved, one block per option.
  *
- * The same four values live in `src/ui/theme.ts` and `RidikPalette.swift`, and
- * `widget-tokens.test.ts` asserts all three agree — a ramp that drifted would
- * put the app's habit grid and the widget beside it in different palettes, on
- * the same screen, with nothing failing.
+ * The same four values per ember live in `src/ui/theme.ts` and — for the default
+ * — in `RidikPalette.swift`, and `widget-tokens.test.ts` asserts they agree: a
+ * ramp that drifted would put the app's habit grid and the widget beside it in
+ * different palettes, on the same screen, with nothing failing.
+ *
+ * `on_heat` is one shared token rather than three: it is the *inversion* of a
+ * hot cell and all three embers give it the same pair.
  */
-function heatColors({ cold, low, mid, hot, onHeat, rim, edge }) {
+function emberColors(scheme) {
+  return EMBER_NAMES.flatMap((name) => {
+    const ramp = EMBERS[name][scheme];
+    return [
+      `  <color name="${heatColour(name, 0)}">${ramp.cold}</color>`,
+      `  <color name="${heatColour(name, 1)}">${ramp.low}</color>`,
+      `  <color name="${heatColour(name, 2)}">${ramp.mid}</color>`,
+      `  <color name="${heatColour(name, 3)}">${ramp.hot}</color>`,
+      `  <color name="${accentColour(name)}">${accentOf(name, scheme)}</color>`,
+      `  <color name="ridik_widget_${name}_wash">${washOf(name, scheme)}</color>`,
+    ];
+  }).join('\n');
+}
+
+/**
+ * `heat` is the default ember's ramp, written out a second time on purpose.
+ *
+ * `widget-tokens.test.ts` reads it out of this file as *text* — there is no
+ * shared source an Xcode extension, a React Native app and an Android resource
+ * file could all import, so the agreement between the three is asserted by
+ * reading two of them as strings. Passing `EMBERS.ember[scheme]` here instead
+ * would leave nothing for that test to find and it would silently stop checking.
+ * The guard below is what makes the duplicate safe.
+ */
+function colors(scheme, { ground, ink, inkSoft, danger, heat, rim, edge }) {
+  const source = { ...EMBERS[DEFAULT_EMBER][scheme], onHeat: ON_HEAT[scheme] };
+  for (const level of ['cold', 'low', 'mid', 'hot', 'onHeat']) {
+    if (heat[level] !== source[level]) {
+      throw new Error(
+        `withRidikAndroidWidget: ${scheme} ${level} is ${heat[level]} here and ` +
+          `${source[level]} in EMBERS — one of them is a typo.`,
+      );
+    }
+  }
+
   const optional = [
     rim ? `  <color name="ridik_widget_rim">${rim}</color>` : null,
     edge ? `  <color name="ridik_widget_edge">${edge}</color>` : null,
   ].filter(Boolean);
-  return [
-    `  <color name="ridik_widget_heat_0">${cold}</color>`,
-    `  <color name="ridik_widget_heat_1">${low}</color>`,
-    `  <color name="ridik_widget_heat_2">${mid}</color>`,
-    `  <color name="ridik_widget_heat_3">${hot}</color>`,
-    `  <color name="ridik_widget_on_heat">${onHeat}</color>`,
-    ...optional,
-  ].join('\n');
-}
 
-function colors({ ground, ink, inkSoft, ember, danger, wash, heat }) {
   return `<?xml version="1.0" encoding="utf-8"?>
 <!-- ${GENERATED} -->
 <resources>
   <color name="ridik_widget_ground">${ground}</color>
   <color name="ridik_widget_ink">${ink}</color>
   <color name="ridik_widget_ink_soft">${inkSoft}</color>
-  <color name="ridik_widget_ember">${ember}</color>
   <color name="ridik_widget_danger">${danger}</color>
-  <color name="ridik_widget_wash">${wash}</color>
-${heatColors(heat)}
+  <color name="ridik_widget_on_heat">${heat.onHeat}</color>
+${optional.length === 0 ? '' : `${optional.join('\n')}\n`}${emberColors(scheme)}
 </resources>
 `;
 }
 
 /**
- * One drawable per heat level, and a second set for the cell that is today.
+ * One drawable per heat level, per ember, and a second set for the cell that is
+ * today — then all of it again for the month plate, which caps differently.
  *
  * An `ImageView` with one of these as its background is the entire drawing
  * primitive — no bitmaps anywhere in this widget family. Quantising heat into
@@ -1694,39 +1887,62 @@ ${heatColors(heat)}
  * seam where the bitmap resolves the *app* process's configuration while the
  * layout's `@color/` references resolve the *launcher's*.
  *
- * Level 3 is the only one that differs between schemes, and it differs for
- * opposite reasons: light takes a 1dp inset of the ground so the hot cell does
- * not touch its neighbours, dark takes a 1dp rim so emission reads as glow.
+ * The ember is a *name* for the same reason. `Resources.getIdentifier` picks the
+ * file, the launcher resolves which config-specific copy of it to load, and no
+ * colour is ever resolved in this app's process — which is the whole night-mode
+ * fix applied to a second axis.
+ *
+ * A `-night` file is written only where it would actually differ from the day
+ * one, so the count stays honest. Two things make it differ: level 3's hairline,
+ * which is a 1dp inset of the ground in light so the hot cell does not touch its
+ * neighbours and a 1dp rim in dark so emission reads as glow; and the plate's
+ * `platePeak` cap, which applies in light only.
  */
 function cellDrawables() {
   const files = {};
-  for (let level = 0; level < 4; level++) {
-    files[`drawable/ridik_heat_${level}.xml`] = cellShape(level, { today: false });
-    files[`drawable/ridik_heat_${level}_today.xml`] = cellShape(level, { today: true });
-    if (level === 3) {
-      files[`drawable-night/ridik_heat_${level}.xml`] = cellShape(level, { today: false, night: true });
-      files[`drawable-night/ridik_heat_${level}_today.xml`] = cellShape(level, {
-        today: true,
-        night: true,
-      });
+
+  const write = (name, make) => {
+    const day = make('light');
+    const night = make('dark');
+    files[`drawable/${name}.xml`] = day;
+    if (night !== day) files[`drawable-night/${name}.xml`] = night;
+  };
+
+  for (const ember of EMBER_NAMES) {
+    for (let level = 0; level < 4; level++) {
+      for (const today of [false, true]) {
+        write(heatDrawable(ember, level, today), (scheme) =>
+          cellShape(ember, level, level, { today, scheme }),
+        );
+        write(plateDrawable(ember, level, today), (scheme) =>
+          cellShape(ember, level, plateLevel(ember, level, scheme), { today, scheme }),
+        );
+      }
     }
   }
+
   return files;
 }
 
-function cellShape(level, { today, night }) {
+/**
+ * `level` is what the cell *means*; `fill` is the ramp step it is allowed to
+ * reach. They are the same everywhere except a capped ember's month plate in
+ * light mode — see `plateDrawable`. The hairline follows `level`, because a cell
+ * standing for `hot` keeps its rim whatever it had to be filled with.
+ */
+function cellShape(ember, level, fill, { today, scheme }) {
   // The ring goes on top of the fill on the plate's today cell, so the day it
   // marks is not made smaller than the ones around it.
   const stroke = today
-    ? '\n  <stroke android:width="1.5dp" android:color="@color/ridik_widget_ember" />'
+    ? `\n  <stroke android:width="1.5dp" android:color="@color/${accentColour(ember)}" />`
     : level === 3
-      ? `\n  <stroke android:width="1dp" android:color="@color/ridik_widget_${night ? 'rim' : 'ground'}" />`
+      ? `\n  <stroke android:width="1dp" android:color="@color/ridik_widget_${scheme === 'dark' ? 'rim' : 'ground'}" />`
       : '';
   return `<?xml version="1.0" encoding="utf-8"?>
 <!-- ${GENERATED} -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-  <solid android:color="@color/ridik_widget_heat_${level}" />
+  <solid android:color="@color/${heatColour(ember, fill)}" />
   <corners android:radius="2dp" />${stroke}
 </shape>
 `;
@@ -1774,16 +1990,17 @@ function resourceFiles() {
 
     // Warm sand and a warm near-black, the same ground every screen in the app
     // sits on. Nothing here is a neutral grey; on this palette one would read
-    // as a bug.
-    'values/ridik_widget_colors.xml': colors({
+    // as a bug. The ground, the ink and the tile's furniture are the same under
+    // every ember — only the heat changes, which is the whole point of a
+    // palette built from one colour at four opacities.
+    'values/ridik_widget_colors.xml': colors('light', {
       ground: '#FFE8D4',
       ink: '#2E1508',
       inkSoft: '#BD2E1508',
-      ember: '#C7360F',
       danger: '#BE2A18',
-      wash: '#1FC7360F',
-      // #C7360F over #FFE8D4 at 23 / 46 / 70 / 100 percent. The resting cell
-      // is deliberately higher than it looks it should be — see theme.ts.
+      // #C7360F over #FFE8D4 at 23 / 46 / 70 / 100 percent — the default
+      // ember's own ramp. The resting cell is deliberately higher than it looks
+      // it should be — see theme.ts.
       heat: {
         cold: '#F2BFA7',
         low: '#E59679',
@@ -1795,26 +2012,25 @@ function resourceFiles() {
 
     // The launcher can be in dark mode while the app is not, so the widget
     // answers to the system rather than to the app's own scheme.
-    'values-night/ridik_widget_colors.xml': colors({
+    'values-night/ridik_widget_colors.xml': colors('dark', {
       ground: '#1C0E06',
       ink: '#FFEEDF',
       inkSoft: '#A8FFEEDF',
-      ember: '#FF8253',
       danger: '#FF6F5C',
-      wash: '#29FF8253',
+      // Dark only: a hairline inside the hot cell so emission reads as glow,
+      // and a tile border, because a near-black tile on a dark photo wallpaper
+      // otherwise dissolves into it. Both are furniture and neither follows the
+      // ember — a 1dp hairline is read as light, not as a colour.
+      rim: '#FFB57E',
+      edge: '#1FFFD6B8',
       // #FF5A36 over #1C0E06 at the same four. Note the hot value is the vivid
-      // core, not `ember` — the accent is the text-safe darkened one.
+      // core, not the accent — the accent is the text-safe lightened one.
       heat: {
         cold: '#501F11',
         low: '#84311C',
         mid: '#BB4328',
         hot: '#FF5A36',
         onHeat: '#1C0E06',
-        // Dark only: a hairline inside the hot cell so emission reads as glow,
-        // and a tile border, because a near-black tile on a dark photo
-        // wallpaper otherwise dissolves into it.
-        rim: '#FFB57E',
-        edge: '#1FFFD6B8',
       },
     }),
 
@@ -1916,12 +2132,18 @@ const withWidgetReceiver = (config) =>
 /**
  * More heap for the build, because these layouts are why it needs it.
  *
- * Five faces generate about nineteen layouts, and the largest — a six-rail
- * board of thirty-five days — is over two thousand views of XML. Together with
- * React Native's own dex that is more than the template's 2GB, and D8 fails
- * with a bare `OutOfMemoryError: Java heap space` that says nothing about the
- * number being configurable. It belongs here rather than in the app config
- * because this plugin is what made it necessary.
+ * Five faces at five sizes generated twenty-one layouts, and the largest — a
+ * six-rail board of thirty-five days — is a quarter of a megabyte of XML.
+ * Together with React Native's own dex that was already more than the
+ * template's 2GB, and D8 fails with a bare `OutOfMemoryError: Java heap space`
+ * that says nothing about the number being configurable.
+ *
+ * A user-chosen ember triples the sixteen *live* faces, because text colour
+ * lives in the layout and RemoteViews cannot restyle a `TextView` on a build
+ * that ships to API 26 — fifty-three files and about 2.1MB of XML through
+ * aapt2. Measured: 6GB still carries it with room to spare, so the number is
+ * unchanged. It is stated here rather than in the app config because this
+ * plugin is the only reason it is needed at all.
  */
 const withBuildHeap = (config) =>
   withGradleProperties(config, (cfg) => {

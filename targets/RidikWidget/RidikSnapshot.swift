@@ -217,6 +217,16 @@ struct WidgetSnapshot: Decodable {
   let publishedAt: Double
   /// The IANA zone the day was computed in. A widget must never guess this.
   let zone: String
+  /**
+   The ember the user chose — `"ember"`, `"kiln"` or `"rust"`.
+
+   Optional so that the *version* field stays the one thing that decides whether
+   a payload can be drawn: a build that adds a fourth ember, or drops this one,
+   should say "Ridik was updated" rather than fail to decode for a reason the
+   reader cannot see. `RidikEmber.named` treats anything it does not know as the
+   default. Unlike the scheme, this does travel — see `RidikPalette.of`.
+   */
+  let ember: String?
   let day: Day
   let month: Month
   let configured: Configured
@@ -449,7 +459,7 @@ enum WidgetBlankReason {
 /// Reads what the app left in the shared container.
 enum SnapshotStore {
   /// Must match `WIDGET_SNAPSHOT_VERSION` in `src/services/widgets/snapshot.ts`.
-  static let supportedVersion = 3
+  static let supportedVersion = 4
 
   /// Twin of `RidikWidgetsModule.defaultsKey`.
   static let defaultsKey = "ridik.widget.snapshot"
@@ -564,6 +574,9 @@ extension WidgetSnapshot {
       version: SnapshotStore.supportedVersion,
       publishedAt: now.epochMilliseconds,
       zone: TimeZone.current.identifier,
+      // The gallery previews the default, which is what a fresh install draws
+      // and what every screenshot in the store shows.
+      ember: RidikEmber.ember.rawValue,
       day: Day(
         date: String(
           format: "%04d-%02d-%02d",

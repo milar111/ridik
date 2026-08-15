@@ -4,6 +4,7 @@ import { useNow } from '@/features/today/useNow';
 import { buildWidgetSnapshot } from '@/services/widgets/snapshot';
 import { publishWidgetSnapshot } from '@/services/widgets/publish';
 import { useChecklistItems, useChecklistNames } from './useChecklists';
+import { useEmberChoice } from './useEmber';
 import { useToday } from './useToday';
 import { useWidgetSources } from './useWidgetSources';
 
@@ -24,6 +25,10 @@ export function useWidgetPublisher(): void {
   const today = useToday();
   const at = useNow();
   const snapshot = today.data;
+  // The store rather than the setting, so the tiles are drawn in the ember the
+  // app is drawn in at that moment — the two are read from one place and cannot
+  // disagree while a write is settling.
+  const ember = useEmberChoice();
 
   // The list widget shows one list, and the one worth showing is the one with
   // something left on it. `listNames` is already ordered by the repository, so
@@ -82,7 +87,8 @@ export function useWidgetPublisher(): void {
         monthEvents: sources.monthEvents,
         habitHistory: sources.habitHistory,
         counts: sources.counts,
+        ember,
       }),
     );
-  }, [snapshot, at, list, ready, sources.monthEvents, sources.habitHistory, sources.counts]);
+  }, [snapshot, at, list, ready, sources.monthEvents, sources.habitHistory, sources.counts, ember]);
 }

@@ -1,5 +1,6 @@
 import { DateTime, dayRange } from '@/core/time';
 import type { TodaySnapshot } from '@/hooks/useToday';
+import { DEFAULT_EMBER } from '@/ui/theme';
 import {
   WIDGET_SNAPSHOT_VERSION,
   buildWidgetSnapshot,
@@ -90,6 +91,20 @@ describe('buildWidgetSnapshot', () => {
       tasks: { dueToday: 2, overdue: 1 },
       habits: { done: 2, total: 3 },
     });
+  });
+
+  /* The colour travels by name and the scheme does not (WIDGETS §5): the
+     launcher can be dark while the app is light, and only the widget can know
+     that — but no launcher can know which ember the person chose. */
+  it('carries the chosen ember, and still no scheme', () => {
+    const built = buildWidgetSnapshot({ snapshot: snapshot(), now: NOON, ember: 'rust' });
+
+    expect(built.ember).toBe('rust');
+    expect(Object.keys(built)).not.toContain('scheme');
+  });
+
+  it('publishes the default for a build that has not been told otherwise', () => {
+    expect(buildWidgetSnapshot({ snapshot: snapshot(), now: NOON }).ember).toBe(DEFAULT_EMBER);
   });
 
   it('lists what is left of the day, and drops the travel buffer from it', () => {
@@ -550,6 +565,10 @@ describe('every section reaches the change check', () => {
       now: NOON,
       list: { name: 'Hardware', rows: [{ text: 'Bolts', done: false }] },
     })],
+    /* The one field here that draws nothing and changes everything. Left out of
+       the digest, picking a colour republishes nothing: the tiles keep the old
+       one until something else about the day happens to change. */
+    ['ember', () => buildWidgetSnapshot({ snapshot: snapshot(), now: NOON, ember: 'kiln' })],
   ];
 
   it.each(mutations)('notices a change in %s', (_section, build) => {

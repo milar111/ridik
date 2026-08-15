@@ -411,9 +411,14 @@ struct MonthPlate: View {
   }
 
   private func level(of number: Int) -> Character {
+    // Today's cell is not load and is never capped: it carries `onHeat`, which
+    // is legible on every ember's `hot` in both schemes.
     if todayIsHot, today > 0, number == today { return "3" }
     let cells = month.cells
-    return number - 1 < cells.count ? cells[number - 1] : "0"
+    let level = number - 1 < cells.count ? cells[number - 1] : "0"
+    // The plate is the one face with text on a filled cell, so a darker ember
+    // holds its load one level lower in light — see `RidikPalette.platePeak`.
+    return palette.plateLevel(level)
   }
 
   /// Which column the 1st falls in, counted from the payload's own week start.

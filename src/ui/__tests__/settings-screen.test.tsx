@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { defaultSettings } from '@/repositories/settings';
+import { emberChoice, setEmberChoice } from '@/hooks/useEmber';
+import { DEFAULT_EMBER, embers } from '@/ui/theme';
 
 import { ThemeProvider } from '../ThemeProvider';
 
@@ -118,6 +120,9 @@ beforeEach(() => {
   mockErase.mockReset();
   mockRequestPermission.mockReset();
   mockPush.mockReset();
+  // The palette is module state so that the theme can be read above the query
+  // client; put it back where a fresh launch finds it.
+  setEmberChoice(DEFAULT_EMBER);
   mockRepos.settings.getAll.mockResolvedValue(defaultSettings());
   mockRepos.settings.set.mockImplementation(async (_k: string, v: unknown) => v);
   mockRepos.syncQueue.listByStatus.mockResolvedValue([]);
@@ -182,9 +187,12 @@ describe('settings screen', () => {
     expect(screen.queryByText('Morning briefing')).toBeNull();
   });
 
-  it('leaves exactly one preference, and it cannot break anything', async () => {
+  /* Two preferences now, and both pass the same test: set either one to the
+     worst value you can find and the app still works. */
+  it('leaves the preferences that cannot break anything', async () => {
     await wrap(<SettingsScreen />);
     expect(await screen.findByText('Speak replies')).toBeTruthy();
+    expect(await screen.findByText('COLOUR')).toBeTruthy();
   });
 
 
@@ -255,6 +263,41 @@ describe('settings screen', () => {
     // "Allow" would be a button the OS will never honour again.
     expect(await screen.findByRole('button', { name: 'Open settings' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull();
+  });
+
+  /*
+   * The colour picker passes the same test the rest of the screen is held to:
+   * there is no value a stranger could set it to that breaks anything, because
+   * every ember is held to the ramp's contrast rules. So it belongs here rather
+   * than behind the developer gate.
+   */
+  it("offers every ember, in the user's terms rather than the palette's", async () => {
+    await wrap(<SettingsScreen />);
+
+    expect(await screen.findByText('COLOUR')).toBeTruthy();
+    for (const option of Object.values(embers)) {
+      expect(screen.getByText(option.label)).toBeTruthy();
+      expect(screen.getByText(option.note)).toBeTruthy();
+    }
+  });
+
+  it('starts on the one the app already draws, and says which it is', async () => {
+    await wrap(<SettingsScreen />);
+
+    const chosen = await screen.findByRole('radio', { name: embers[DEFAULT_EMBER].label });
+    expect(chosen.props.accessibilityState.selected).toBe(true);
+    expect(
+      screen.getByRole('radio', { name: embers.rust.label }).props.accessibilityState.selected,
+    ).toBe(false);
+  });
+
+  it('writes the choice, and repaints before it has landed', async () => {
+    await wrap(<SettingsScreen />);
+
+    await fireEvent.press(await screen.findByRole('radio', { name: embers.kiln.label }));
+
+    expect(emberChoice()).toBe('kiln');
+    expect(mockRepos.settings.set).toHaveBeenCalledWith('ember', 'kiln');
   });
 
   /* Erasing is the one irreversible action in the app. Two deliberate steps,

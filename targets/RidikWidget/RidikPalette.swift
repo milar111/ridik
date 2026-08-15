@@ -1,6 +1,25 @@
 import SwiftUI
 
 /**
+ Which ember the payload was published in — the user's colour, from `settings`.
+
+ A string on the wire and never colours: the app publishes the *name*, the widget
+ resolves it against the launcher's own light/dark. Absent or unrecognised is the
+ default, which is what a payload from an older build and a payload from a build
+ that ships a fourth ember both look like from here.
+ */
+enum RidikEmber: String {
+  case ember
+  case kiln
+  case rust
+
+  static func named(_ raw: String?) -> RidikEmber {
+    guard let raw, let known = RidikEmber(rawValue: raw) else { return .ember }
+    return known
+  }
+}
+
+/**
  The "element" tokens from `src/ui/theme.ts`, as far as an extension can carry them.
 
  Two things do not survive the trip and the face is designed around their
@@ -46,6 +65,27 @@ struct RidikPalette {
   /// Dark only: a tile border. A near-black tile on a dark wallpaper dissolves.
   let edge: Color?
 
+  /**
+   The hottest level the month plate may fill a cell with.
+
+   The plate is the one face in the family where text sits *on* a filled cell,
+   and a darker ember's `mid` cannot stay light enough for a near-black numeral
+   while its `hot` stays dark enough for linen. That is not a tuning problem: no
+   ramp satisfies both on the sand ground at any alphas. So the darker embers cap
+   the plate at `low` in **light** — busy and very busy read alike there, which
+   is the price of the colour — and keep all four levels in dark, where the
+   constraint does not exist. `ember` is the only one that never caps, which is
+   why it is the default rather than merely the first.
+
+   Today's hot cell is not load and is never capped; it carries `onHeat`.
+   */
+  let platePeak: Character
+
+  /// A plate load level, held to what a numeral can still be read on.
+  func plateLevel(_ level: Character) -> Character {
+    level > platePeak ? platePeak : level
+  }
+
   static let light = RidikPalette(
     ground: Color(rgb: 0xFFE8D4),
     raised: Color(rgb: 0xFFF7F0),
@@ -58,7 +98,8 @@ struct RidikPalette {
     heatHot: Color(rgb: 0xC7360F),
     onHeat: Color(rgb: 0xFFF7F0),
     rim: nil,
-    edge: nil
+    edge: nil,
+    platePeak: "2"
   )
 
   static let dark = RidikPalette(
@@ -79,11 +120,107 @@ struct RidikPalette {
     // all. A neutral white at the same opacity reads as a bug next to this
     // palette, and it outlined the two platforms' tiles differently. Written as
     // an `rgb:` literal like every other token so the token test can read it.
-    edge: Color(rgb: 0xFFD6B8).opacity(0.12)
+    edge: Color(rgb: 0xFFD6B8).opacity(0.12),
+    platePeak: "2"
   )
 
-  static func of(_ scheme: ColorScheme) -> RidikPalette {
-    scheme == .dark ? .dark : .light
+  /*
+   The two darker embers.
+
+   Every ramp value is copied from `embers` in `src/ui/theme.ts` and asserted
+   against it by `widget-tokens.test.ts`, exactly as the default's is. What is
+   *not* copied is anything the default holds by hand: `ground`, `raised`, `text`
+   and `danger` do not change with the ember, and the dark tile `edge` is the
+   same hairline on all three so the two platforms outline their tiles alike.
+
+   `accent` is the ramp's own `hot` — the text-safe ember in light, the emitting
+   one in dark — which is what the app resolves for these two as well. The
+   default keeps its hand-drawn `#FF8253` instead, because that colour exists in
+   no ramp and re-deriving it would move the look this app already ships.
+   */
+
+  static let kilnLight = RidikPalette(
+    ground: Color(rgb: 0xFFE8D4),
+    raised: Color(rgb: 0xFFF7F0),
+    text: Color(rgb: 0x2E1508),
+    accent: Color(rgb: 0xA82318),
+    danger: Color(rgb: 0xBE2A18),
+    heatCold: Color(rgb: 0xE8B3A1),
+    heatLow: Color(rgb: 0xD48676),
+    heatMid: Color(rgb: 0xBF5649),
+    heatHot: Color(rgb: 0xA82318),
+    onHeat: Color(rgb: 0xFFF7F0),
+    rim: nil,
+    edge: nil,
+    // Kiln's `mid` is too dark for a near-black numeral on the sand ground.
+    platePeak: "1"
+  )
+
+  static let kilnDark = RidikPalette(
+    ground: Color(rgb: 0x1C0E06),
+    raised: Color(rgb: 0x361F15),
+    text: Color(rgb: 0xFFEEDF),
+    accent: Color(rgb: 0xF04B3C),
+    danger: Color(rgb: 0xFF6F5C),
+    heatCold: Color(rgb: 0x551E15),
+    heatLow: Color(rgb: 0x862C21),
+    heatMid: Color(rgb: 0xB93B2E),
+    heatHot: Color(rgb: 0xF04B3C),
+    onHeat: Color(rgb: 0x1C0E06),
+    // The glow hairline in the ember's own hue, from its light ramp's palest
+    // cell. The default's `#FFB57E` is a hand-drawn value and stays with it.
+    rim: Color(rgb: 0xE8B3A1),
+    edge: Color(rgb: 0xFFD6B8).opacity(0.12),
+    platePeak: "2"
+  )
+
+  static let rustLight = RidikPalette(
+    ground: Color(rgb: 0xFFE8D4),
+    raised: Color(rgb: 0xFFF7F0),
+    text: Color(rgb: 0x2E1508),
+    accent: Color(rgb: 0x96341A),
+    danger: Color(rgb: 0xBE2A18),
+    heatCold: Color(rgb: 0xE3B7A2),
+    heatLow: Color(rgb: 0xCA8E77),
+    heatMid: Color(rgb: 0xB1634A),
+    heatHot: Color(rgb: 0x96341A),
+    onHeat: Color(rgb: 0xFFF7F0),
+    rim: nil,
+    edge: nil,
+    platePeak: "1"
+  )
+
+  static let rustDark = RidikPalette(
+    ground: Color(rgb: 0x1C0E06),
+    raised: Color(rgb: 0x361F15),
+    text: Color(rgb: 0xFFEEDF),
+    accent: Color(rgb: 0xDE6038),
+    danger: Color(rgb: 0xFF6F5C),
+    heatCold: Color(rgb: 0x502414),
+    heatLow: Color(rgb: 0x7D371F),
+    heatMid: Color(rgb: 0xAC4B2B),
+    heatHot: Color(rgb: 0xDE6038),
+    onHeat: Color(rgb: 0x1C0E06),
+    rim: Color(rgb: 0xE3B7A2),
+    edge: Color(rgb: 0xFFD6B8).opacity(0.12),
+    platePeak: "2"
+  )
+
+  /**
+   The palette a face draws in: the launcher's appearance, the payload's ember.
+
+   Two different kinds of fact, and they arrive from two different places on
+   purpose. The scheme is the system's and is never published — the launcher can
+   be dark while the app is light — while the ember is a choice a person made,
+   which nothing on this side could answer for.
+   */
+  static func of(scheme: ColorScheme, ember: String?) -> RidikPalette {
+    let dark = scheme == .dark
+    switch RidikEmber.named(ember) {
+    case .ember: return dark ? .dark : .light
+    case .kiln: return dark ? .kilnDark : .kilnLight
+    case .rust: return dark ? .rustDark : .rustLight
+    }
   }
 
   /// Heavier than it would be on white; this ground is a mid-tone.

@@ -1,6 +1,8 @@
 import { render } from '@testing-library/react-native';
 
 import { useWidgetPublisher } from '@/hooks/useWidgetPublisher';
+import { setEmberChoice } from '@/hooks/useEmber';
+import { DEFAULT_EMBER } from '@/ui/theme';
 
 jest.mock('@/hooks/useToday', () => ({ useToday: jest.fn() }));
 jest.mock('@/features/today/useNow', () => ({ useNow: jest.fn() }));
@@ -142,6 +144,19 @@ describe('useWidgetPublisher', () => {
     await render(<Probe />);
 
     expect(publishWidgetSnapshot).not.toHaveBeenCalled();
+  });
+
+  /* The widgets have to be drawn in the colour the app is drawn in, and both
+     read it from the same store — so a publish cannot go out in last week's
+     palette while the screen behind it is already in this week's. */
+  it('publishes the ember the app is painting with', async () => {
+    setup({ names: settled([]), items: pending() });
+    setEmberChoice('rust');
+
+    await render(<Probe />);
+
+    expect(published().ember).toBe('rust');
+    setEmberChoice(DEFAULT_EMBER);
   });
 
   it('shows the list with something still open on it, not merely the first', async () => {

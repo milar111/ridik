@@ -45,32 +45,102 @@ export type HeatRamp = { core: string; mid: string; edge: string; rim: string };
  */
 export type CellRamp = { cold: string; low: string; mid: string; hot: string; onHeat: string };
 
+/**
+ * The embers the user can choose between.
+ *
+ * One colour at four opacities is the whole visual system, so this is the only
+ * thing a colour setting has to change — and changing it is genuinely one entry
+ * here rather than a sweep through every face.
+ *
+ * `platePeak` is not decoration. The month plate is the one place in the family
+ * where text sits *on* a filled cell, and a darker ember's mid cell cannot stay
+ * light enough for near-black numerals while its hot cell stays dark enough for
+ * linen. That is not a tuning problem: no ramp satisfies both on the sand
+ * ground, at any alphas, and a paler ground does not rescue it. So a darker
+ * ember caps the plate's load at `low` in light mode — busy and very busy read
+ * alike there — and keeps all four levels in dark, where the constraint does
+ * not exist. `ember` is the only one that keeps `mid`, which is why it is the
+ * default rather than merely the first.
+ */
+export type EmberName = 'ember' | 'kiln' | 'rust';
+
+export type EmberOption = {
+  name: EmberName;
+  /** What the Settings row calls it. */
+  label: string;
+  /** One line, in the user's terms, not the palette's. */
+  note: string;
+  light: CellRamp;
+  dark: CellRamp;
+  /** The hottest level the month plate may use in light mode. */
+  platePeak: 'mid' | 'low';
+};
+
+export const embers: Record<EmberName, EmberOption> = {
+  // #C7360F / #FF5A36 at 23 / 46 / 70 / 100 percent.
+  ember: {
+    name: 'ember',
+    label: 'Ember',
+    note: 'The original. A coil at temperature.',
+    light: { cold: '#F2BFA7', low: '#E59679', mid: '#D86B4A', hot: '#C7360F', onHeat: '#FFF7F0' },
+    dark: { cold: '#501F11', low: '#84311C', mid: '#BB4328', hot: '#FF5A36', onHeat: '#1C0E06' },
+    platePeak: 'mid',
+  },
+  // #A82318 / #F04B3C at 27 / 50 / 74 / 100.
+  kiln: {
+    name: 'kiln',
+    label: 'Kiln',
+    note: 'Further from orange. A firing chamber, not a coil.',
+    light: { cold: '#E8B3A1', low: '#D48676', mid: '#BF5649', hot: '#A82318', onHeat: '#FFF7F0' },
+    dark: { cold: '#551E15', low: '#862C21', mid: '#B93B2E', hot: '#F04B3C', onHeat: '#1C0E06' },
+    platePeak: 'low',
+  },
+  // #96341A / #DE6038 at the same four.
+  rust: {
+    name: 'rust',
+    label: 'Rust',
+    note: 'Browner and quieter. Oxidised steel.',
+    light: { cold: '#E3B7A2', low: '#CA8E77', mid: '#B1634A', hot: '#96341A', onHeat: '#FFF7F0' },
+    dark: { cold: '#502414', low: '#7D371F', mid: '#AC4B2B', hot: '#DE6038', onHeat: '#1C0E06' },
+    platePeak: 'low',
+  },
+};
+
+/** What a fresh install draws, and what every screenshot in the store shows. */
+export const DEFAULT_EMBER: EmberName = 'ember';
+
+/** Every ember, in the order Settings offers them. The default is first. */
+export const EMBER_NAMES = Object.keys(embers) as EmberName[];
+
+/** Total, because the stored value is decoded from JSON a build may not know. */
+export function isEmberName(value: unknown): value is EmberName {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(embers, value);
+}
+
+/**
+ * The default ember's ramp — what everything that has not been told otherwise
+ * draws.
+ *
+ * Light is #C7360F over #FFE8D4 at 23% / 46% / 70% / 100%; dark is #FF5A36 over
+ * #1C0E06 at the same four, and the direction of travel inverts — heat brightens
+ * away from the ground instead of darkening toward it, which is why dark reads
+ * as an emitting instrument rather than a printed one.
+ *
+ * The resting cell used to sit at 14%, which is 1.22:1 against its own tile —
+ * technically present and, on a widget with nothing in it, indistinguishable
+ * from a plain card. 23% brings it to 1.39:1: still unmistakably *off*, but the
+ * grid reads as an instrument at rest instead of a wash. It costs 0.3 of a
+ * lightness step between the levels, which is worth it — see
+ * `widget-tokens.test.ts` for the arithmetic that is still enforced.
+ *
+ * Read off `embers` rather than written out again: these were two copies of the
+ * same eight values, which is the drift this file spends its comments warning
+ * about. It is also the thing that keeps "the default is the current look" true
+ * by construction rather than by inspection.
+ */
 export const cells: Record<ColorScheme, CellRamp> = {
-  // #C7360F over #FFE8D4 at 23% / 46% / 70% / 100%.
-  //
-  // The resting cell used to sit at 14%, which is 1.22:1 against its own tile —
-  // technically present and, on a widget with nothing in it, indistinguishable
-  // from a plain card. 23% brings it to 1.39:1: still unmistakably *off*, but
-  // the grid reads as an instrument at rest instead of a wash. It costs 0.3 of
-  // a lightness step between the levels, which is worth it — see
-  // `widget-tokens.test.ts` for the arithmetic that is still enforced.
-  light: {
-    cold: '#F2BFA7',
-    low: '#E59679',
-    mid: '#D86B4A',
-    hot: '#C7360F',
-    onHeat: '#FFF7F0',
-  },
-  // #FF5A36 over #1C0E06 at the same four. The direction of travel inverts —
-  // heat brightens away from the ground instead of darkening toward it — which
-  // is why dark reads as an emitting instrument rather than a printed one.
-  dark: {
-    cold: '#501F11',
-    low: '#84311C',
-    mid: '#BB4328',
-    hot: '#FF5A36',
-    onHeat: '#1C0E06',
-  },
+  light: embers[DEFAULT_EMBER].light,
+  dark: embers[DEFAULT_EMBER].dark,
 };
 
 export const heat: Record<ColorScheme, HeatRamp> = {
@@ -218,6 +288,8 @@ export const typography = {
 
 export type Theme = {
   scheme: ColorScheme;
+  /** Which ember this theme was resolved from. */
+  ember: EmberName;
   colors: Colors;
   heat: HeatRamp;
   /** The four-step cell ramp every grid and widget is built from. */
@@ -227,12 +299,71 @@ export type Theme = {
   typography: typeof typography;
 };
 
-export function makeTheme(scheme: ColorScheme): Theme {
+/** The alpha `accentMuted` has always been, per scheme. */
+const MUTED_ALPHA: Record<ColorScheme, number> = { light: 0.12, dark: 0.16 };
+
+/** One of the palette's own hexes at an opacity, never a new hue. */
+function withAlpha(hex: string, alpha: number): string {
+  const value = parseInt(hex.slice(1), 16);
+  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+}
+
+/**
+ * The two accent tokens, for an ember that has no hand-drawn set.
+ *
+ * `accent` is the *text-safe* ember — the one that clears 4.5:1 on the ground it
+ * sits on — and in every ramp that is `hot`: in light because the light ramp
+ * descends into ink, and in dark because it climbs into emission. Both clear
+ * 4.5:1 on `bg` and on `surface` for all three embers; on `surfaceRaised`, which
+ * almost never carries accent text, the darker two land at about 4.2.
+ *
+ * `ember` itself is deliberately exempt. `darkColors.accent` is a lightened
+ * #FF8253 that exists in no `CellRamp`, and re-deriving it from `dark.hot` would
+ * move the default look — which is the one thing this feature must not do.
+ */
+function emberColors(scheme: ColorScheme, option: EmberOption): Colors {
+  const base = scheme === 'dark' ? darkColors : lightColors;
+  if (option.name === DEFAULT_EMBER) return base;
+  const accent = option[scheme].hot;
+  return { ...base, accent, accentMuted: withAlpha(accent, MUTED_ALPHA[scheme]) };
+}
+
+/**
+ * The home screen's field, for an ember that has no hand-drawn set.
+ *
+ * The core is always the *emitting* ember — the dark ramp's `hot`, which is
+ * exactly what `heat.core` already is in both schemes — and the falloff then
+ * walks that scheme's own ramp back toward its ground: down through `mid` and
+ * `low` in dark, up through `low` and `cold` in light. `hot` and `mid` are
+ * skipped in light because there the ramp travels *away* from the ground into
+ * ink, and a stop darker than the one outside it draws a muddy ring rather than
+ * a falloff.
+ *
+ * `ember` keeps its hand-drawn field for the same reason it keeps its accent.
+ */
+function emberHeat(scheme: ColorScheme, option: EmberOption): HeatRamp {
+  if (option.name === DEFAULT_EMBER) return heat[scheme];
+  const core = option.dark.hot;
+  return scheme === 'dark'
+    ? { core, mid: option.dark.mid, edge: option.dark.low, rim: option.dark.onHeat }
+    : { core, mid: option.light.low, edge: option.light.cold, rim: option.light.onHeat };
+}
+
+/**
+ * The whole palette, from a scheme and a chosen ember.
+ *
+ * The ember defaults, so every caller that only knows about light and dark —
+ * the root layout painting the system background, the error boundary that has
+ * no provider above it — keeps working and keeps drawing the default.
+ */
+export function makeTheme(scheme: ColorScheme, ember: EmberName = DEFAULT_EMBER): Theme {
+  const option = embers[ember] ?? embers[DEFAULT_EMBER];
   return {
     scheme,
-    colors: scheme === 'dark' ? darkColors : lightColors,
-    cells: cells[scheme],
-    heat: scheme === 'dark' ? heat.dark : heat.light,
+    ember: option.name,
+    colors: emberColors(scheme, option),
+    cells: option[scheme],
+    heat: emberHeat(scheme, option),
     spacing,
     radius,
     typography,

@@ -145,7 +145,7 @@ internal object Slots {
  * XML, the provider XML names the layout, and `raw/ridik_widget_keep.xml` covers
  * everything reached only from here.
  */
-internal class WidgetIds(context: Context, layoutName: String) {
+internal class WidgetIds(context: Context, layoutName: String, val ember: String) {
   private val resources = context.resources
   private val pkg = context.packageName
 
@@ -177,41 +177,74 @@ internal class WidgetIds(context: Context, layoutName: String) {
   fun id(name: String) = resources.getIdentifier(name, "id", pkg)
 
   /**
-   * One drawable per heat level, and a second set for the cell that is today.
+   * One drawable per heat level, per ember, and a second set for the cell that
+   * is today.
    *
    * The ring is a separate drawable rather than a second view because a plate
    * cell is 17dp across: a ring drawn as an overlay would need a `FrameLayout`
    * per day, and forty-two of those is a third of the tile's whole view budget.
    *
+   * **The ember is a name and never a colour.** A colour resolved here is
+   * resolved against the *app* process's configuration while the launcher draws
+   * the tile against its own, so an ember computed into an int would be the
+   * night-mode bug all over again on a second axis. What travels is the drawable
+   * id; which of `values` and `values-night` fills it is the launcher's answer.
+   *
    * Resolved once and cached, because the habits board asks for one of these
    * two hundred and ten times in a single draw and `getIdentifier` is a search
    * through the resource table, not a lookup.
    */
-  fun heat(level: Int, today: Boolean = false): Int {
+  fun heat(level: Int, today: Boolean = false): Int = cell(heatIds, "ridik_heat", level, today)
+
+  /**
+   * The same cell on the *month plate*, which is a different drawable family.
+   *
+   * The plate is the one place in the family where text sits on a filled cell,
+   * and a darker ember's `mid` is too dark under a near-black numeral on the
+   * sand ground. `theme.ts` answers that with `platePeak`: kiln and rust cap the
+   * plate's load at `low` **in light mode only**.
+   *
+   * That cap cannot be applied here. Which scheme is on screen is the launcher's
+   * answer and this process does not have it — capping in the app's process
+   * would flatten a dark plate every time the two disagreed, which is exactly
+   * the class of bug the drawable indirection exists to avoid. So the cap is
+   * baked into `drawable/ridik_plate_<ember>_2`, which fills itself from the
+   * *low* colour, while `drawable-night/` fills from mid. The launcher picks the
+   * file, so the launcher applies the cap.
+   */
+  fun plate(level: Int, today: Boolean = false): Int = cell(plateIds, "ridik_plate", level, today)
+
+  private fun cell(cache: IntArray, family: String, level: Int, today: Boolean): Int {
     val slot = level.coerceIn(0, 3) + if (today) 4 else 0
-    if (heatIds[slot] == 0) {
-      val name = "ridik_heat_${slot % 4}" + if (today) "_today" else ""
-      heatIds[slot] = resources.getIdentifier(name, "drawable", pkg)
+    if (cache[slot] == 0) {
+      val name = "${family}_${ember}_${slot % 4}" + if (today) "_today" else ""
+      cache[slot] = resources.getIdentifier(name, "drawable", pkg)
     }
-    return heatIds[slot]
+    return cache[slot]
   }
 
   private val heatIds = IntArray(8)
+  private val plateIds = IntArray(8)
+}
 
-  /**
-   * Resolved rather than themed: `setTextColor` takes an int, and the launcher
-   * replays these in its own process where a colour *resource* would be looked
-   * up against the launcher's resources, not ours.
-   */
-  fun colour(name: String): Int {
-    val id = resources.getIdentifier(name, "color", pkg)
-    if (id == 0) return 0
-    return resources.getColor(id, null)
-  }
-
-  val ink by lazy { colour("ridik_widget_ink") }
-  val inkSoft by lazy { colour("ridik_widget_ink_soft") }
-  val onHeat by lazy { colour("ridik_widget_on_heat") }
+/**
+ * The ids for a face, in the ember the payload asked for.
+ *
+ * `base` is the layout without its ember suffix. The fallback is not
+ * defensiveness for its own sake: an ember this build has no layouts for
+ * resolves to 0, and a widget whose layout id is 0 draws *nothing at all* —
+ * a home screen of blank tiles with nothing failing anywhere. Falling back to
+ * the default draws the right widget in the wrong colour, which is the failure
+ * worth having.
+ */
+internal fun idsFor(context: Context, base: String, ember: String): WidgetIds {
+  val ids = WidgetIds(context, "${base}_$ember", ember)
+  if (ids.layout != 0 || ember == WidgetSnapshot.DEFAULT_EMBER) return ids
+  return WidgetIds(
+    context,
+    "${base}_${WidgetSnapshot.DEFAULT_EMBER}",
+    WidgetSnapshot.DEFAULT_EMBER,
+  )
 }
 
 /* ------------------------------------------------------------------- the frame */
@@ -520,8 +553,13 @@ private fun dayDescription(day: WidgetDay, nowMinutes: Int): String {
  *
  * `allowHot` is spent by the element wherever there is one, so it is true on
  * small and false on large. Today keeps its ring either way, and on large that
- * ring is the only thing marking it: `ridik_widget_ember` and `heat_3` are both
- * `#C7360F` in light mode, so a ring around a hot fill is invisible.
+ * ring is the only thing marking it: every ember's accent and its own `heat_3`
+ * are the same colour in light mode, so a ring around a hot fill is invisible.
+ *
+ * Fills come from `ids.plate` and not `ids.heat`. That is where `platePeak`
+ * lives — the darker embers cap the plate's load at `low` in light and keep all
+ * four in dark, and the cap has to be in the resource because only the launcher
+ * knows which of the two schemes it is drawing.
  */
 internal fun RemoteViews.plate(
   ids: WidgetIds,
@@ -551,7 +589,7 @@ internal fun RemoteViews.plate(
       // this skips leaves the previous month's answer standing rather than the
       // XML's: the 31st drawn hot in March would still be hot in April, on the
       // face whose whole promise is to survive a week untouched.
-      background(id, ids.heat(0))
+      background(id, ids.plate(0))
       if (numerals) setTextViewText(id, "")
       continue
     }
@@ -561,7 +599,7 @@ internal fun RemoteViews.plate(
     // only hot cell there is, and only when this tile has not spent it already.
     val level = if (today && allowHot) 3 else (month.load.getOrElse(number - 1) { '0' } - '0')
     setViewVisibility(id, View.VISIBLE)
-    background(id, ids.heat(level, today))
+    background(id, ids.plate(level, today))
     if (numerals) {
       setTextViewText(id, number.toString())
       // No `setTextColor` here, deliberately — the XML default is

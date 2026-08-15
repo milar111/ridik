@@ -15,17 +15,28 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { cells } from '../theme';
+import { DEFAULT_EMBER, cells, embers } from '../theme';
 
 const ROOT = join(__dirname, '..', '..', '..');
 const SWIFT = readFileSync(join(ROOT, 'targets/RidikWidget/RidikPalette.swift'), 'utf8');
 const PLUGIN = readFileSync(join(ROOT, 'plugins/withRidikAndroidWidget.js'), 'utf8');
 
-/** `heatCold: Color(rgb: 0xF7CFB8)` inside the `static let light = …` block. */
-function swiftValue(scheme: 'light' | 'dark', field: string): string | null {
-  const block = SWIFT.split(`static let ${scheme} = RidikPalette(`)[1];
+/**
+ * `heatCold: Color(rgb: 0xF7CFB8)` inside a named `static let … = RidikPalette(`
+ * block.
+ *
+ * The default's two are `light` and `dark`; every other ember's are its name and
+ * the scheme — `kilnLight`, `rustDark`. Only the first match after the marker is
+ * read, so the blocks must stay in the order they are declared in.
+ */
+function swiftPalette(name: string, field: string): string | null {
+  const block = SWIFT.split(`static let ${name} = RidikPalette(`)[1];
   const match = block?.match(new RegExp(`${field}: Color\\(rgb: 0x([0-9A-Fa-f]{6})\\)`));
   return match ? `#${match[1]!.toUpperCase()}` : null;
+}
+
+function swiftValue(scheme: 'light' | 'dark', field: string): string | null {
+  return swiftPalette(scheme, field);
 }
 
 /** The `heat: { … }` literal inside the light or dark `colors({ … })` call. */
@@ -135,4 +146,108 @@ function contrast(a: string, b: string): number {
 function lightness(hex: string): number {
   const y = luminance(hex);
   return y > 0.008856 ? 116 * y ** (1 / 3) - 16 : 903.3 * y;
+}
+
+/**
+ * A colour the user can pick is a colour that ships. Every option has to hold
+ * the same rules the default does, or choosing one makes your own widgets
+ * unreadable and nothing anywhere says so.
+ */
+describe('every selectable ember is shippable', () => {
+  const GROUND = { light: '#FFE8D4', dark: '#1C0E06' } as const;
+  const INK = { light: '#2E1508', dark: '#FFEEDF' } as const;
+
+  for (const option of Object.values(embers)) {
+    describe(option.label, () => {
+      for (const scheme of SCHEMES) {
+        const ramp = option[scheme];
+
+        it(`${scheme}: a resting cell is visible against its own tile`, () => {
+          expect(contrast(ramp.cold, GROUND[scheme])).toBeGreaterThan(1.34);
+        });
+
+        it(`${scheme}: the four levels stay tellable apart`, () => {
+          const ls = ([ramp.cold, ramp.low, ramp.mid, ramp.hot]).map(lightness);
+          for (let i = 0; i < ls.length - 1; i++) {
+            expect(Math.abs(ls[i + 1]! - ls[i]!)).toBeGreaterThan(11.5);
+          }
+        });
+
+        it(`${scheme}: inverted ink is legible on the hot cell`, () => {
+          expect(contrast(ramp.onHeat, ramp.hot)).toBeGreaterThanOrEqual(4.5);
+        });
+
+        it(`${scheme}: ink is legible on every level the plate may reach`, () => {
+          // `platePeak` is the whole reason the darker embers are shippable at
+          // all: they cap the plate at `low` in light, where their `mid` cell is
+          // too dark for a near-black numeral. Dark has no such limit.
+          const peak = scheme === 'dark' || option.platePeak === 'mid' ? ramp.mid : ramp.low;
+          expect(contrast(INK[scheme], peak)).toBeGreaterThanOrEqual(4.5);
+        });
+      }
+    });
+  }
+
+  /* The default is the one that keeps all four levels on the plate everywhere.
+     If that ever stops being true, the default is the wrong one. */
+  it('defaults to the only ember that needs no compromise', () => {
+    expect(embers[DEFAULT_EMBER].platePeak).toBe('mid');
+    for (const option of Object.values(embers)) {
+      if (option.name !== DEFAULT_EMBER) expect(option.platePeak).toBe('low');
+    }
+  });
+});
+
+/**
+ * And every one of them has to exist on the other side, unchanged.
+ *
+ * A colour the user can pick is a colour three languages now have to agree on,
+ * so the same crude read of `RidikPalette.swift` covers all three embers rather
+ * than only the one the app shipped with. A ramp that drifted here would put the
+ * app in one palette and its own home-screen tile in another, with nothing
+ * failing anywhere.
+ */
+describe('the iOS widget carries every ember', () => {
+  /** `kiln` + `Light` — the default's blocks are the bare `light` and `dark`. */
+  const blockFor = (name: string, scheme: 'light' | 'dark') =>
+    name === DEFAULT_EMBER ? scheme : `${name}${scheme === 'light' ? 'Light' : 'Dark'}`;
+
+  for (const option of Object.values(embers)) {
+    for (const scheme of SCHEMES) {
+      for (const level of LEVELS) {
+        it(`${option.name} ${scheme} ${level}`, () => {
+          expect(swiftPalette(blockFor(option.name, scheme), SWIFT_FIELD[level])).toBe(
+            option[scheme][level].toUpperCase(),
+          );
+        });
+      }
+
+      /* `accent` is the text-safe ember, and for anything but the default that
+         is its ramp's own `hot` — the same rule `makeTheme` applies, so the
+         widget's eyebrow and the app's are one colour. */
+      if (option.name !== DEFAULT_EMBER) {
+        it(`${option.name} ${scheme} accent`, () => {
+          expect(swiftPalette(blockFor(option.name, scheme), 'accent')).toBe(
+            option[scheme].hot.toUpperCase(),
+          );
+        });
+      }
+    }
+
+    /* The plate is the one face with text on a filled cell. Swift caps the load
+       with a heat character; `platePeak` names the level. They must say the same
+       thing, or a calendar ships with dates nobody can read. */
+    it(`${option.name} caps the light plate where the palette says`, () => {
+      const capped = swiftPeak(blockFor(option.name, 'light'));
+      expect(capped).toBe(option.platePeak === 'mid' ? '2' : '1');
+      // Dark has no such constraint, on any ember.
+      expect(swiftPeak(blockFor(option.name, 'dark'))).toBe('2');
+    });
+  }
+});
+
+/** `platePeak: "1"` inside a named palette block. */
+function swiftPeak(name: string): string | null {
+  const block = SWIFT.split(`static let ${name} = RidikPalette(`)[1];
+  return block?.match(/platePeak: "([0-3])"/)?.[1] ?? null;
 }
