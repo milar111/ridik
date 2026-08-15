@@ -58,7 +58,7 @@ internal object RidikRowsFace {
    * of the home screen and a plate over a strip over three rows in another.
    */
   fun build(context: Context, kind: Kind, widthDp: Int, heightDp: Int): RemoteViews? {
-    val size = drawnSize(kind, sizeOf(widthDp, heightDp))
+    val size = drawnSize(kind, widthDp, heightDp)
     val ids = WidgetIds(context, layoutFor(context, kind, size))
     if (ids.layout == 0) return null
 
@@ -99,10 +99,24 @@ internal object RidikRowsFace {
    * ground. They take the medium drawing, and the slot counts have to follow or
    * the face would set cells the layout does not have.
    */
-  private fun drawnSize(kind: Kind, size: WidgetSize): WidgetSize = when {
-    size != WidgetSize.LARGE -> size
-    kind == Kind.TASKS || kind == Kind.LIST -> WidgetSize.MEDIUM
-    else -> WidgetSize.LARGE
+  /**
+   * Which generated layout this tile gets.
+   *
+   * Habits is sized on width alone — see `railSizeOf`. Every other face gains
+   * *rows* when it gets taller, so height promoting it to large is right there
+   * and wrong on a board that only ever gains columns.
+   *
+   * Tasks and List have no large variant: they are lists, and a list twice as
+   * tall is the same list with more of it, which the medium layout already does.
+   */
+  private fun drawnSize(kind: Kind, widthDp: Int, heightDp: Int): WidgetSize {
+    if (kind == Kind.HABITS) return railSizeOf(widthDp)
+    val size = sizeOf(widthDp, heightDp)
+    return when {
+      size != WidgetSize.LARGE -> size
+      kind == Kind.TASKS || kind == Kind.LIST -> WidgetSize.MEDIUM
+      else -> WidgetSize.LARGE
+    }
   }
 
   /**

@@ -68,6 +68,15 @@ describe('the heat ramp agrees across all three platforms', () => {
 describe('the ramp holds its own rules', () => {
   /* Ink sits on cold, low and mid; on hot it inverts. Both sides clear 4.5:1.
      Ink on hot measures 3.2:1 — the one pairing that must never be drawn. */
+  /* The point of raising the floor: a widget with nothing in it must still read
+     as an instrument at rest rather than as a blank card. */
+  it('makes a resting cell visible against its own tile', () => {
+    const ground = { light: '#FFE8D4', dark: '#1C0E06' } as const;
+    for (const scheme of SCHEMES) {
+      expect(contrast(cells[scheme].cold, ground[scheme])).toBeGreaterThan(1.34);
+    }
+  });
+
   it('keeps text legible on every level it is allowed on', () => {
     const ink = { light: '#2E1508', dark: '#FFEEDF' } as const;
     for (const scheme of SCHEMES) {
@@ -79,12 +88,15 @@ describe('the ramp holds its own rules', () => {
   });
 
   /* Four levels are only worth having if a glance can tell them apart. Every
-     step clears 12 in perceived lightness; below about 10 they read as noise. */
+     step clears 11.5 in perceived lightness; below about 10 they read as noise.
+     It was 12 until the resting cell was raised to 23% — an empty tile is the
+     state the whole family is judged on, and buying it 14% more presence off
+     the ground is worth 0.3 of a step between levels nobody sees side by side. */
   it('spaces the four levels far enough apart to be tellable', () => {
     for (const scheme of SCHEMES) {
       const ramp = (['cold', 'low', 'mid', 'hot'] as const).map((l) => lightness(cells[scheme][l]));
       for (let i = 0; i < ramp.length - 1; i++) {
-        expect(Math.abs(ramp[i + 1]! - ramp[i]!)).toBeGreaterThan(12);
+        expect(Math.abs(ramp[i + 1]! - ramp[i]!)).toBeGreaterThan(11.5);
       }
     }
   });

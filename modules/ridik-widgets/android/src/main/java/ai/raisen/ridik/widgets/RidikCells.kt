@@ -79,6 +79,30 @@ internal fun sizeOf(widthDp: Int, heightDp: Int): WidgetSize = when {
 }
 
 /**
+ * The habit board's size comes from its WIDTH alone.
+ *
+ * `sizeOf` promotes a tile to LARGE on height, which is right for a face that
+ * gains rows when it gets taller. A rail board does not: it gains *columns*
+ * when it gets wider, and height only ever buys air. Sizing it the general way
+ * gave a tall narrow tile thirty-five columns and a forty-dp gutter, so every
+ * name on the board ellipsised to "Readi…" and the cells became hairlines.
+ *
+ * Wider buys days. Narrower buys back the gutter. Nothing buys fatter cells.
+ */
+internal fun railSizeOf(widthDp: Int): WidgetSize = when {
+  widthDp <= 0 -> WidgetSize.MEDIUM
+  widthDp < RAILS_MEDIUM_DP -> WidgetSize.SMALL
+  widthDp < RAILS_LARGE_DP -> WidgetSize.MEDIUM
+  else -> WidgetSize.LARGE
+}
+
+/** Below this a 21-day board cannot hold a name and a legible cell at once. */
+private const val RAILS_MEDIUM_DP = 260
+
+/** Above this there is room for five weeks without the cells becoming hairlines. */
+private const val RAILS_LARGE_DP = 360
+
+/**
  * How many slots each generated layout actually has.
  *
  * The twin of this is the geometry block in `plugins/withRidikAndroidWidget.js`.

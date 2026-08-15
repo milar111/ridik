@@ -52,8 +52,8 @@ struct RidikPalette {
     text: Color(rgb: 0x2E1508),
     accent: Color(rgb: 0xC7360F),
     danger: Color(rgb: 0xBE2A18),
-    heatCold: Color(rgb: 0xF7CFB8),
-    heatLow: Color(rgb: 0xE9A185),
+    heatCold: Color(rgb: 0xF2BFA7),
+    heatLow: Color(rgb: 0xE59679),
     heatMid: Color(rgb: 0xD86B4A),
     heatHot: Color(rgb: 0xC7360F),
     onHeat: Color(rgb: 0xFFF7F0),
@@ -67,8 +67,8 @@ struct RidikPalette {
     text: Color(rgb: 0xFFEEDF),
     accent: Color(rgb: 0xFF8253),
     danger: Color(rgb: 0xFF6F5C),
-    heatCold: Color(rgb: 0x3C190D),
-    heatLow: Color(rgb: 0x772C19),
+    heatCold: Color(rgb: 0x501F11),
+    heatLow: Color(rgb: 0x84311C),
     heatMid: Color(rgb: 0xBB4328),
     // Note: `heat.core`, not `accent`. The accent is the text-safe darkened
     // one; this is the vivid core, and it only ever appears as a fill.

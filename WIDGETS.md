@@ -75,6 +75,44 @@ RemoteViews cannot set a width, a height or a column count at runtime, so each
 size is its own generated layout variant — the same mechanism as
 `ridik_rows` / `_ampm` / `_tight`.
 
+### How a face answers the rectangle it is given
+
+Four rules. Every visible sizing failure the family has had broke one of them,
+so they are worth stating rather than re-deciding per widget.
+
+**1. A cell has a size. Extra space buys more cells, or more air — never fatter
+cells.** The rails first divided the tile's height between six of them with
+`layout_weight`, so a tile made twice as tall drew bars twice as thick: a chart
+whose thickness means nothing, stretched. Rails are now a fixed height and the
+slack collects in a spacer at the bottom. The same rule is why the day element
+folds 32 cells into 8 on a small tile rather than drawing 32 fat ones.
+
+**2. Text is dropped, never truncated.** A habit called "Reading" rendered as
+"Readi…" identifies nothing, and the rail *is* its name. So the gutter is sized
+to hold a real word and the columns give way instead: below 260dp the board
+shows one week, not five. `best` is dropped first, then `streak` — a number you
+can live without, a name you cannot.
+
+**3. A face is sized by the axis it actually grows along.** Habits gains
+*columns* with width and only air with height, so it is bucketed on width alone;
+promoting it to the five-week layout because the tile was tall is what put
+thirty-five hairline columns beside a forty-dp gutter. Every other face gains
+rows with height and is bucketed on both.
+
+**4. A widget must be able to fill the grid.** `maxResizeWidth` was 400dp, which
+on a 411dp phone is *almost* the screen — so the calendar could never quite
+reach the edges, and a tile that stops just short of full width reads as broken
+rather than as small. It is 800dp now, on every face, in both axes.
+
+### And when there is nothing in it
+
+The resting cell sits at 23% of the ember, not the 14% that looked right in
+isolation: 1.39:1 against its own tile rather than 1.22:1. At 14% an empty board
+is a plain card with a suggestion of grid on it. The extra presence costs 0.3 of
+a lightness step between the four levels, which is the correct trade — the empty
+tile is the state the family is judged on, and nobody ever sees two adjacent
+levels side by side to compare them.
+
 ---
 
 ## 3. The faces

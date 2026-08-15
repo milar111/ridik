@@ -33,7 +33,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { withAndroidManifest, withDangerousMod } = require('expo/config-plugins');
+const {
+  withAndroidManifest,
+  withDangerousMod,
+  withGradleProperties,
+} = require('expo/config-plugins');
 
 const GENERATED = 'Written by plugins/withRidikAndroidWidget.js — edit that, not this.';
 
@@ -104,6 +108,20 @@ const ROW_SLOTS_BY_SIZE = { small: 4, medium: 6, large: 6 };
 /** Rail slots are fixed at six, whatever the size: a board occupies its rectangle. */
 const RAIL_SLOTS = 6;
 
+/**
+ * How tall a bar is allowed to get.
+ *
+ * The rails divide the tile's height between them, which is what makes the
+ * board fill its rectangle — the first attempt at fixing the stretch pinned
+ * them instead, and a tall tile became a small board with three quarters of it
+ * empty, which looks worse than a stretched one.
+ *
+ * So the row fills and the *bar inside it* is capped. The remainder shows as
+ * even spacing between rails rather than as a void at the bottom, which is what
+ * "extra space buys air" is supposed to mean.
+ */
+const RAIL_HEIGHT = { small: 16, medium: 15, large: 14 };
+
 /** Six weeks of seven, because a 31-day month starting on a Sunday needs all six. */
 const PLATE_CELLS = 42;
 
@@ -134,10 +152,22 @@ const ELEMENT = {
 const LEAD = { wide: 46, ampm: 62 };
 
 /** The habit gutter: the name, the streak, and on large the personal best. */
+/**
+ * Wide enough for the word, always.
+ *
+ * A name that ellipsises to "Readi…" is worse than no name: the rail is
+ * identified by it, and half of it identifies nothing. So the gutter is sized
+ * to hold a real habit name at 11sp — about 64dp — and the *day window* gives
+ * way instead, narrowing to seven days on a tile too narrow to hold both. The
+ * one thing that never gives way is the text.
+ *
+ * `best` is the first column dropped, then `streak`: a streak is a number you
+ * can live without, a name is not.
+ */
 const GUTTER = {
-  small: { name: 52, streak: 26, best: 0 },
-  medium: { name: 46, streak: 24, best: 0 },
-  large: { name: 40, streak: 22, best: 30 },
+  small: { name: 84, streak: 0, best: 0 },
+  medium: { name: 68, streak: 26, best: 0 },
+  large: { name: 64, streak: 24, best: 30 },
 };
 
 /** 07 / 11 / 15 / 19 / 23 by default; overwritten at draw time from `day.startMinute`. */
@@ -712,7 +742,7 @@ ${pad}android:textSize="${sizeSp}sp" />`;
           id: IDS.railCell(rail, day),
           level,
           width: '0dp',
-          height: 'match_parent',
+          height: `${RAIL_HEIGHT[size]}dp`,
           weight: '1',
           marginEnd: day === days - 1 ? null : '1dp',
         }),
@@ -726,6 +756,7 @@ ${pad}android:layout_width="match_parent"
 ${pad}android:layout_height="0dp"
 ${pad}android:layout_marginTop="2dp"
 ${pad}android:layout_weight="1"
+${pad}android:maxHeight="${RAIL_HEIGHT[size]}dp"
 ${pad}android:gravity="center_vertical"
 ${pad}android:orientation="horizontal">
 
@@ -804,6 +835,7 @@ ${indent(depth + 4)}android:layout_weight="1"
 ${indent(depth + 4)}android:orientation="vertical">
 
 ${rows.join('\n\n')}
+
 ${indent(depth)}</LinearLayout>`;
 }
 
@@ -1305,8 +1337,8 @@ function info(widget) {
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/${widget.description}"
     android:initialLayout="@layout/${widget.layout}_medium"
-    android:maxResizeHeight="400dp"
-    android:maxResizeWidth="400dp"
+    android:maxResizeHeight="800dp"
+    android:maxResizeWidth="800dp"
     android:minHeight="${widget.cells.height * 55}dp"
     android:minResizeHeight="110dp"
     android:minResizeWidth="140dp"
@@ -1507,10 +1539,11 @@ function resourceFiles() {
       ember: '#C7360F',
       danger: '#BE2A18',
       wash: '#1FC7360F',
-      // #C7360F over #FFE8D4 at 14 / 40 / 70 / 100 percent.
+      // #C7360F over #FFE8D4 at 23 / 46 / 70 / 100 percent. The resting cell
+      // is deliberately higher than it looks it should be — see theme.ts.
       heat: {
-        cold: '#F7CFB8',
-        low: '#E9A185',
+        cold: '#F2BFA7',
+        low: '#E59679',
         mid: '#D86B4A',
         hot: '#C7360F',
         onHeat: '#FFF7F0',
@@ -1529,8 +1562,8 @@ function resourceFiles() {
       // #FF5A36 over #1C0E06 at the same four. Note the hot value is the vivid
       // core, not `ember` — the accent is the text-safe darkened one.
       heat: {
-        cold: '#3C190D',
-        low: '#772C19',
+        cold: '#501F11',
+        low: '#84311C',
         mid: '#BB4328',
         hot: '#FF5A36',
         onHeat: '#1C0E06',
@@ -1637,6 +1670,29 @@ const withWidgetReceiver = (config) =>
     return config;
   });
 
+/**
+ * More heap for the build, because these layouts are why it needs it.
+ *
+ * Five faces generate about nineteen layouts, and the largest — a six-rail
+ * board of thirty-five days — is over two thousand views of XML. Together with
+ * React Native's own dex that is more than the template's 2GB, and D8 fails
+ * with a bare `OutOfMemoryError: Java heap space` that says nothing about the
+ * number being configurable. It belongs here rather than in the app config
+ * because this plugin is what made it necessary.
+ */
+const withBuildHeap = (config) =>
+  withGradleProperties(config, (cfg) => {
+    const key = 'org.gradle.jvmargs';
+    const kept = cfg.modResults.filter((entry) => entry.key !== key);
+    kept.push({
+      type: 'property',
+      key,
+      value: '-Xmx6144m -XX:MaxMetaspaceSize=1024m',
+    });
+    cfg.modResults = kept;
+    return cfg;
+  });
+
 module.exports = function withRidikAndroidWidget(config) {
-  return withWidgetReceiver(withWidgetResources(config));
+  return withBuildHeap(withWidgetReceiver(withWidgetResources(config)));
 };

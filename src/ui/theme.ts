@@ -46,10 +46,17 @@ export type HeatRamp = { core: string; mid: string; edge: string; rim: string };
 export type CellRamp = { cold: string; low: string; mid: string; hot: string; onHeat: string };
 
 export const cells: Record<ColorScheme, CellRamp> = {
-  // #C7360F over #FFE8D4 at 14% / 40% / 70% / 100%.
+  // #C7360F over #FFE8D4 at 23% / 46% / 70% / 100%.
+  //
+  // The resting cell used to sit at 14%, which is 1.22:1 against its own tile —
+  // technically present and, on a widget with nothing in it, indistinguishable
+  // from a plain card. 23% brings it to 1.39:1: still unmistakably *off*, but
+  // the grid reads as an instrument at rest instead of a wash. It costs 0.3 of
+  // a lightness step between the levels, which is worth it — see
+  // `widget-tokens.test.ts` for the arithmetic that is still enforced.
   light: {
-    cold: '#F7CFB8',
-    low: '#E9A185',
+    cold: '#F2BFA7',
+    low: '#E59679',
     mid: '#D86B4A',
     hot: '#C7360F',
     onHeat: '#FFF7F0',
@@ -58,8 +65,8 @@ export const cells: Record<ColorScheme, CellRamp> = {
   // heat brightens away from the ground instead of darkening toward it — which
   // is why dark reads as an emitting instrument rather than a printed one.
   dark: {
-    cold: '#3C190D',
-    low: '#772C19',
+    cold: '#501F11',
+    low: '#84311C',
     mid: '#BB4328',
     hot: '#FF5A36',
     onHeat: '#1C0E06',
