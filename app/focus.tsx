@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Linking, ScrollView, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { formatClock, formatDayHeading, formatDuration, formatTime, weekRange } from '@/core/time';
 import { useFocusMinutes, useProjects } from '@/hooks';
+import { usePermissions, useRequestPermission } from '@/hooks/useSystem';
 import {
   focusPlanTotals,
   previewFocusPlan,
@@ -68,9 +69,58 @@ function FocusBody() {
 
   return (
     <>
+      {live ? <SilentAlarmsWarning /> : null}
       {live ? <RunningSession snapshot={live} phases={phases} /> : <QuickStart />}
       <History />
     </>
+  );
+}
+
+/**
+ * Says out loud what the timer would otherwise fail at quietly.
+ *
+ * Phase changes are dated local notifications, so with notifications refused a
+ * backgrounded timer runs to the end of a focus block and never announces it.
+ * The scheduler already handles that gracefully — it logs and carries on — but
+ * gracefully is not the same as visibly, and the user finds out by missing the
+ * end of a Pomodoro. Shown only while something is actually running: it is a
+ * warning about this timer, not a permission inventory.
+ */
+function SilentAlarmsWarning() {
+  const { colors, spacing } = useTheme();
+  const permissions = usePermissions();
+  const request = useRequestPermission();
+  const toast = useToast();
+
+  const level = permissions.data?.notifications?.level;
+  if (level !== 'denied' && level !== 'blocked') return null;
+
+  return (
+    <Card accent={colors.warning} style={{ gap: spacing.sm }}>
+      <Txt variant="bodyStrong" tone="warning">
+        This timer cannot chime
+      </Txt>
+      <Txt variant="caption" tone="secondary">
+        Phase changes are announced by a notification, and those are switched off. The countdown
+        keeps running while you watch it; leave the app and nothing will tell you the block ended.
+      </Txt>
+      <Button
+        label={level === 'blocked' ? 'Open settings' : 'Turn on notifications'}
+        size="sm"
+        variant="secondary"
+        onPress={() => {
+          if (level === 'blocked') {
+            void Linking.openSettings().catch(() =>
+              toast.show({ message: 'Could not open settings.', tone: 'danger' }),
+            );
+            return;
+          }
+          request.mutate('notifications', {
+            onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
+          });
+        }}
+      />
+    </Card>
   );
 }
 

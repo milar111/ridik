@@ -36,6 +36,15 @@ let mockLive: { snapshot: FocusSnapshot | null; phases: SessionPhase[]; isLoadin
 };
 let mockSummaries: unknown[] = [];
 
+/* `@/hooks/useSystem` binds notifications, the calendar, location and the speech
+   recogniser at import time. Focus asks it one question — whether phase alarms
+   can actually fire — so the whole native surface is replaced by the answer. */
+let mockNotificationLevel: 'granted' | 'denied' | 'blocked' = 'granted';
+jest.mock('@/hooks/useSystem', () => ({
+  usePermissions: () => ({ data: { notifications: { level: mockNotificationLevel } } }),
+  useRequestPermission: () => ({ mutate: jest.fn(), isPending: false }),
+}));
+
 jest.mock('@/hooks', () => ({
   useFocusMinutes: () => ({ data: 125 }),
   useProjects: () => ({ data: [] }),
@@ -113,6 +122,7 @@ const FINISHED = {
 describe('focus screen', () => {
   beforeEach(() => {
     mockLive = { snapshot: null, phases: [], isLoading: false };
+    mockNotificationLevel = 'granted';
     mockSummaries = [];
     mockControl.mutate.mockClear();
     mockStart.mutate.mockClear();
@@ -123,6 +133,33 @@ describe('focus screen', () => {
     expect(screen.getByText('Pomodoro')).toBeTruthy();
     expect(screen.getByText(/2-hour study session/)).toBeTruthy();
     expect(screen.getByText('Focused this week')).toBeTruthy();
+  });
+
+  /* Phase changes are dated local notifications. Refused, a backgrounded timer
+     runs to the end of a block and says nothing — the scheduler logs it and
+     carries on, which is graceful but invisible, and the user finds out by
+     missing the end of a Pomodoro. */
+  it('warns that a running timer cannot chime when notifications are off', async () => {
+    mockNotificationLevel = 'denied';
+    mockLive = { snapshot: RUNNING, phases: [], isLoading: false };
+    await wrap();
+
+    expect(screen.getByText('This timer cannot chime')).toBeTruthy();
+    expect(screen.getByText('Turn on notifications')).toBeTruthy();
+  });
+
+  it('sends a blocked notification permission to system settings', async () => {
+    mockNotificationLevel = 'blocked';
+    mockLive = { snapshot: RUNNING, phases: [], isLoading: false };
+    await wrap();
+
+    expect(screen.getByText('Open settings')).toBeTruthy();
+  });
+
+  it('says nothing about chiming when there is no timer running', async () => {
+    mockNotificationLevel = 'denied';
+    await wrap();
+    expect(screen.queryByText('This timer cannot chime')).toBeNull();
   });
 
   it('shows the countdown and pauses a running session', async () => {
