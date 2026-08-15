@@ -15,6 +15,7 @@ const DAY = 86_400_000;
 const paid = (over: Partial<Entitlement> = {}): Entitlement => ({
   active: true,
   plan: 'monthly',
+  tier: 'standard',
   renewsAt: NOW + 12 * DAY,
   willRenew: true,
   since: NOW - 90 * DAY,

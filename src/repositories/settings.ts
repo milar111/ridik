@@ -50,7 +50,14 @@ export const SETTINGS = {
    * when to send it but whether today's has already been seen.
    */
   lastBriefingShown: define<string | null>(z.string().min(1).nullable(), () => null),
-  ttsEnabled: define(z.boolean(), () => true),
+  /**
+   * Off by default. A device's default voice is its lowest-quality one, and
+   * having it read back every confirmation makes the app feel worse than
+   * silence does. `src/voice/tts.ts` now asks for the best installed voice,
+   * which helps, but the good ones are a download the user has to make — so
+   * this stays something they turn on once they have heard it.
+   */
+  ttsEnabled: define(z.boolean(), () => false),
   ttsRate: define(z.number().min(0.1).max(2), () => 1),
   primaryCurrency: define(z.string().regex(/^[A-Z]{3}$/), () => 'EUR'),
   googleCalendarId: define<string | null>(z.string().min(1).nullable(), () => null),

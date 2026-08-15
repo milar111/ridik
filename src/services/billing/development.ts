@@ -25,6 +25,7 @@ import {
   type Entitlement,
   type Plan,
   type PlanId,
+  type PlanTier,
 } from './entitlement';
 
 const log = createLogger('billing/development');
@@ -38,20 +39,23 @@ const DAY = 86_400_000;
  * mislead someone reviewing the screen.
  */
 const PLANS: Plan[] = [
-  { id: 'monthly', title: 'Monthly', price: '— / month', period: 'month', note: 'Sandbox' },
-  { id: 'yearly', title: 'Yearly', price: '— / year', period: 'year', note: 'Sandbox' },
+  { id: 'monthly', tier: 'light', title: 'Light', price: '—', period: 'month', note: 'Sandbox' },
+  { id: 'monthly', tier: 'standard', title: 'Standard', price: '—', period: 'month', note: 'Sandbox' },
+  { id: 'yearly', tier: 'unlimited', title: 'Unlimited', price: '—', period: 'year', note: 'Sandbox' },
 ];
 
-type Stored = { plan: PlanId; since: number; renewsAt: number; willRenew: boolean };
+type Stored = { plan: PlanId; tier: PlanTier; since: number; renewsAt: number; willRenew: boolean };
 
 function parse(raw: string | null): Stored | null {
   if (!raw) return null;
   try {
     const value = JSON.parse(raw) as Partial<Stored>;
     if (value.plan !== 'monthly' && value.plan !== 'yearly') return null;
+    if (value.tier !== 'light' && value.tier !== 'standard' && value.tier !== 'unlimited') return null;
     if (typeof value.renewsAt !== 'number' || typeof value.since !== 'number') return null;
     return {
       plan: value.plan,
+      tier: value.tier,
       since: value.since,
       renewsAt: value.renewsAt,
       willRenew: value.willRenew !== false,
@@ -80,6 +84,7 @@ export function createDevelopmentProvider(): BillingProvider {
     return {
       active: true,
       plan: stored.plan,
+      tier: stored.tier,
       renewsAt: stored.renewsAt,
       willRenew: stored.willRenew,
       since: stored.since,
@@ -108,11 +113,12 @@ export function createDevelopmentProvider(): BillingProvider {
       return toEntitlement(await read());
     },
 
-    async purchase(plan) {
+    async purchase(plan, tier) {
       const at = now();
       const existing = await read();
       const stored: Stored = {
         plan,
+        tier,
         since: existing?.since ?? at,
         renewsAt: at + (plan === 'yearly' ? 365 * DAY : 30 * DAY),
         willRenew: true,

@@ -25,6 +25,44 @@ const log = createLogger('billing');
 export type PlanId = 'monthly' | 'yearly';
 
 /**
+ * What separates the plans: how much of the assistant you get.
+ *
+ * Everything local is free and unlimited on every tier — notes, tasks, timers,
+ * the timetable. What is metered is the part that costs money to run, which is
+ * a request to the model. Counted in requests rather than money because a
+ * request is a thing a person can picture, and it stays true if the provider
+ * changes its prices.
+ */
+export type PlanTier = 'light' | 'standard' | 'unlimited';
+
+/** Assistant requests per month. 0 means uncapped. */
+export const TIER_ALLOWANCE: Record<PlanTier, number> = {
+  light: 300,
+  standard: 1_500,
+  unlimited: 0,
+};
+
+/** One line for the paywall, in the units the user is actually buying. */
+export function describeAllowance(tier: PlanTier): string {
+  const allowance = TIER_ALLOWANCE[tier];
+  return allowance === 0
+    ? 'Unlimited requests'
+    : `${allowance.toLocaleString()} requests a month`;
+}
+
+/**
+ * The monthly cap to enforce for an entitlement.
+ *
+ * Free is zero: no plan, no assistant. It is not a small allowance — a trial
+ * that quietly runs out is worse than an honest lock, and the free app is
+ * genuinely complete without it.
+ */
+export function monthlyAllowance(entitlement: Entitlement): number {
+  if (!entitlement.active || !entitlement.tier) return 0;
+  return TIER_ALLOWANCE[entitlement.tier];
+}
+
+/**
  * What the paywall says, when the store is willing to say it.
  *
  * Prices are already the store's. This is the rest of the screen — the selling
@@ -41,6 +79,8 @@ export type Marketing = {
 /** A thing that can be bought, priced by the store in the user's own currency. */
 export type Plan = {
   id: PlanId;
+  /** Which allowance this product buys. */
+  tier: PlanTier;
   title: string;
   /** Already formatted and localised by the store. Never build this yourself. */
   price: string;
@@ -54,6 +94,8 @@ export type Entitlement = {
   /** False means the assistant is off; everything local still works. */
   active: boolean;
   plan: PlanId | null;
+  /** Which allowance they bought. Null on free. */
+  tier: PlanTier | null;
   /**
    * End of the current paid period, epoch ms. Null when there is no plan, and
    * on a plan the store could not tell us about — which is not the same as
@@ -79,6 +121,7 @@ export type Entitlement = {
 export const FREE: Entitlement = {
   active: false,
   plan: null,
+  tier: null,
   renewsAt: null,
   willRenew: false,
   since: null,
@@ -99,7 +142,7 @@ export type BillingProvider = {
   marketing(): Promise<Marketing | null>;
   current(): Promise<Entitlement>;
   /** Opens the store's purchase sheet. Resolves to what the user ended on. */
-  purchase(plan: PlanId): Promise<Entitlement>;
+  purchase(plan: PlanId, tier: PlanTier): Promise<Entitlement>;
   /** Required by both stores: a paid user reinstalling must get their plan back. */
   restore(): Promise<Entitlement>;
   /** Where this store lets a person cancel. Only the store can. */
@@ -199,9 +242,9 @@ export async function planMarketing(): Promise<Marketing | null> {
   }
 }
 
-export async function purchasePlan(plan: PlanId): Promise<Entitlement> {
+export async function purchasePlan(plan: PlanId, tier: PlanTier): Promise<Entitlement> {
   if (!provider) throw new Error('Purchases are not available in this build.');
-  return provider.purchase(plan);
+  return provider.purchase(plan, tier);
 }
 
 export async function restorePurchases(): Promise<Entitlement> {

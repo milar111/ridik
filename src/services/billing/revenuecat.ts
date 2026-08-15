@@ -33,6 +33,7 @@ import {
   type Entitlement,
   type Plan,
   type PlanId,
+  type PlanTier,
 } from './entitlement';
 
 const log = createLogger('billing/revenuecat');
@@ -96,6 +97,7 @@ function toEntitlement(info: any): Entitlement {
   return {
     active: true,
     plan: String(active.productIdentifier ?? '').includes('year') ? 'yearly' : 'monthly',
+    tier: tierFor(String(active.productIdentifier ?? '')),
     renewsAt: millis(active.expirationDate),
     willRenew: active.willRenew === true,
     since: millis(active.originalPurchaseDate),
@@ -106,6 +108,21 @@ function toEntitlement(info: any): Entitlement {
   };
 }
 
+/**
+ * Which allowance a product buys, read from its identifier.
+ *
+ * The convention is that the product id contains the tier — `ridik_standard_monthly`.
+ * Anything unrecognised is treated as the middle tier rather than as unlimited:
+ * a mis-named product should under-serve and be noticed, never hand out an
+ * uncapped assistant by accident.
+ */
+function tierFor(productId: string): PlanTier {
+  const id = productId.toLowerCase();
+  if (id.includes('unlimited')) return 'unlimited';
+  if (id.includes('light')) return 'light';
+  return 'standard';
+}
+
 function toPlan(pkg: any): Plan | null {
   const id: PlanId | null =
     pkg?.identifier === PACKAGE_FOR.yearly
@@ -114,9 +131,11 @@ function toPlan(pkg: any): Plan | null {
         ? 'monthly'
         : null;
   if (!id) return null;
+  const tier = tierFor(String(pkg.product?.identifier ?? pkg.identifier ?? ''));
   return {
     id,
-    title: id === 'yearly' ? 'Yearly' : 'Monthly',
+    tier,
+    title: tier[0]!.toUpperCase() + tier.slice(1),
     // The store's own localised string, in the user's currency. Never rebuilt
     // from the numeric price: that is how an app ends up showing "$4.99" to
     // someone being charged in leva.
@@ -176,12 +195,18 @@ export function createRevenueCatProvider(): BillingProvider {
       return toEntitlement(await Purchases.getCustomerInfo());
     },
 
-    async purchase(plan) {
+    async purchase(plan, tier) {
       const Purchases = load();
       if (!Purchases) throw new Error('Purchases are not available in this build.');
       const offerings = await Purchases.getOfferings();
       const packages: any[] = offerings?.current?.availablePackages ?? [];
-      const target = packages.find((pkg) => pkg?.identifier === PACKAGE_FOR[plan]);
+      // Both the period and the tier have to match: two products can share a
+      // billing period and differ only in what they allow.
+      const target = packages.find(
+        (pkg) =>
+          pkg?.identifier === PACKAGE_FOR[plan] &&
+          tierFor(String(pkg?.product?.identifier ?? '')) === tier,
+      );
       if (!target) throw new Error('That plan is not available right now.');
 
       try {

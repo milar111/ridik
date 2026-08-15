@@ -27,6 +27,7 @@ import {
   useRestorePurchases,
 } from '@/hooks/useBilling';
 import {
+  describeAllowance,
   describePlan,
   describeRenewal,
   manageSubscriptionUrl,
@@ -48,7 +49,7 @@ const WHAT_YOU_GET = [
   'Talk instead of tap — one sentence becomes an event, a task and a reminder',
   'It knows your timetable, so "homework for Friday" lands on the right day',
   'Travel time blocked before anything you have to get to',
-  'A briefing that reads your day back to you',
+  'A briefing waiting for you the first time you open the app',
 ];
 
 export default function PlansScreen() {
@@ -203,7 +204,7 @@ function PlanCard({
             {plan.note ? <Badge label={plan.note} tone="warning" /> : null}
           </View>
           <Txt variant="caption" tone="tertiary">
-            per {plan.period}, until you cancel
+            {describeAllowance(plan.tier)}, billed per {plan.period}
           </Txt>
         </View>
         <Txt variant="readout" style={{ fontSize: 22, lineHeight: 26 }}>
@@ -285,12 +286,12 @@ function Offer() {
         <View style={{ gap: spacing.sm }}>
           {available.map((option) => (
             <PlanCard
-              key={option.id}
+              key={`${option.tier}-${option.id}`}
               plan={option}
               recommended={option.id === highlight}
               busy={purchase.isPending}
               onPress={() =>
-                purchase.mutate(option.id, {
+                purchase.mutate(option, {
                   onSuccess: (result) => {
                     if (result.active) toast.show({ message: 'You are subscribed', tone: 'success' });
                   },

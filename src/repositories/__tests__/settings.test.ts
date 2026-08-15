@@ -56,7 +56,7 @@ describe('settings repository', () => {
         silenceTimeoutMs: 1500,
         defaultBufferMinutes: 20,
         lastBriefingShown: null,
-        ttsEnabled: true,
+        ttsEnabled: false,
         ttsRate: 1,
         primaryCurrency: 'EUR',
         googleCalendarId: null,

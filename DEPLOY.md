@@ -15,6 +15,7 @@ Worth knowing first, because it decides how much of this is one-time work.
 | --- | --- | --- |
 | **Subscription prices** | App Store Connect / Play Console | Next app launch |
 | **Which plans are offered** | RevenueCat → Offerings | Next app launch |
+| **A plan's monthly allowance** | `TIER_ALLOWANCE` in `src/services/billing/entitlement.ts` | Code — needs a release |
 | **Paywall selling points** | RevenueCat → Offering → Metadata → `benefits` (array of strings) | Within 30 min, or next launch |
 | **Which plan is badged** | Same metadata → `highlight`: `"monthly"` or `"yearly"` | Same |
 | **Free-trial length** | App Store Connect / Play Console, on the product | Next launch |
@@ -58,9 +59,15 @@ Nothing secret belongs in this repository. Two kinds of value:
 2. Create your subscription products **in the stores first** (§4), then import
    them into RevenueCat.
 3. Create an **entitlement** with the exact identifier `assistant`, and attach
-   both products to it. The app looks up that string; a different one silently
-   means nobody is ever subscribed.
-4. Create an **offering**, mark it current, and add the two packages using
+   every product to it. Plans differ by *allowance*, not by feature, so they all
+   grant the same entitlement — how much it allows is read from the product
+   identifier, which must contain `light`, `standard` or `unlimited`. Anything
+   unrecognised is treated as `standard`: a mis-named product should under-serve
+   and be noticed, never hand out an uncapped assistant by accident.
+
+   The entitlement identifier must be exactly `assistant` — the app looks up
+   that string, and a different one silently means nobody is ever subscribed.
+4. Create an **offering**, mark it current, and add a package per product using
    RevenueCat's standard identifiers: `$rc_monthly` and `$rc_annual`.
 5. Copy the two **public SDK keys** (they start `appl_` and `goog_`).
 
@@ -151,9 +158,14 @@ Then check `app.config.ts`:
 ### App Store Connect
 
 1. Create the app record with bundle id `ai.raisen.ridik`.
-2. **Subscriptions**: create a Subscription Group (e.g. "Ridik Assistant") and
-   two auto-renewable subscriptions inside it — monthly and yearly. One group
-   matters: it is what lets a user switch between them rather than buying both.
+2. **Subscriptions**: create one Subscription Group (e.g. "Ridik Assistant") and
+   put every tier in it — `ridik_light_monthly`, `ridik_standard_monthly`,
+   `ridik_unlimited_yearly`, or whatever set you decide to sell. One group is
+   what lets someone move between tiers instead of buying two, and Apple
+   handles the proration.
+
+   The identifier has to contain the tier word. That is how the app knows what
+   the subscription allows.
 3. Set prices per territory. You set one and Apple proposes the rest.
 4. Fill in the **App Privacy** questionnaire. Ridik stores everything on-device;
    the only data leaving the phone is the sentence you speak, sent to the
@@ -167,8 +179,8 @@ Then check `app.config.ts`:
 ### Play Console
 
 1. Create the app with package `ai.raisen.ridik`.
-2. **Subscriptions**: create one subscription with two base plans, monthly and
-   yearly, each auto-renewing.
+2. **Subscriptions**: create one subscription with a base plan per tier, each
+   auto-renewing. Same naming rule — the product id carries the tier.
 3. Complete the **Data safety** form. Same answers as Apple's.
 4. Upload to **internal testing** first. Play Billing does not work at all in a
    build that has not been through the Play servers, so a local build cannot

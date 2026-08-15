@@ -9,7 +9,6 @@ import {
   type Entitlement,
   type Marketing,
   type Plan,
-  type PlanId,
 } from '@/services/billing/entitlement';
 import { invalidateKeys, qk } from './keys';
 import { useQueryClient } from '@tanstack/react-query';
@@ -29,10 +28,12 @@ export function useEntitlement(): UseQueryResult<Entitlement> {
   });
 }
 
-export function usePurchasePlan(): UseMutationResult<Entitlement, Error, PlanId> {
+export function usePurchasePlan(): UseMutationResult<Entitlement, Error, Plan> {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (plan: PlanId) => purchasePlan(plan),
+    // The whole Plan, not its id: two products can share a billing period and
+    // differ only in the allowance, so the id alone does not identify one.
+    mutationFn: (plan: Plan) => purchasePlan(plan.id, plan.tier),
     onSettled: () => invalidateKeys(client, [qk.billing.all]),
   });
 }

@@ -40,6 +40,7 @@ import { createUsageMeter } from '@/llm/usage';
 import type { ExecutorEffects } from '@/llm/executor';
 import { createGeminiProvider, createHostedProvider, createMockProvider } from '@/llm/provider';
 import { getRepositories } from '@/repositories';
+import { currentEntitlement, monthlyAllowance } from '@/services/billing/entitlement';
 import { pushEventNow } from '@/services/calendar';
 import { focusEffects } from '@/services/focus';
 import { refresh as refreshGeofences } from '@/services/geofence';
@@ -185,14 +186,35 @@ async function clientForTurn(): Promise<TurnClient> {
   return { client: gemini.client, metered: true, capped: null };
 }
 
-/** Returns the reason the paid provider is off limits, or null when it is fine. */
+/**
+ * Returns the reason the paid provider is off limits, or null when it is fine.
+ *
+ * Two ceilings, and the lower one wins. The plan's allowance is what was bought
+ * and is the one that matters in a store build; the developer setting is a
+ * local brake for a build running on your own key, where nobody is metering you
+ * but your provider's invoice. Taking the minimum means neither can be raised
+ * past the other by accident.
+ *
+ * A build with no store at all keeps the old behaviour — `monthlyAllowance`
+ * returns 0 for free, which reads as "uncapped" to the meter, and the developer
+ * setting is then the only limit. That is correct: there is nothing to have
+ * bought, and locking the assistant on a personal build would be absurd.
+ */
 async function withinBudget(): Promise<string | null> {
   try {
     const repos = getRepositories();
     const settings = await repos.settings.getAll();
+    const plan = monthlyAllowance(await currentEntitlement());
+    const monthly =
+      plan > 0 && settings.llmMonthlyRequestCap > 0
+        ? Math.min(plan, settings.llmMonthlyRequestCap)
+        : plan > 0
+          ? plan
+          : settings.llmMonthlyRequestCap;
+
     const verdict = await createUsageMeter(repos.db).check({
       daily: settings.llmDailyRequestCap,
-      monthly: settings.llmMonthlyRequestCap,
+      monthly,
     });
     return verdict.ok ? null : verdict.error.userMessage;
   } catch (error) {

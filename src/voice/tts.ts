@@ -52,6 +52,9 @@ let generation = 0;
  * is split at sentence boundaries first.
  */
 export function speak(text: string, options: SpeakOptions = {}): Promise<void> {
+  // Warmed here rather than at startup: only the first utterance needs it, and
+  // a device with no enhanced voice must not pay for the lookup on every boot.
+  void loadVoices();
   const chunks = chunkForSpeech(text);
   if (chunks.length === 0) {
     options.onDone?.();
@@ -139,6 +142,10 @@ function speakChunk(chunk: string, options: SpeakOptions): Promise<void> {
 
     try {
       Speech.speak(chunk, {
+        // The device's best voice for this language, not its default. Both
+        // platforms hand back a compact voice unless asked otherwise, and that
+        // one is the reason synthesised speech sounds like a robot.
+        ...(voiceFor(options.language) ? { voice: voiceFor(options.language)! } : {}),
         language: options.language,
         rate: options.rate,
         pitch: options.pitch,
@@ -150,6 +157,51 @@ function speakChunk(chunk: string, options: SpeakOptions): Promise<void> {
       failed(error);
     }
   });
+}
+
+/* --------------------------------------------------------------- voices -- */
+
+/**
+ * The best voice installed for a language, or null to let the platform choose.
+ *
+ * Resolved once and cached: enumerating voices is a native round trip, and the
+ * set does not change while the app is running. A device with nothing enhanced
+ * installed gets null and the platform default, which is the honest outcome —
+ * iOS keeps its good voices behind a download the user has to make themselves,
+ * and there is nothing an app can do about that.
+ */
+let voiceCache: Map<string, string | null> | null = null;
+
+export async function loadVoices(): Promise<void> {
+  if (voiceCache) return;
+  voiceCache = new Map();
+  try {
+    const voices = await Speech.getAvailableVoicesAsync();
+    for (const voice of voices) {
+      const key = voice.language.toLowerCase();
+      const best = voiceCache.get(key);
+      // Enhanced beats default; otherwise the first one wins, because the
+      // platforms list their own preferred voice first.
+      if (best === undefined || voice.quality === Speech.VoiceQuality.Enhanced) {
+        voiceCache.set(key, voice.identifier);
+      }
+    }
+  } catch (error) {
+    log.warn('could not list the installed voices; using the platform default', error);
+  }
+}
+
+function voiceFor(language: string | undefined): string | null {
+  if (!language || !voiceCache) return null;
+  const lower = language.toLowerCase();
+  // Exact locale first ("en-GB"), then any voice for the base language.
+  const exact = voiceCache.get(lower);
+  if (exact) return exact;
+  const base = lower.split('-')[0]!;
+  for (const [key, id] of voiceCache) {
+    if (key.startsWith(base) && id) return id;
+  }
+  return null;
 }
 
 async function takeAudioFocus(): Promise<void> {
