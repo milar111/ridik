@@ -9,21 +9,6 @@ import { ThemeProvider } from '@/ui/ThemeProvider';
 
 import TasksScreen from '../../../../app/tasks';
 
-// Reanimated's own mock still loads the native worklets module, so the one
-// thing in this tree that animates — the toast stack — gets hand-stubbed
-// primitives instead.
-jest.mock('react-native-reanimated', () => {
-  const { View } = jest.requireActual('react-native');
-  const builder: { duration: () => unknown } = { duration: () => builder };
-  return {
-    __esModule: true,
-    default: { View },
-    FadeInUp: builder,
-    FadeOutUp: builder,
-    LinearTransition: builder,
-  };
-});
-
 jest.mock('@/hooks', () => ({
   useActiveTasks: jest.fn(),
   useTasks: jest.fn(),

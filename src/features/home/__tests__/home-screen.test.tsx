@@ -9,48 +9,6 @@ import { useVoiceStore } from '@/features/voice/store';
 
 import HomeScreen from '../../../../app/index';
 
-/* Reanimated's own mock still loads the native worklets module. The stub has to
-   cover everything `@/ui/motion` and the heat field reach for, including
-   `ReduceMotion` — the spring configs read it at module scope, so a missing key
-   fails the whole suite at import rather than at render. */
-jest.mock('react-native-reanimated', () => {
-  const { View, Text } = jest.requireActual('react-native');
-  const builder: Record<string, unknown> = {};
-  builder.duration = () => builder;
-  builder.delay = () => builder;
-  const passthrough = (v: unknown) => v;
-  return {
-    __esModule: true,
-    default: { View, Text, createAnimatedComponent: (c: unknown) => c },
-    createAnimatedComponent: (c: unknown) => c,
-    View,
-    FadeIn: builder,
-    FadeOut: builder,
-    FadeInUp: builder,
-    FadeOutUp: builder,
-    LinearTransition: builder,
-    ReduceMotion: { System: 'system', Always: 'always', Never: 'never' },
-    Easing: {
-      in: () => undefined,
-      out: () => undefined,
-      inOut: () => undefined,
-      linear: undefined,
-      quad: undefined,
-      cubic: undefined,
-      sin: undefined,
-    },
-    useSharedValue: (v: number) => ({ value: v }),
-    useAnimatedStyle: () => ({}),
-    useDerivedValue: (fn: () => unknown) => ({ value: fn() }),
-    useReducedMotion: () => false,
-    withRepeat: passthrough,
-    withSequence: passthrough,
-    withSpring: passthrough,
-    withTiming: passthrough,
-    cancelAnimation: () => {},
-  };
-});
-
 const mockPush = jest.fn();
 const mockSetSetting = jest.fn();
 let mockLastBriefingShown: string | null = '2026-08-11';

@@ -1,6 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -47,6 +46,7 @@ import {
   Section,
   Segmented,
   Txt,
+  useConfirm,
   useToast,
 } from '@/ui/components';
 import { colorForTag } from '@/ui/theme';
@@ -130,6 +130,7 @@ function LedgerBody({ period }: { period: Period }) {
   const recent = useRecentTransactions(RECENT_WINDOW);
   const monthly = useMonthlyTotals(TREND_MONTHS);
   const remove = useDeleteTransaction();
+  const confirm = useConfirm();
 
   const [picked, setPicked] = useState<string | null>(null);
   const [editing, setEditing] = useState<Transaction | null>(null);
@@ -199,26 +200,19 @@ function LedgerBody({ period }: { period: Period }) {
   }, [monthly.data, currency, zone]);
 
   const confirmDelete = (tx: Transaction) => {
-    Alert.alert(
-      'Delete this transaction?',
-      `${tx.description ?? tx.category} · ${formatMoney(tx.amount, tx.currency)}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () =>
-            remove.mutate(tx.id, {
-              onSuccess: () => {
-                setEditing(null);
-                toast.show({ message: 'Transaction deleted' });
-              },
-              onError: (error) =>
-                toast.show({ message: 'Could not delete that', detail: reason(error), tone: 'danger' }),
-            }),
-        },
-      ],
-    );
+    confirm.ask({
+      title: 'Delete this transaction?',
+      message: `${tx.description ?? tx.category} · ${formatMoney(tx.amount, tx.currency)}`,
+      onConfirm: () =>
+        remove.mutate(tx.id, {
+          onSuccess: () => {
+            setEditing(null);
+            toast.show({ message: 'Transaction deleted' });
+          },
+          onError: (error) =>
+            toast.show({ message: 'Could not delete that', detail: reason(error), tone: 'danger' }),
+        }),
+    });
   };
 
   if (query.isError) {
@@ -385,6 +379,7 @@ function LedgerBody({ period }: { period: Period }) {
           onDelete={() => confirmDelete(editing)}
         />
       ) : null}
+      {confirm.dialog}
     </View>
   );
 }

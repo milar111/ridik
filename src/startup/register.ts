@@ -10,6 +10,7 @@
 import '@/services/focus';
 import '@/services/geofence';
 import '@/services/background';
+import '@/services/billing';
 import '@/features/voice/pipeline';
 
 export {};

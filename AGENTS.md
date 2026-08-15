@@ -80,6 +80,29 @@ On home the voice sheet stays shut unless it needs something (a clarification,
 an error, or typing). The screen is already the voice interface, and a scrim
 over it hides the one thing the app is for.
 
+## The two platforms must look the same
+
+Anything React Native draws with the platform's own widget looks like two
+different products. These are banned; use the replacement:
+
+| Banned | Use instead | Why |
+| --- | --- | --- |
+| `Switch` | `Toggle` | UISwitch vs Material 3 — different size, travel, thumb, and a check glyph Android paints inside it |
+| `Alert.alert` | `useConfirm()` | Two OS dialogs that ignore the palette, disagree about button order, and Android has no `destructive` style |
+| `ActivityIndicator` | `Spinner` | Tapered ticks vs a sweeping arc |
+| `shadowColor`/`elevation` | `elevate()` from `src/ui/shadow.ts` | Android ignores every iOS shadow prop and cannot colour or offset `elevation` |
+| bare `RefreshControl` | `Refresh` | `tintColor` is iOS-only, `colors` Android-only |
+
+Two Android text traps, both of which cost a debugging session:
+
+- **A `Text` in a flex row is measured short and clipped, not wrapped.** With
+  tracking on it, short by a whole character — "YOUR DATA" rendered as
+  "YOUR DAT". Give it `flex: 1` rather than letting it size to its own content.
+- **Glyph ink can reach past its advance width, and Android clips to the
+  advance.** Bricolage's `t` and `e` do: "Export" lost its crossbar and became
+  "Exporl", while "Allow" was fine. `Button`'s label carries 2pt of horizontal
+  slack for this; any other tight text container needs the same.
+
 ## What belongs on the Settings screen
 
 The test: **if a stranger set this to the worst possible value, would the app

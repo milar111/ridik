@@ -51,6 +51,7 @@ describe('settings repository', () => {
         llmDailyRequestCap: 200,
         llmMonthlyRequestCap: 3_000,
         developerMode: false,
+        sandboxSubscription: null,
         voiceConfidenceThreshold: 0.7,
         silenceTimeoutMs: 1500,
         defaultBufferMinutes: 20,

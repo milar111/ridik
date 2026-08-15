@@ -23,7 +23,7 @@ import { useRouter } from 'expo-router';
 
 import { createLogger } from '@/core/logger';
 import { now } from '@/core/clock';
-import { formatRelative } from '@/core/time';
+import { formatDayHeading } from '@/core/time';
 import {
   Group,
   GroupSkeleton,
@@ -34,8 +34,8 @@ import {
   SwitchRow,
 } from '@/features/settings';
 import { useSetting } from '@/hooks';
-import { useBillingAvailable, useEntitlement, useRestorePurchases } from '@/hooks/useBilling';
-import { describePlan, FREE } from '@/services/billing/entitlement';
+import { useEntitlement } from '@/hooks/useBilling';
+import { describePlan, describeRenewal, FREE } from '@/services/billing/entitlement';
 import {
   useEraseAllData,
   useExportEverything,
@@ -45,6 +45,7 @@ import {
 } from '@/hooks/useSystem';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
+import { useNavigateOnce } from '@/ui/useNavigateOnce';
 import { Button, Input, Screen, Txt, useToast } from '@/ui/components';
 
 const log = createLogger('settings');
@@ -87,67 +88,39 @@ export default function SettingsScreen() {
  * require it, and an in-app cancel flow would be a lie: only the store can
  * actually end the subscription.
  */
-/** Where each store lets a person actually cancel. Only the store can. */
-const MANAGE_URL = Platform.select({
-  ios: 'https://apps.apple.com/account/subscriptions',
-  android: 'https://play.google.com/store/account/subscriptions',
-  default: 'https://apps.apple.com/account/subscriptions',
-});
-
+/**
+ * What you are paying for, and the way in to changing it.
+ *
+ * Always shown, even on the free tier and even in a build with no store
+ * compiled in. The previous version hid itself when billing was unconfigured,
+ * which meant the one screen a paying customer would look for did not exist on
+ * any simulator and could never be reviewed. A plan the user does not have is
+ * still a fact about their account.
+ */
 function PlanGroup() {
-  const router = useRouter();
-  const available = useBillingAvailable();
+  const nav = useNavigateOnce();
   const entitlement = useEntitlement();
-  const restore = useRestorePurchases();
-  const toast = useToast();
 
-  if (!available) return null;
   if (entitlement.isLoading && !entitlement.data) return <GroupSkeleton title="Plan" rows={1} />;
 
   const plan = entitlement.data ?? FREE;
+  const renewal = describeRenewal(plan, (at) => formatDayHeading(at, undefined, now()));
 
   return (
     <Group title="Plan">
       <Row
-        icon={plan.active ? 'checkmark-circle-outline' : 'lock-closed-outline'}
-        label={describePlan(plan)}
-        hint={
-          plan.renewsAt !== null
-            ? `${plan.cancelled ? 'Ends' : 'Renews'} ${formatRelative(plan.renewsAt, now())}`
-            : 'Ridik works without it — the assistant is the part that needs a plan.'
-        }
+        icon={plan.active ? 'checkmark-circle-outline' : 'sparkles-outline'}
+        label={plan.active ? `${describePlan(plan)} · the assistant` : 'Free'}
+        hint={renewal}
         right={
-          plan.active ? (
-            <Button label="Manage" size="sm" onPress={() => void Linking.openURL(MANAGE_URL)} />
-          ) : (
-            <Button label="See plans" size="sm" variant="primary" onPress={() => router.push('/plans')} />
-          )
+          <Button
+            label={plan.active ? 'Manage' : 'See plans'}
+            size="sm"
+            variant={plan.active ? 'secondary' : 'primary'}
+            onPress={() => nav.push('/plans')}
+          />
         }
       />
-      {plan.active ? null : (
-        <Row
-          icon="refresh-outline"
-          label="Restore purchases"
-          hint="Already subscribed on another device, or reinstalled."
-          right={
-            <Button
-              label="Restore"
-              size="sm"
-              loading={restore.isPending}
-              onPress={() =>
-                restore.mutate(undefined, {
-                  onSuccess: (result) =>
-                    toast.show({
-                      message: result.active ? 'Plan restored' : 'Nothing to restore',
-                      tone: result.active ? 'success' : 'neutral',
-                    }),
-                  onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
-                })
-              }
-            />
-          }
-        />
-      )}
     </Group>
   );
 }

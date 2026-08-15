@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { InteractionManager, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useArchiveNote, useDeleteNote, useNoteTags, useUpdateNote } from '@/hooks';
 import type { NoteWithBullets } from '@/repositories/notes';
-import { Button, Chip, Input, Txt, useToast } from '@/ui/components';
+import { Button, Chip, Input, Txt, useConfirm, useToast } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
 import { colorForTag } from '@/ui/theme';
 
@@ -35,6 +35,7 @@ export function NoteActionsSheet({
   const updateNote = useUpdateNote();
   const archiveNote = useArchiveNote();
   const deleteNote = useDeleteNote();
+  const confirm = useConfirm();
   const [retagging, setRetagging] = useState(false);
 
   if (!note) return null;
@@ -84,31 +85,30 @@ export function NoteActionsSheet({
    * and if the repository still refuses, its own sentence is what gets shown.
    */
   const confirmDelete = () => {
-    Alert.alert(
-      `Delete “${note.titleSummary}”?`,
-      `${note.bullets.length === 1 ? '1 bullet' : `${note.bullets.length} bullets`} will go with it. This cannot be undone.`,
-      [
-        { text: 'Keep it', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () =>
-            deleteNote.mutate(
-              { id: note.id, confirmed: true },
-              {
-                onSuccess: () => {
-                  toast.show({ message: 'Note deleted', detail: note.titleSummary, tone: 'danger' });
-                  onDeleted?.();
-                },
-                onError: (error) =>
-                  toast.show({
-                    message: errorMessage(error, 'I could not delete that note.'),
-                    tone: 'danger',
-                  }),
+    // `ActionSheet` closes itself before it calls this, so the question would
+    // otherwise be raised into a dismissal already in flight — which iOS drops
+    // on the floor. Same guard, same reason, as `app/project/[id].tsx`.
+    void InteractionManager.runAfterInteractions(() =>
+      confirm.ask({
+        title: `Delete “${note.titleSummary}”?`,
+        message: `${note.bullets.length === 1 ? '1 bullet' : `${note.bullets.length} bullets`} will go with it. This cannot be undone.`,
+        cancelLabel: 'Keep it',
+        onConfirm: () =>
+          deleteNote.mutate(
+            { id: note.id, confirmed: true },
+            {
+              onSuccess: () => {
+                toast.show({ message: 'Note deleted', detail: note.titleSummary, tone: 'danger' });
+                onDeleted?.();
               },
-            ),
-        },
-      ],
+              onError: (error) =>
+                toast.show({
+                  message: errorMessage(error, 'I could not delete that note.'),
+                  tone: 'danger',
+                }),
+            },
+          ),
+      }),
     );
   };
 
@@ -144,6 +144,7 @@ export function NoteActionsSheet({
         onClose={onClose}
       />
       <ChangeTagSheet visible={retagging} note={note} onClose={() => setRetagging(false)} />
+      {confirm.dialog}
     </>
   );
 }

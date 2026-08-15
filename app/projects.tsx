@@ -5,7 +5,7 @@
  * anything, because the common case is a glance, not a visit.
  */
 import { useMemo, useState } from 'react';
-import { RefreshControl, View } from 'react-native';
+import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { countLabel } from '@/core/format';
@@ -28,14 +28,14 @@ import {
   errorMessage,
   type MenuOption,
 } from '@/features/projects';
-import { Button, EmptyState, Screen, Section, useToast } from '@/ui/components';
+import { Button, EmptyState, Refresh, Screen, Section, useToast } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
 
 const VOICE_HINT = "Try: 'for my Japan trip, remind me to pack slippers'";
 
 export default function ProjectsScreen() {
-  const { colors, spacing } = useTheme();
+  const { spacing } = useTheme();
   const router = useRouter();
   const toast = useToast();
 
@@ -125,10 +125,9 @@ export default function ProjectsScreen() {
         />
       }
       refreshControl={
-        <RefreshControl
+        <Refresh
           refreshing={summaries.isFetching && !summaries.isPending}
           onRefresh={() => void summaries.refetch()}
-          tintColor={colors.textTertiary}
         />
       }
     >

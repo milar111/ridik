@@ -7,12 +7,12 @@
  * is how two screens quietly drift apart.
  */
 import { Children, useEffect, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Switch, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useSetSecret, type SecretSlot } from '@/hooks/useSystem';
 import { useTheme } from '@/ui/ThemeProvider';
-import { Button, Card, Divider, Input, Section, Txt, useToast } from '@/ui/components';
+import { Button, Card, Divider, Input, Section, Toggle, Txt, useToast } from '@/ui/components';
 
 export function Group({ title, children }: { title: string; children: ReactNode }) {
   const { spacing } = useTheme();
@@ -92,21 +92,14 @@ export function SwitchRow({
   value: boolean;
   onChange: (next: boolean) => void;
 }) {
-  const { colors } = useTheme();
   return (
     <Row
       label={label}
       hint={hint}
-      right={
-        <Switch
-          value={value}
-          onValueChange={onChange}
-          accessibilityLabel={label}
-          accessibilityState={{ checked: value }}
-          trackColor={{ false: colors.borderStrong, true: colors.accent }}
-          thumbColor="#FFFFFF"
-        />
-      }
+      // `Toggle` takes its colours from the theme rather than from here: the
+      // `trackColor`/`thumbColor` pair only existed to recolour two unrelated
+      // native switches, and could never make them the same control.
+      right={<Toggle value={value} onValueChange={onChange} accessibilityLabel={label} />}
     />
   );
 }

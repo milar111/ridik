@@ -39,6 +39,11 @@ module.exports = {
       testMatch: ['<rootDir>/src/**/__tests__/**/*.test.tsx', '<rootDir>/app/**/*.test.tsx'],
       moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1',
+        // Reanimated 4 boots its worklets runtime on import and has no native
+        // side here. Every suite used to carry its own partial mock, so a
+        // shared component could not reach for a new hook without breaking
+        // suites unrelated to it — see the file for the rest.
+        '^react-native-reanimated$': '<rootDir>/jest/reanimated-mock.ts',
       },
       setupFiles: ['<rootDir>/jest/setup-ui.ts'],
       setupFilesAfterEnv: ['<rootDir>/jest/setup-ui-after.ts'],

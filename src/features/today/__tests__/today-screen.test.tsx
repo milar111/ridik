@@ -8,27 +8,6 @@ import { ToastProvider } from '@/ui/components';
 
 import TodayScreen from '../../../../app/today';
 
-// Reanimated's own mock still loads the native worklets module, so the two
-// things in this tree that animate — the toast stack and the skeleton — get
-// hand-stubbed primitives instead.
-jest.mock('react-native-reanimated', () => {
-  const { View } = jest.requireActual('react-native');
-  const builder: { duration: () => unknown } = { duration: () => builder };
-  return {
-    __esModule: true,
-    default: { View },
-    FadeInUp: builder,
-    FadeOutUp: builder,
-    LinearTransition: builder,
-    Easing: { inOut: () => undefined, quad: undefined },
-    useSharedValue: (v: number) => ({ value: v }),
-    useAnimatedStyle: () => ({}),
-    withRepeat: (v: unknown) => v,
-    withTiming: (v: unknown) => v,
-    cancelAnimation: () => {},
-  };
-});
-
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn(), canGoBack: () => true }),
 }));

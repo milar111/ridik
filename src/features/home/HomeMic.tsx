@@ -31,6 +31,7 @@ import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/ui/ThemeProvider';
 import { Txt } from '@/ui/components/Text';
 import { fade, tap } from '@/ui/motion';
+import { elevate } from '@/ui/shadow';
 import { useVoiceStore } from '@/features/voice/store';
 
 const DIAMETER = 138;
@@ -114,7 +115,7 @@ export function HomeMic() {
           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
           open();
         }}
-          style={[styles.disc, { backgroundColor: colors.text }, discStyle]}
+          style={[styles.disc, elevate('source'), { backgroundColor: colors.text }, discStyle]}
         >
           <Ionicons name={icon} size={54} color={colors.surface} />
         </AnimatedPressable>
@@ -146,11 +147,6 @@ const styles = StyleSheet.create({
     borderRadius: DIAMETER / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#5A1F00',
-    shadowOpacity: 0.28,
-    shadowRadius: 28,
-    shadowOffset: { width: 0, height: 14 },
-    elevation: 14,
   },
   // Full width and centred by `textAlign`, never shrink-wrapped: Android does
   // not count `letterSpacing` when it measures a line, so a tracked label sized

@@ -1,7 +1,8 @@
-import { ActivityIndicator, Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../ThemeProvider';
+import { Spinner } from './Spinner';
 import { Txt } from './Text';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
@@ -93,12 +94,14 @@ export function Button({
       ]}
     >
       {loading ? (
-        <ActivityIndicator size="small" color={fg[variant]} />
+        // Sized to the icon it stands in for, so a button does not change
+        // height the moment it starts working.
+        <Spinner size={dims.icon} color={fg[variant]} accessibilityLabel={label ?? 'Working'} />
       ) : (
         <View style={styles.row}>
           {icon ? <Ionicons name={icon} size={dims.icon} color={fg[variant]} /> : null}
           {label ? (
-            <Txt variant={dims.variant} style={{ color: fg[variant] }}>
+            <Txt variant={dims.variant} style={[styles.label, { color: fg[variant] }]}>
               {label}
             </Txt>
           ) : null}
@@ -109,6 +112,15 @@ export function Button({
 }
 
 const styles = StyleSheet.create({
-  base: { borderWidth: StyleSheet.hairlineWidth, alignItems: 'center' },
+  // A button is as wide as its label. Without this it is the thing that gives
+  // when a row runs out of space — Android shrinks it and clips the text rather
+  // than wrapping the row, so "Export" arrived as "Exporl".
+  base: { borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', flexShrink: 0 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  // Never shrinks, and carries a little slack on each side. Bricolage's `t` and
+  // `e` have ink that reaches past their advance width, and Android clips a
+  // Text to the advance — so "Export" lost its crossbar and "Delete" its last
+  // stroke, while "Allow" and "See plans" were fine. Two points is enough for
+  // the widest overhang in the face and is invisible next to the 10pt padding.
+  label: { flexShrink: 0, paddingHorizontal: 2 },
 });

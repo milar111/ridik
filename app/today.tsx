@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useState } from 'react';
-import { RefreshControl } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { epochToLocal } from '@/core/time';
@@ -20,8 +19,7 @@ import {
   useNow,
 } from '@/features/today';
 import { invalidateKeys, qk, useToday } from '@/hooks';
-import { useTheme } from '@/ui/ThemeProvider';
-import { EmptyState, Screen, Section } from '@/ui/components';
+import { EmptyState, Refresh, Screen, Section } from '@/ui/components';
 
 /**
  * "What does my day look like?" — answered in one screen and one query.
@@ -34,7 +32,6 @@ import { EmptyState, Screen, Section } from '@/ui/components';
  */
 export default function TodayScreen() {
   const client = useQueryClient();
-  const { colors } = useTheme();
   const today = useToday();
   const at = useNow();
   const [refreshing, setRefreshing] = useState(false);
@@ -85,13 +82,7 @@ export default function TodayScreen() {
       subtitle={longDate(snapshot?.at ?? at, snapshot?.zone)}
       right={<TodayHeaderActions sync={snapshot?.sync} />}
       refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => void onRefresh()}
-          tintColor={colors.textTertiary}
-          colors={[colors.accent]}
-          progressBackgroundColor={colors.surface}
-        />
+        <Refresh refreshing={refreshing} onRefresh={() => void onRefresh()} />
       }
     >
       <SectionBoundary label="briefing">

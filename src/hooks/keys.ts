@@ -188,6 +188,7 @@ export const qk = {
   billing: {
     all: [ROOT, 'billing'] as const,
     entitlement: () => [ROOT, 'billing', 'entitlement'] as const,
+    plans: () => [ROOT, 'billing', 'plans'] as const,
   },
   system: {
     all: [ROOT, 'system'] as const,

@@ -1,6 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Alert } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { currentZone, epochToLocal, todayLocalDate } from '@/core/time';
@@ -38,25 +37,6 @@ const mockRepos = {
 };
 
 jest.mock('@/repositories', () => ({ getRepositories: () => mockRepos }));
-
-/* Reanimated 4 boots its worklets runtime on import and has no native side
-   here; the toast stack (pulled in by the component barrel) is the only thing
-   in these trees that touches it. */
-jest.mock('react-native-reanimated', () => {
-  const React = require('react');
-  const { View } = require('react-native');
-  const modifier = { duration: () => modifier };
-  return {
-    __esModule: true,
-    default: {
-      View: ({ entering, exiting, layout, ...rest }: Record<string, unknown>) =>
-        React.createElement(View, rest),
-    },
-    FadeInUp: modifier,
-    FadeOutUp: modifier,
-    LinearTransition: modifier,
-  };
-});
 
 import ActivityScreen from '../../../app/activity';
 import HabitsScreen from '../../../app/habits';
@@ -237,7 +217,6 @@ describe('ledger screen', () => {
   });
 
   it('deletes from inside the edit sheet, never from the row that opens it', async () => {
-    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockRepos.ledger.query.mockResolvedValue(oneTransactionPeriod());
     mockRepos.ledger.listRecent.mockResolvedValue([transaction()]);
 
@@ -246,11 +225,14 @@ describe('ledger screen', () => {
 
     expect(row.props.accessibilityHint).toBe('Tap to edit');
     await fireEvent(row, 'longPress');
-    expect(alert).not.toHaveBeenCalled();
+    expect(screen.queryByText('Delete this transaction?')).toBeNull();
 
     await fireEvent.press(row);
     await fireEvent.press(await screen.findByLabelText('Delete'));
-    expect(alert.mock.calls[0]?.[0]).toBe('Delete this transaction?');
+    // The app's own dialog, not `Alert.alert`: a system box is drawn by the OS
+    // and looks like a different product on each of them.
+    expect(await screen.findByText('Delete this transaction?')).toBeTruthy();
+    expect(screen.getByText('Spool of PLA · €12.50')).toBeTruthy();
   });
 
   /* The voice executor was the only writer of a transaction, so an install
@@ -370,7 +352,6 @@ describe('habits screen', () => {
   /* The card itself logs the day, so a long press is one slip away from every
      tap — nothing behind it may destroy the streak. */
   it('offers archive and nothing destructive on a long press', async () => {
-    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockRepos.habits.listHabits.mockResolvedValue([
       habitRow({ name: 'Anki', lastCompletedDate: TODAY, streak: 4 }),
     ]);
@@ -378,8 +359,12 @@ describe('habits screen', () => {
     await wrap(<HabitsScreen />);
     await fireEvent(await screen.findByText('Anki'), 'longPress');
 
-    const buttons = alert.mock.calls[0]?.[2] ?? [];
-    expect(buttons.map((button) => button.text)).toEqual(['Cancel', 'Archive']);
+    // The app's own dialog now, so the assertion is on what is on screen rather
+    // than on the arguments handed to the OS.
+    expect(await screen.findByText('4 days at best')).toBeTruthy();
+    expect(screen.getByLabelText('Archive')).toBeTruthy();
+    expect(screen.getByLabelText('Cancel')).toBeTruthy();
+    expect(screen.queryByLabelText('Delete')).toBeNull();
   });
 });
 
@@ -450,7 +435,6 @@ describe('activity screen', () => {
      this row is the one route out of a mis-logged entry, so it keeps both the
      gesture and the accessibility action that reaches it without one. */
   it('deletes a mis-logged entry from the row, by gesture or by screen reader', async () => {
-    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     withOneEntry();
 
     await wrap(<ActivityScreen />);
@@ -461,13 +445,17 @@ describe('activity screen', () => {
     ]);
 
     await fireEvent(row, 'longPress');
-    expect(alert.mock.calls[0]?.[0]).toBe('Delete this entry?');
+    expect(await screen.findByText('Delete this entry?')).toBeTruthy();
 
-    alert.mockClear();
+    // Backing out has to leave the entry alone, and leave the second route in
+    // reachable — the whole point of the pair.
+    await fireEvent.press(screen.getByLabelText('Cancel'));
+    expect(screen.queryByText('Delete this entry?')).toBeNull();
+
     await fireEvent(row, 'accessibilityAction', {
       nativeEvent: { actionName: 'longpress' },
     });
-    expect(alert.mock.calls[0]?.[0]).toBe('Delete this entry?');
+    expect(await screen.findByText('Delete this entry?')).toBeTruthy();
   });
 
   /* Two fields and no more. `ActivityLogInput` also takes a habit name and a

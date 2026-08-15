@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, Linking, ScrollView, StyleSheet, View } from 'react-native';
+import { Linking, ScrollView, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { formatClock, formatDayHeading, formatDuration, formatTime, weekRange } from '@/core/time';
@@ -27,6 +27,7 @@ import {
   Screen,
   Section,
   Txt,
+  useConfirm,
   useToast,
 } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
@@ -130,6 +131,7 @@ function RunningSession({ snapshot, phases }: { snapshot: FocusSnapshot; phases:
   const { colors, spacing, radius } = useTheme();
   const toast = useToast();
   const control = useFocusControl();
+  const confirm = useConfirm();
 
   const paused = snapshot.status === 'paused';
   const isBreak = snapshot.phase.kind === 'break';
@@ -146,13 +148,17 @@ function RunningSession({ snapshot, phases }: { snapshot: FocusSnapshot; phases:
   };
 
   const confirmStop = () => {
-    Alert.alert('Stop this session?', `${snapshot.label} will be logged as cancelled.`, [
-      { text: 'Keep going', style: 'cancel' },
-      { text: 'Stop', style: 'destructive', onPress: () => run('stop') },
-    ]);
+    confirm.ask({
+      title: 'Stop this session?',
+      message: `${snapshot.label} will be logged as cancelled.`,
+      cancelLabel: 'Keep going',
+      confirmLabel: 'Stop',
+      onConfirm: () => run('stop'),
+    });
   };
 
   return (
+    <>
     <Card padded={false}>
       <View style={{ padding: spacing.lg, gap: spacing.md }}>
         <View style={styles.rowBetween}>
@@ -233,6 +239,8 @@ function RunningSession({ snapshot, phases }: { snapshot: FocusSnapshot; phases:
         />
       </View>
     </Card>
+    {confirm.dialog}
+    </>
   );
 }
 

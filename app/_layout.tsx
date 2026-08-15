@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -13,7 +13,7 @@ import { VoiceDock } from '@/features/voice/VoiceDock';
 import { useWidgetPublisher } from '@/hooks/useWidgetPublisher';
 import { useAppFonts } from '@/ui/fonts';
 import { ThemeProvider } from '@/ui/ThemeProvider';
-import { ToastProvider } from '@/ui/components';
+import { Spinner, ToastProvider } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { Txt } from '@/ui/components/Text';
 import { makeTheme } from '@/ui/theme';
@@ -99,8 +99,10 @@ export default function RootLayout() {
                     nothing. */}
                 {boot?.ok ? <WidgetPublisher /> : null}
                 {!boot || !fontsReady ? (
-                  <View style={[styles.overlay, { backgroundColor: theme.colors.bg }]}>
-                    <ActivityIndicator color={theme.colors.accent} />
+                  <View
+                    style={[styles.overlay, styles.centred, { backgroundColor: theme.colors.bg }]}
+                  >
+                    <Spinner size="large" color={theme.colors.accent} accessibilityLabel="Starting Ridik" />
                   </View>
                 ) : !boot.ok ? (
                   <View style={[styles.overlay, { backgroundColor: theme.colors.bg }]}>
@@ -118,6 +120,10 @@ export default function RootLayout() {
 
 const styles = StyleSheet.create({
   overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center' },
+  // The spinner is a fixed square, where `ActivityIndicator` stretched and
+  // centred itself. Only the boot overlay wants this; the failure screen's
+  // paragraphs still fill the width.
+  centred: { alignItems: 'center' },
 });
 
 /**

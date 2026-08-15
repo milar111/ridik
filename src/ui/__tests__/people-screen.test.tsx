@@ -7,21 +7,6 @@ import PeopleScreen from '../../../app/people';
 // mis-heard contact is spotted, their own page is where it is deleted.
 import PersonDetailScreen from '../../../app/person/[id]';
 
-// The component barrel reaches Toast, which reaches reanimated — and reanimated's
-// own mock still loads the native worklets module, so the entry animations Toast
-// asks for are stubbed by hand instead.
-jest.mock('react-native-reanimated', () => {
-  const { View } = jest.requireActual('react-native');
-  const builder: { duration: () => unknown } = { duration: () => builder };
-  return {
-    __esModule: true,
-    default: { View },
-    FadeInUp: builder,
-    FadeOutUp: builder,
-    LinearTransition: builder,
-  };
-});
-
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn(), canGoBack: () => true }),
   useLocalSearchParams: () => ({ id: 'p1' }),

@@ -27,21 +27,6 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ id: 'p1' }),
 }));
 
-// Reanimated 4 boots react-native-worklets on import, which has no native side
-// under jest. The toast stack (pulled in by the component barrel) is the only
-// thing in this tree that touches it, and it needs exactly these four exports.
-jest.mock('react-native-reanimated', () => {
-  const { View } = require('react-native');
-  const entering = { duration: () => entering };
-  return {
-    __esModule: true,
-    default: { View, createAnimatedComponent: (component: unknown) => component },
-    FadeInUp: entering,
-    FadeOutUp: entering,
-    LinearTransition: entering,
-  };
-});
-
 // Sharing pulls in expo-print and the mail composer; neither has a native side
 // under jest and neither is what these tests are about.
 jest.mock('@/features/export', () => ({

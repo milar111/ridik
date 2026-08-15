@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
@@ -25,6 +25,7 @@ import {
   Screen,
   Section,
   Txt,
+  useConfirm,
   useToast,
 } from '@/ui/components';
 
@@ -139,6 +140,7 @@ function HabitCard({
   const history = useHabitHistory(habit.id, { from: gridStart, to: today });
   const log = useLogHabit();
   const archive = useArchiveHabit();
+  const confirm = useConfirm();
 
   // Optimism lives here rather than in the cache: the streak the repository
   // returns depends on history this screen does not own, so the card shows the
@@ -186,21 +188,23 @@ function HabitCard({
   // the streak with it.
   const onMenu = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
-    Alert.alert(habit.name, `${countLabel(habit.longestStreak, 'day')} at best`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Archive',
-        onPress: () =>
-          archive.mutate(
-            { habitId: habit.id, archived: true },
-            {
-              onSuccess: () => toast.show({ message: `${habit.name} archived` }),
-              onError: (error) =>
-                toast.show({ message: 'Could not archive that', detail: reason(error), tone: 'danger' }),
-            },
-          ),
-      },
-    ]);
+    confirm.ask({
+      title: habit.name,
+      message: `${countLabel(habit.longestStreak, 'day')} at best`,
+      confirmLabel: 'Archive',
+      // Archiving is reversible and the history survives it, so this is the one
+      // confirm in the app that is not asking about something destructive.
+      destructive: false,
+      onConfirm: () =>
+        archive.mutate(
+          { habitId: habit.id, archived: true },
+          {
+            onSuccess: () => toast.show({ message: `${habit.name} archived` }),
+            onError: (error) =>
+              toast.show({ message: 'Could not archive that', detail: reason(error), tone: 'danger' }),
+          },
+        ),
+    });
   };
 
   // `targetPerWeek` used to be rendered here and never could be: the only
@@ -213,6 +217,7 @@ function HabitCard({
   );
 
   return (
+    <>
     <Card
       accent={atRisk ? colors.warning : undefined}
       style={atRisk ? { backgroundColor: colors.warningMuted } : undefined}
@@ -271,6 +276,10 @@ function HabitCard({
         />
       </View>
     </Card>
+    {/* A sibling, never a child: the card itself is a `Pressable`, and this is
+        how `NoteActionsSheet` raises its second surface too. */}
+    {confirm.dialog}
+    </>
   );
 }
 

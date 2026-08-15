@@ -9,7 +9,7 @@
  * the write lands.
  */
 import { useMemo, useState } from 'react';
-import { Alert, InteractionManager, View } from 'react-native';
+import { InteractionManager, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { countLabel } from '@/core/format';
@@ -41,7 +41,7 @@ import {
   useUpdateProjectItem,
 } from '@/hooks';
 import type { ProjectStatus } from '@/repositories/projects';
-import { Button, EmptyState, Screen, Segmented, useToast } from '@/ui/components';
+import { Button, EmptyState, Screen, Segmented, useConfirm, useToast } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
 
@@ -75,6 +75,7 @@ export default function ProjectDetailScreen() {
   const deleteItem = useDeleteProjectItem();
   const setStatus = useSetProjectStatus();
   const deleteProject = useDeleteProject();
+  const confirm = useConfirm();
 
   const [tab, setTab] = useState<Tab>('items');
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
@@ -123,19 +124,17 @@ export default function ProjectDetailScreen() {
 
   /**
    * Both confirmations are raised from a menu option, so the sheet is still
-   * dismissing when they fire. iOS drops an alert presented mid-dismissal, so
-   * the prompt waits for that animation to finish.
+   * dismissing when they fire. A second surface put up mid-dismissal is dropped
+   * on iOS, so the prompt waits for that animation to finish — true of the
+   * app's own dialog for the same reason it was true of the system alert.
    */
   const confirmDeleteItem = (item: ProjectItem) =>
     InteractionManager.runAfterInteractions(() =>
-      Alert.alert('Delete this item?', item.content, [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => deleteItem.mutate(item.id, { onError: complain }),
-        },
-      ]),
+      confirm.ask({
+        title: 'Delete this item?',
+        message: item.content,
+        onConfirm: () => deleteItem.mutate(item.id, { onError: complain }),
+      }),
     );
 
   /* --------------------------------------------------------------- project */
@@ -143,22 +142,16 @@ export default function ProjectDetailScreen() {
   const confirmDeleteProject = () => {
     if (!data) return;
     InteractionManager.runAfterInteractions(() =>
-      Alert.alert(
-        `Delete "${data.project.name}"?`,
-        'Its sections and items go with it. Tasks, notes, lists and spending filed against it are kept.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Delete',
-            style: 'destructive',
-            onPress: () =>
-              deleteProject.mutate(data.project.id, {
-                onSuccess: () => router.back(),
-                onError: complain,
-              }),
-          },
-        ],
-      ),
+      confirm.ask({
+        title: `Delete "${data.project.name}"?`,
+        message:
+          'Its sections and items go with it. Tasks, notes, lists and spending filed against it are kept.',
+        onConfirm: () =>
+          deleteProject.mutate(data.project.id, {
+            onSuccess: () => router.back(),
+            onError: complain,
+          }),
+      }),
     );
   };
 
@@ -440,6 +433,7 @@ export default function ProjectDetailScreen() {
         options={menuOptions}
         onClose={() => setMenu(null)}
       />
+      {confirm.dialog}
     </Screen>
   );
 }

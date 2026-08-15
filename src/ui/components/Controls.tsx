@@ -171,6 +171,9 @@ export function Input({
       ) : null}
       <TextInput
         placeholderTextColor={colors.textTertiary}
+        // An `EditText` keeps the platform's own Material underline behind
+        // whatever this draws; iOS has nothing of the kind.
+        underlineColorAndroid="transparent"
         {...rest}
         onFocus={(e) => {
           setFocused(true);
@@ -183,6 +186,10 @@ export function Input({
         style={[
           typography.body,
           {
+            // Same reason as `Txt`: Android's font padding would make the
+            // field a few points taller than the identical one on iOS, and the
+            // text inside it sit low.
+            includeFontPadding: false,
             color: colors.text,
             backgroundColor: colors.surfaceSunken,
             borderColor: error ? colors.danger : focused ? colors.accent : colors.border,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, View } from 'react-native';
+import { FlatList, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { countLabel } from '@/core/format';
@@ -24,6 +24,7 @@ import {
   MIC_CLEARANCE,
   Screen,
   Segmented,
+  Spinner,
   Txt,
 } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
@@ -143,7 +144,7 @@ function NotesPane() {
             // them; the spinner is the only thing that moves.
             active.isFetching && !cold ? (
               <View style={{ paddingVertical: spacing.md }}>
-                <ActivityIndicator size="small" color={colors.textTertiary} />
+                <Spinner color={colors.textTertiary} accessibilityLabel="Looking for more notes" />
               </View>
             ) : null
           }

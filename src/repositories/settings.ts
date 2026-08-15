@@ -75,6 +75,12 @@ export const SETTINGS = {
    * them belongs in front of someone who just wants to talk to their phone.
    */
   developerMode: define(z.boolean(), () => false),
+  /**
+   * The development billing provider's whole state, as JSON, on builds with no
+   * real store compiled in. Null everywhere else — the App Store and Play own
+   * this fact and the app only ever reads it back from them.
+   */
+  sandboxSubscription: define<string | null>(z.string().min(1).nullable(), () => null),
 };
 
 export type SettingsValues = {

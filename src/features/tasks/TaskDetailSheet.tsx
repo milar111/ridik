@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { truncate } from '@/core/format';
@@ -23,6 +23,7 @@ import { Button } from '@/ui/components/Button';
 import { Card, Divider } from '@/ui/components/Card';
 import { Badge, Chip, Input } from '@/ui/components/Controls';
 import { Section } from '@/ui/components/Screen';
+import { Spinner } from '@/ui/components/Spinner';
 import { Txt } from '@/ui/components/Text';
 import { colorForTag } from '@/ui/theme';
 import { useTheme } from '@/ui/ThemeProvider';
@@ -52,7 +53,7 @@ export function TaskDetailSheet({
       {task ? (
         <DetailBody task={task} actions={actions} onClose={onClose} onOpenTask={onOpenTask} />
       ) : isLoading ? (
-        <ActivityIndicator />
+        <Spinner accessibilityLabel="Loading this task" />
       ) : (
         <Txt variant="caption" tone="tertiary">
           That task no longer exists.

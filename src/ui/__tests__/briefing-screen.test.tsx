@@ -12,20 +12,6 @@ import { ThemeProvider } from '../ThemeProvider';
 import BriefingScreen from '../../../app/briefing';
 import type { Briefing } from '@/hooks/useBriefing';
 
-// See focus-screen.test.tsx: the component barrel imports reanimated, whose own
-// mock loads the real (native-only) module first.
-jest.mock('react-native-reanimated', () => {
-  const { View } = require('react-native');
-  const animation = { duration: () => animation };
-  return {
-    __esModule: true,
-    default: { View, createAnimatedComponent: (component: unknown) => component },
-    FadeInUp: animation,
-    FadeOutUp: animation,
-    LinearTransition: animation,
-  };
-});
-
 const mockBack = jest.fn();
 const mockSpeech = { isSpeaking: false, play: jest.fn(), stop: jest.fn() };
 const mockSetTts = jest.fn();

@@ -21,6 +21,12 @@ const WEIGHT_FAMILY: Record<string, string> = {
   '800': fonts.display,
 };
 
+/**
+ * The metric every variant shares. Kept out of `typography` so the scale stays
+ * a description of the faces rather than a list of platform corrections.
+ */
+const BASE: TextStyle = { includeFontPadding: false };
+
 export type TxtProps = RNTextProps & {
   variant?: Variant;
   tone?: Tone;
@@ -57,6 +63,12 @@ export function Txt({
       {...rest}
       style={[
         theme.typography[variant] as TextStyle,
+        // Android pads every line by the font's own top/bottom metrics on top
+        // of the `lineHeight` the scale sets, so the same label sits a couple
+        // of points lower in a taller box than on iOS — visible the moment it
+        // is centred against an icon, and cumulative down a stack of rows.
+        // iOS has no such notion and ignores this outright.
+        BASE,
         { color: toneColor[tone] },
         // Only for the grotesque: asking the mono for a bold cut it was not
         // given would silently fall back to the system face mid-sentence.

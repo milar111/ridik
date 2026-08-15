@@ -83,25 +83,6 @@ jest.mock('@/features/export', () => ({
   copyToClipboard: jest.fn(async () => ({ ok: true, value: undefined })),
 }));
 
-/* Reanimated 4 boots its worklets runtime on import and has no native side
-   here; the toast stack (pulled in by the component barrel) is the only thing
-   in this tree that touches it. */
-jest.mock('react-native-reanimated', () => {
-  const React = require('react');
-  const { View } = require('react-native');
-  const modifier = { duration: () => modifier };
-  return {
-    __esModule: true,
-    default: {
-      View: ({ entering, exiting, layout, ...rest }: Record<string, unknown>) =>
-        React.createElement(View, rest),
-    },
-    FadeInUp: modifier,
-    FadeOutUp: modifier,
-    LinearTransition: modifier,
-  };
-});
-
 import SettingsScreen from '../../../app/settings';
 
 /** Without seeded metrics the provider withholds its children until layout. */

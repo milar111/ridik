@@ -24,6 +24,7 @@ import { useToast } from '@/ui/components';
 import { useVoiceStore } from '@/features/voice/store';
 import { useVoiceUndo } from '@/hooks/useVoiceUndo';
 import { SPRING_ENTER } from '@/ui/motion';
+import { elevate } from '@/ui/shadow';
 import { lastUndoable } from './undo';
 
 /**
@@ -91,11 +92,7 @@ export function LastAction() {
         backgroundColor: colors.surface,
         padding: spacing.md,
         gap: 6,
-        shadowColor: '#5A1F00',
-        shadowOpacity: 0.1,
-        shadowRadius: 18,
-        shadowOffset: { width: 0, height: 8 },
-        elevation: 4,
+        ...elevate('card'),
       }}
     >
       <Pressable

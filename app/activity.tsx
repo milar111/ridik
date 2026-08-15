@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -43,6 +42,7 @@ import {
   Screen,
   Segmented,
   Txt,
+  useConfirm,
   useToast,
 } from '@/ui/components';
 import { colorForTag } from '@/ui/theme';
@@ -104,6 +104,7 @@ function ActivityBody({ period }: { period: Period }) {
 
   const summary = useActivitySummary(range);
   const remove = useRemoveActivityEntry();
+  const confirm = useConfirm();
   const [exporting, setExporting] = useState(false);
 
   const names = useMemo(() => {
@@ -119,19 +120,16 @@ function ActivityBody({ period }: { period: Period }) {
   }, [summary.data]);
 
   const confirmDelete = (entry: ActivityEntry) => {
-    Alert.alert('Delete this entry?', truncate(entry.description, 80), [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () =>
-          remove.mutate(entry.id, {
-            onSuccess: () => toast.show({ message: 'Entry deleted' }),
-            onError: (error) =>
-              toast.show({ message: 'Could not delete that', detail: reason(error), tone: 'danger' }),
-          }),
-      },
-    ]);
+    confirm.ask({
+      title: 'Delete this entry?',
+      message: truncate(entry.description, 80),
+      onConfirm: () =>
+        remove.mutate(entry.id, {
+          onSuccess: () => toast.show({ message: 'Entry deleted' }),
+          onError: (error) =>
+            toast.show({ message: 'Could not delete that', detail: reason(error), tone: 'danger' }),
+        }),
+    });
   };
 
   if (summary.isError) {
@@ -226,6 +224,7 @@ function ActivityBody({ period }: { period: Period }) {
           onClose={() => setExporting(false)}
         />
       ) : null}
+      {confirm.dialog}
     </View>
   );
 }

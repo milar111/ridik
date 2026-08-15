@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { countLabel } from '@/core/format';
@@ -18,6 +18,7 @@ import {
 } from '@/features/tasks';
 import { useActiveTasks, useProjects, useTaskGraph, useTasks } from '@/hooks';
 import { Segmented } from '@/ui/components/Controls';
+import { Refresh } from '@/ui/components/Refresh';
 import { MIC_CLEARANCE, Screen } from '@/ui/components/Screen';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
@@ -147,11 +148,7 @@ export default function TasksScreen() {
             }}
             showsVerticalScrollIndicator={false}
             refreshControl={
-              <RefreshControl
-                refreshing={active.isRefetching || graph.isRefetching}
-                onRefresh={refresh}
-                tintColor={colors.textTertiary}
-              />
+              <Refresh refreshing={active.isRefetching || graph.isRefetching} onRefresh={refresh} />
             }
           >
             <ErrorBoundary label="task list">

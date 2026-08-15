@@ -127,7 +127,7 @@ export function Section({
       {title || right ? (
         <View style={styles.sectionHead}>
           {title ? (
-            <Txt variant="eyebrow" tone="tertiary">
+            <Txt variant="eyebrow" tone="tertiary" style={styles.sectionTitle}>
               {title.toUpperCase()}
             </Txt>
           ) : (
@@ -151,6 +151,10 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   headerText: { flex: 1, gap: 2 },
+  // Takes the row rather than sizing to its own text. Android measures a Text
+  // in a flex row short — with tracking on it, short by a whole character — and
+  // then clips it: "YOUR DATA" rendered as "YOUR DAT".
+  sectionTitle: { flex: 1 },
   // Nudged left so the chevron's own bearing lines the title up with the body
   // text below it, rather than indenting the whole header by an icon's width.
   back: { marginLeft: -8, marginBottom: 4 },

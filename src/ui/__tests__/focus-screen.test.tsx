@@ -12,21 +12,6 @@ import { ThemeProvider } from '../ThemeProvider';
 import FocusScreen from '../../../app/focus';
 import type { FocusSnapshot, SessionPhase } from '@/hooks/useFocusRuntime';
 
-// The component barrel pulls in the toast stack, which imports reanimated —
-// and worklets have no native side under jest. The library's own mock loads the
-// real module first, so this stands in for it: nothing here animates.
-jest.mock('react-native-reanimated', () => {
-  const { View } = require('react-native');
-  const animation = { duration: () => animation };
-  return {
-    __esModule: true,
-    default: { View, createAnimatedComponent: (component: unknown) => component },
-    FadeInUp: animation,
-    FadeOutUp: animation,
-    LinearTransition: animation,
-  };
-});
-
 const mockControl = { mutate: jest.fn(), isPending: false };
 const mockStart = { mutate: jest.fn(), isPending: false };
 let mockLive: { snapshot: FocusSnapshot | null; phases: SessionPhase[]; isLoading: boolean } = {

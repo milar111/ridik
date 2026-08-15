@@ -1,11 +1,12 @@
 import { useMutation, useQuery, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
 
 import {
-  billingIsConfigured,
+  availablePlans,
   currentEntitlement,
   purchasePlan,
   restorePurchases,
   type Entitlement,
+  type Plan,
   type PlanId,
 } from '@/services/billing/entitlement';
 import { invalidateKeys, qk } from './keys';
@@ -26,16 +27,20 @@ export function useEntitlement(): UseQueryResult<Entitlement> {
   });
 }
 
-/** False in a build with no store SDK compiled in; the profile hides the plan. */
-export function useBillingAvailable(): boolean {
-  return billingIsConfigured();
-}
-
-export function usePurchasePlan(): UseMutationResult<Entitlement, Error, Exclude<PlanId, 'free'>> {
+export function usePurchasePlan(): UseMutationResult<Entitlement, Error, PlanId> {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (plan: Exclude<PlanId, 'free'>) => purchasePlan(plan),
+    mutationFn: (plan: PlanId) => purchasePlan(plan),
     onSettled: () => invalidateKeys(client, [qk.billing.all]),
+  });
+}
+
+/** What is for sale, priced by the store in the buyer's own currency. */
+export function usePlans(): UseQueryResult<Plan[]> {
+  return useQuery({
+    queryKey: qk.billing.plans(),
+    queryFn: () => availablePlans(),
+    staleTime: 5 * 60_000,
   });
 }
 

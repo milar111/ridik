@@ -24,6 +24,7 @@ import { Button } from '@/ui/components/Button';
 import { Input } from '@/ui/components/Controls';
 import { MIC_GAP, MIC_SIZE } from '@/ui/layout';
 import { SPRING_TAP } from '@/ui/motion';
+import { elevate } from '@/ui/shadow';
 import { useVoiceStore } from './store';
 import { useQuickActionRouting } from './useQuickActions';
 
@@ -191,9 +192,11 @@ export function VoiceDock() {
               onLongPress={onLongPressMic}
               style={({ pressed }) => [
                 styles.mic,
+                // Tinted by the mic's own state colour, which Android's
+                // `elevation` could never be told about — it only draws black.
+                elevate('floating', micColor),
                 {
                   backgroundColor: micColor,
-                  shadowColor: micColor,
                   opacity: pressed ? 0.85 : 1,
                 },
               ]}
@@ -423,10 +426,6 @@ const styles = StyleSheet.create({
     borderRadius: MIC_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
   },
   partial: {
     maxWidth: 260,
