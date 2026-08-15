@@ -51,17 +51,11 @@ struct RidikTasksView: View {
     case .stale(let snapshot):
       face(snapshot, palette: palette, stale: true)
     case .blank(let reason):
-      VStack(alignment: .leading, spacing: 0) {
-        TileHeader(eyebrow: "TASKS", palette: palette)
-        strip([], palette: palette)
-        Spacer(minLength: 4)
-        EmptyNote(
-          headline: reason.headline,
-          sub: reason.detail,
-          palette: palette,
-          compact: small
-        )
-      }
+      // The whole tile, for the two states where there is genuinely nothing to
+      // draw — WIDGETS §4. "Nothing open" is *not* one of them and keeps its
+      // full strip of cold cells below; this is "the app has never published",
+      // where a gauge reading zero would be a reading rather than an absence.
+      NoticePane(reason: reason, palette: palette, compact: small)
     }
   }
 
@@ -96,12 +90,21 @@ struct RidikTasksView: View {
     return nil
   }
 
+  /**
+   Always the full strip, and always the full width of the tile.
+
+   The cap is the number of cells, not the number of tasks: a gauge has an
+   extent, and two lit cells followed by bare ground would make the tile with
+   two tasks on it look *less* finished than the tile with none. The cells
+   divide the width rather than sitting at a fixed 10 with the remainder left as
+   ground, which is what Android's weighted cells have always done.
+   */
   private func strip(_ ages: [Int], palette: RidikPalette) -> some View {
     DebtStrip(
       ages: ages,
       cap: small ? 12 : 24,
       palette: palette,
-      cellWidth: small ? 8 : 10
+      maxCellWidth: small ? 11 : 13
     )
     .frame(height: small ? 16 : 18)
     .padding(.top, 6)
@@ -245,14 +248,18 @@ struct RidikListView: View {
       if let list = snapshot.list, snapshot.configured.lists {
         face(list, palette: palette)
       } else {
-        blank(
+        // An empty state, not a blank one: there is a payload, it simply has no
+        // list on it. It keeps its graphic — WIDGETS §4.
+        noList(
           headline: "No list yet.",
           sub: "Say \u{201C}add bolts to the hardware list\u{201D}.",
           palette: palette
         )
       }
     case .blank(let reason):
-      blank(headline: reason.headline, sub: reason.detail, palette: palette)
+      // Nothing published, or a payload this build cannot read. The marks would
+      // be a checklist drawn for a list the extension has never been handed.
+      NoticePane(reason: reason, palette: palette, compact: small)
     }
   }
 
@@ -282,19 +289,22 @@ struct RidikListView: View {
       // and neither of them is a reason to draw no graphic at all. The marks
       // are this tile's only drawing; leaving them out is what would make it
       // the one face in the family that is a bare sentence on a rectangle.
-      VStack(alignment: .leading, spacing: 7) {
+      Group {
         if rows.isEmpty {
-          ForEach(0..<capacity(done: true), id: \.self) { _ in
-            RowMark(done: false, palette: palette)
-          }
+          // The same number of slots a full list draws, spread over the same
+          // extent. Fewer marks than rows, stacked at the top of the tile, is
+          // an empty face that is a different shape from a populated one.
+          MarkColumn(count: capacity(done: false), palette: palette)
         } else {
-          ForEach(Array(rows.prefix(capacity(done: done)))) { row in
-            RowLine(
-              row: row,
-              palette: palette,
-              wide: !small,
-              leadWidth: ridikLeadWidth(for: rows, wide: !small)
-            )
+          VStack(alignment: .leading, spacing: 7) {
+            ForEach(Array(rows.prefix(capacity(done: done)))) { row in
+              RowLine(
+                row: row,
+                palette: palette,
+                wide: !small,
+                leadWidth: ridikLeadWidth(for: rows, wide: !small)
+              )
+            }
           }
         }
       }
@@ -311,21 +321,19 @@ struct RidikListView: View {
   }
 
   /**
-   Still a drawing, even here.
+   Still a drawing.
 
-   Four cold marks in a column: the tile keeps its shape, and the one graphic
-   this face has is the one it shows when there is nothing to tick.
+   A full column of cold marks, at the extent a list of the same length would
+   occupy: the tile keeps its shape, and the one graphic this face has is the
+   one it shows when there is nothing to tick. Four marks bunched at the top was
+   the empty tile that reads as a plain card with a sentence on it.
    */
-  private func blank(headline: String, sub: String?, palette: RidikPalette) -> some View {
+  private func noList(headline: String, sub: String?, palette: RidikPalette) -> some View {
     VStack(alignment: .leading, spacing: 0) {
       TileHeader(eyebrow: "LIST", palette: palette)
 
-      VStack(alignment: .leading, spacing: 7) {
-        ForEach(0..<4, id: \.self) { _ in
-          RowMark(done: false, palette: palette)
-        }
-      }
-      .padding(.top, 8)
+      MarkColumn(count: capacity(done: false), palette: palette)
+        .padding(.top, 8)
 
       Spacer(minLength: 6)
 

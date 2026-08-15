@@ -8,6 +8,8 @@ import android.text.format.DateFormat
 import android.text.style.StrikethroughSpan
 import android.view.View
 import android.widget.RemoteViews
+import java.text.NumberFormat
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
@@ -395,17 +397,23 @@ internal fun spanText(minutes: Int): String {
 }
 
 /**
- * "All six, today." — a word, because the sentence is written and not computed.
+ * "All 6, today." — the numeral, on both platforms.
  *
- * Falls back to the digit past twelve, which is past the point where a widget
- * has six habit rails anyway.
+ * This was an array of thirteen English words that fell back to a digit past
+ * twelve, so one sentence ended in a word or in a numeral depending on how much
+ * shopping there was — and said "twelve" to a reader whose phone is not in
+ * English. Spelling out properly is `NumberFormatter.spellOut` on iOS and
+ * `RuleBasedNumberFormat` on Android, and **Android does not expose RBNF**:
+ * `android.icu.text` ships the formatters and not the rule sets. The only
+ * thing left that both platforms can do in every language is the digit.
+ *
+ * Localised rather than `toString`, because a device set to Arabic or Bengali
+ * numbers the rest of its widget in its own digits and this sentence should
+ * not be the one that reverts to Latin ones.
  */
-private val WORDS = arrayOf(
-  "no", "one", "two", "three", "four", "five", "six",
-  "seven", "eight", "nine", "ten", "eleven", "twelve",
-)
-
-internal fun word(count: Int): String = WORDS.getOrElse(count) { count.toString() }
+internal fun number(count: Int): String =
+  runCatching { NumberFormat.getIntegerInstance(Locale.getDefault()).format(count.toLong()) }
+    .getOrElse { count.toString() }
 
 /* ---------------------------------------------------------------- the element */
 
@@ -444,6 +452,8 @@ internal fun RemoteViews.element(
 
   for (slot in 0 until slots) {
     val cell = ids.id("ridik_cell_$slot")
+    val full = ids.id("ridik_cell_${slot}_full")
+    val burned = ids.id("ridik_cell_${slot}_spent")
     if (slot >= used) {
       // A shorter waking window leaves slots over. GONE rather than INVISIBLE:
       // this strip is one row, so dropping a cell widens the rest, which is
@@ -461,15 +471,17 @@ internal fun RemoteViews.element(
       if (day.startMinute + (index + 1) * day.cellMinutes > nowMinutes) spent = false
     }
 
-    if (spent) {
-      setViewVisibility(ids.id("ridik_cell_${slot}_full"), View.GONE)
-      setViewVisibility(ids.id("ridik_cell_${slot}_spent"), View.VISIBLE)
-      if (level > 0) background(ids.id("ridik_cell_${slot}_spent"), ids.heat(level))
-    } else if (level > 0) {
-      background(ids.id("ridik_cell_${slot}_full"), ids.heat(level))
-    }
-
-    if (slot > 0 && breaks[from] == '1') setViewPadding(cell, gap, 0, 0, 0)
+    // Every cell is stated, every time, including the cold ones. A widget is
+    // *reapplied* onto the view it drew last time whenever the layout id has
+    // not changed, so "leave it and it keeps what the XML gave it" is only
+    // true of the first draw: skipping the cold cells left yesterday evening's
+    // strip fully burned down at nine the next morning, and skipping the full
+    // ones left last night's meeting lit on an empty day.
+    setViewVisibility(cell, View.VISIBLE)
+    setViewVisibility(full, if (spent) View.GONE else View.VISIBLE)
+    setViewVisibility(burned, if (spent) View.VISIBLE else View.GONE)
+    background(if (spent) burned else full, ids.heat(level))
+    setViewPadding(cell, if (slot > 0 && breaks[from] == '1') gap else 0, 0, 0, 0)
   }
 
   // The ruler is written at draw time and never baked in: the waking window is a
@@ -534,6 +546,13 @@ internal fun RemoteViews.plate(
     val number = index - offset + 1
     if (number < 1 || number > days) {
       setViewVisibility(id, View.INVISIBLE)
+      // Cleared as well as hidden. A widget is *reapplied* onto the view it
+      // drew last time whenever the layout id has not changed, so an action
+      // this skips leaves the previous month's answer standing rather than the
+      // XML's: the 31st drawn hot in March would still be hot in April, on the
+      // face whose whole promise is to survive a week untouched.
+      background(id, ids.heat(0))
+      if (numerals) setTextViewText(id, "")
       continue
     }
 
@@ -541,16 +560,35 @@ internal fun RemoteViews.plate(
     // The builder already guarantees the plate never sends '3'; today is the
     // only hot cell there is, and only when this tile has not spent it already.
     val level = if (today && allowHot) 3 else (month.load.getOrElse(number - 1) { '0' } - '0')
-    if (level > 0 || today) background(id, ids.heat(level, today))
+    setViewVisibility(id, View.VISIBLE)
+    background(id, ids.heat(level, today))
     if (numerals) {
       setTextViewText(id, number.toString())
       // Ink never sits on hot: it measures 3.2:1 there. This is the only ink
       // over a cell anywhere in the family, and the only place it inverts.
-      if (today && allowHot) setTextColor(id, ids.onHeat)
+      setTextColor(id, if (today && allowHot) ids.onHeat else ids.ink)
     }
   }
 
-  if (offset + days <= 35) setViewVisibility(ids.id("ridik_plate_week_5"), View.GONE)
+  // The sixth week is kept, and kept INVISIBLE when it is unused, exactly like
+  // an out-of-month cell. GONE dropped it from the weight distribution and the
+  // five remaining rows grew to fill the gap — so a February plate had visibly
+  // taller cells than an August one, on the same tile, and neither was the
+  // size the plate is drawn at. The row occupies its ground and says nothing.
+  setViewVisibility(
+    ids.id("ridik_plate_week_5"),
+    if (offset + days <= 35) View.INVISIBLE else View.VISIBLE,
+  )
+
+  // The letters over the columns, in the reader's own language and rotated to
+  // the week the payload starts on. They were a baked "M T W T F S S", which is
+  // an English Monday-first calendar printed over a plate that may be neither.
+  for (column in 0 until 7) {
+    val letter = DayOfWeek.of(Math.floorMod(weekStart - 1 + column, 7) + 1)
+      .getDisplayName(TextStyle.NARROW, Locale.getDefault())
+    setTextViewText(ids.id("ridik_wday_$column"), letter)
+  }
+
   setContentDescription(
     ids.plateArea,
     if (todayNumber > 0) "${target.month.getDisplayName(TextStyle.FULL, Locale.getDefault())}, today is the $todayNumber"
@@ -609,18 +647,26 @@ internal fun RemoteViews.rails(
     for (column in 0 until days) {
       val index = from + column
       val lit = index < history.length && history[index] == '1'
-      if (!lit) continue
-      val level = if (column == days - 1 && marksToday) 3 else 2
+      // Cold is drawn as deliberately as lit. The board is reapplied onto the
+      // one it drew last time, so a cell left alone keeps the level it was
+      // last given — a habit dropped after a good week would have gone on
+      // showing that week for as long as the widget stayed put.
+      val level = if (!lit) 0 else if (column == days - 1 && marksToday) 3 else 2
       background(ids.id("ridik_rail_${rail}_$column"), ids.heat(level))
     }
 
-    if (habit != null) {
-      setContentDescription(
-        ids.id("ridik_rail_$rail"),
+    setContentDescription(
+      ids.id("ridik_rail_$rail"),
+      if (habit == null) {
+        // An empty slot is empty to TalkBack as well, and is *said* to be:
+        // the description of the habit that used to be in it would otherwise
+        // survive the habit itself.
+        ""
+      } else {
         "${habit.name}, ${if (habit.doneToday) "done today" else "not done today"}" +
-          if (habit.streak > 1) ", ${habit.streak} day streak" else "",
-      )
-    }
+          if (habit.streak > 1) ", ${habit.streak} day streak" else ""
+      },
+    )
   }
 
   // The ruler rotates: a window that ends on today has a different weekday in
@@ -653,8 +699,13 @@ internal fun RemoteViews.rails(
  */
 internal fun RemoteViews.debt(ids: WidgetIds, ages: List<Int>, slots: Int) {
   for (index in 0 until slots) {
-    val age = ages.getOrNull(index) ?: continue
+    val age = ages.getOrNull(index)
     val level = when {
+      // A slot with no task behind it is a cold detent of the gauge, and it is
+      // *set* cold rather than left alone: the strip is reapplied onto the one
+      // it drew last time, so a task that was ticked off would keep its cell
+      // lit until the widget was next re-inflated.
+      age == null -> 0
       // The single oldest overdue is the tile's one hot cell. `ages` arrives
       // oldest first, so it is always index 0 — and only when it is overdue at
       // all, or a day with nothing late would light up for no reason.
@@ -663,7 +714,7 @@ internal fun RemoteViews.debt(ids: WidgetIds, ages: List<Int>, slots: Int) {
       age <= 2 -> 1
       else -> 2
     }
-    if (level > 0) background(ids.id("ridik_debt_$index"), ids.heat(level))
+    background(ids.id("ridik_debt_$index"), ids.heat(level))
   }
   setContentDescription(ids.debtArea, "${ages.size} open, oldest ${ages.firstOrNull() ?: 0} days")
 }
@@ -700,7 +751,9 @@ internal fun RemoteViews.rowList(ids: WidgetIds, rows: List<FaceRow>, slots: Int
       ids.id("ridik_row_text_$slot"),
       if (item.spent) struck(item.text) else item.text,
     )
-    if (item.spent) setTextColor(ids.id("ridik_row_text_$slot"), ids.inkSoft)
+    // Both ways, because the row is reapplied onto whatever stood there
+    // before: a row dimmed once stayed dim under the next thing to occupy it.
+    setTextColor(ids.id("ridik_row_text_$slot"), if (item.spent) ids.inkSoft else ids.ink)
     line(ids.id("ridik_row_trail_$slot"), item.trail)
     setContentDescription(row, item.spoken)
   }
@@ -742,6 +795,10 @@ internal fun RemoteViews.tickList(ids: WidgetIds, rows: List<ListRow>, slots: In
  * reason: an empty board teaches the capacity without a word.
  */
 internal fun RemoteViews.coldTicks(ids: WidgetIds, slots: Int) {
+  // The largest any generated variant has. Clearing to the ceiling is safe on a
+  // layout with fewer — an id the layout does not contain resolves to 0 and the
+  // action is dropped — and under-clearing is what leaves stale words on screen.
+  val MAX_ROW_SLOTS = 6
   for (slot in 0 until slots) {
     val row = ids.id("ridik_row_$slot")
     setViewVisibility(row, View.VISIBLE)
@@ -750,6 +807,14 @@ internal fun RemoteViews.coldTicks(ids: WidgetIds, slots: Int) {
     // Empty of words as well as of items: TalkBack should find the sentence
     // under the marks, not four announcements of nothing.
     setContentDescription(row, "")
+  }
+
+  // Every slot past the cold ones is hidden explicitly. A RemoteViews update is
+  // reapplied onto the view the widget last drew, so a row this branch never
+  // touches keeps the text the previous draw put in it — an empty list with
+  // yesterday's items still legible beside its cold marks.
+  for (slot in slots until MAX_ROW_SLOTS) {
+    setViewVisibility(ids.id("ridik_row_$slot"), View.GONE)
   }
 }
 

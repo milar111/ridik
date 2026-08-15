@@ -50,7 +50,12 @@ struct RidikWidgetView: View {
     case .stale(let snapshot):
       TodayFace(snapshot: snapshot, now: entry.date, palette: palette, small: small, stale: true)
     case .blank(let reason):
-      TodayBlank(reason: reason, palette: palette, small: small)
+      // The whole tile, and only here. A cold strip under "Nothing published
+      // yet." was drawing a day the extension has never been told anything
+      // about — WIDGETS §4 keeps the notice pane for exactly these two states
+      // and hands every other empty state its graphic. Android has always
+      // drawn this one as a notice; iOS was the platform out of step.
+      NoticePane(reason: reason, palette: palette, compact: small)
     }
   }
 }
@@ -204,48 +209,5 @@ private struct TodayFace: View {
       return ("The day is yours.", unclaimed.map { "\($0) unclaimed." })
     }
     return ("Winding down.", unclaimed.map { "\($0) left." })
-  }
-}
-
-// MARK: - Nothing published
-
-/**
- Still a drawing.
-
- Every empty state draws the graphic — cold cells, all slots present. A tile
- that answers "nothing yet" with a bare sentence on a flat rectangle is the one
- that gets removed from the home screen, and the cold strip is also the only
- honest picture of a day nobody has told Ridik about.
- */
-private struct TodayBlank: View {
-  let reason: WidgetBlankReason
-  let palette: RidikPalette
-  let small: Bool
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      TileHeader(eyebrow: "TODAY", palette: palette)
-
-      DayElement(
-        day: .cold,
-        nowCell: -1,
-        palette: palette,
-        bucket: small ? 4 : 1
-      )
-      .frame(height: small ? 26 : 34)
-      .padding(.top, 6)
-
-      DayAxis(day: .cold, palette: palette, bucket: small ? 4 : 1)
-        .padding(.top, 3)
-
-      Spacer(minLength: 4)
-
-      EmptyNote(
-        headline: reason.headline,
-        sub: reason.detail,
-        palette: palette,
-        compact: small
-      )
-    }
   }
 }

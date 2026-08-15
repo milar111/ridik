@@ -48,7 +48,13 @@ struct RidikCalendarView: View {
     case .ready(let snapshot), .stale(let snapshot):
       CalendarFace(snapshot: snapshot, now: entry.date, palette: palette, family: family)
     case .blank(let reason):
-      CalendarBlank(reason: reason, now: entry.date, palette: palette, family: family)
+      // The whole tile — WIDGETS §4, and the only two states that get it. A
+      // cold plate of the device's own month under "Ridik was updated." is a
+      // calendar drawn from a payload this build could not read, which is the
+      // one thing a notice exists to avoid claiming. Every *other* empty state
+      // on this face — a clear month, a day with nothing booked, a calendar
+      // never set up — still draws its plate and its strip below.
+      NoticePane(reason: reason, palette: palette, compact: family == .systemSmall)
     }
   }
 }
@@ -297,59 +303,5 @@ private struct CalendarFace: View {
   private var unclaimedLine: String? {
     let minutes = snapshot.unclaimedMinutes(at: now)
     return minutes > 0 ? "\(RidikFormat.duration(minutes)) unclaimed." : nil
-  }
-}
-
-// MARK: - Nothing published
-
-private struct CalendarBlank: View {
-  let reason: WidgetBlankReason
-  let now: Date
-  let palette: RidikPalette
-  let family: WidgetFamily
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      TileHeader(eyebrow: "CALENDAR", palette: palette)
-
-      // The graphic is drawn even here. A cold plate of this month is the only
-      // honest picture of a calendar nobody has told Ridik about, and it is a
-      // far better thing to find on a home screen than a sentence on a slab.
-      if family != .systemMedium {
-        MonthPlate(
-          month: .cold(at: now),
-          calendar: RidikCalendar.device,
-          palette: palette,
-          today: RidikCalendar.device.component(.day, from: now),
-          rowHeight: family == .systemLarge ? 25 : nil,
-          gap: family == .systemLarge ? 3 : 2,
-          numerals: family == .systemLarge,
-          todayIsHot: true
-        )
-        .padding(.top, 3)
-      }
-
-      if family != .systemSmall {
-        VStack(alignment: .leading, spacing: 3) {
-          DayElement(day: .cold, nowCell: -1, palette: palette)
-            .frame(height: 30)
-          DayAxis(day: .cold, palette: palette)
-        }
-        .padding(.top, family == .systemLarge ? 12 : 6)
-      }
-
-      // The small plate is the only graphic here whose rows share the leftover
-      // height, so a spacer under it would take that height away from it.
-      if family != .systemSmall {
-        Spacer(minLength: 4)
-      }
-
-      EmptyNote(
-        headline: reason.headline,
-        sub: family == .systemSmall ? nil : reason.detail,
-        palette: palette,
-        compact: family == .systemSmall
-      )
-    }
   }
 }

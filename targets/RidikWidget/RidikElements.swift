@@ -182,9 +182,12 @@ struct DayElement: View {
    distinction the bucket has already thrown away.
    */
   static func slots(of day: WidgetSnapshot.Day, bucket: Int, nowCell: Int) -> [Slot] {
-    let cells = day.cells
+    // A window's worth of cold cells rather than nothing. An empty `load` is
+    // what a day with no waking window published looks like, and collapsing the
+    // strip to zero height is exactly the blank tile the family exists to
+    // avoid — Android has carried the same fallback from the start.
+    let cells = day.cells.isEmpty ? Array(repeating: Character("0"), count: 32) : day.cells
     let breaks = day.breakCells
-    guard !cells.isEmpty else { return [] }
 
     let size = max(1, bucket)
     let count = Int(ceil(Double(cells.count) / Double(size)))
@@ -369,10 +372,19 @@ struct MonthPlate: View {
       let level = self.level(of: number)
       HeatCell(level: level, palette: palette)
         .overlay {
-          // Today is ringed whether or not it is also filled hot. In dark that
-          // is the same hairline the hot cell carries; in light there is no rim
-          // token, so the accent draws it — one hue either way.
-          if number == today, today > 0, !todayIsHot {
+          // **Today is ringed whether or not it is also filled hot**, which is
+          // what §3.2 says literally — "on small there is no element, so today
+          // is hot *and* ringed" — and what Android has always drawn, where the
+          // ringed drawable is picked from `today` and never from `allowHot`.
+          // Ringing only the unfilled one left small and large disagreeing
+          // about the same cell on the same payload.
+          //
+          // In dark that ring is the same hairline the hot cell already carries,
+          // so a hot today draws it once. In light there is no rim token and the
+          // accent draws it — which is the same `#C7360F` as the hot fill, so
+          // the ring is *swallowed* rather than doubled. §3.2 notes that; it is
+          // the reason a hot plate cell is allowed to keep the ring at all.
+          if number == today, today > 0 {
             RoundedRectangle(cornerRadius: 2, style: .continuous)
               .strokeBorder(palette.rim ?? palette.accent, lineWidth: 1)
           }
@@ -471,16 +483,39 @@ struct DebtStrip: View {
   let ages: [Int]
   let cap: Int
   let palette: RidikPalette
-  var cellWidth: CGFloat = 10
+  /**
+   The widest a cell may get, however much room the tile has.
+
+   The strip divides the width between `cap` cells rather than pinning them at
+   10 and leaving the remainder as ground — a gauge that stops two thirds of the
+   way across its own tile reads as a gauge that failed to draw, which is the
+   dead gutter the rails had. Android's cells are `0dp` with `layout_weight="1"`
+   and have always filled the row; this is the same arithmetic.
+
+   The cap is the other half of the rule: extra width buys air at the end of the
+   strip, never fatter cells (WIDGETS §2). Nothing on iPhone reaches it — 24
+   cells across a 305pt tile come out at 10.8 — so it only ever bites on iPad.
+   */
+  var maxCellWidth: CGFloat = 13
   var gap: CGFloat = 2
 
   var body: some View {
-    HStack(spacing: gap) {
-      ForEach(levels.indices, id: \.self) { index in
-        HeatCell(level: levels[index], palette: palette)
-          .frame(width: cellWidth)
+    GeometryReader { proxy in
+      let levels = self.levels
+      let gaps = gap * CGFloat(max(0, levels.count - 1))
+      let width = min(
+        maxCellWidth,
+        max(1, (proxy.size.width - gaps) / CGFloat(max(1, levels.count)))
+      )
+
+      HStack(spacing: gap) {
+        ForEach(levels.indices, id: \.self) { index in
+          HeatCell(level: levels[index], palette: palette)
+            .frame(width: width)
+        }
+        Spacer(minLength: 0)
       }
-      Spacer(minLength: 0)
+      .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
     }
   }
 
@@ -552,6 +587,55 @@ struct TileHeader: View {
           .lineLimit(1)
       }
     }
+  }
+}
+
+/**
+ The whole-tile message, for the two states where drawing anything would lie.
+
+ **Exactly two states come through here**: nothing has ever been published, and
+ a payload in a shape this build cannot read (WIDGETS §4). Every other empty
+ state still draws its graphic with the copy underneath it — an empty month is
+ still a month, a clear day is still a day, and six untouched habits are still
+ six rails.
+
+ A stale day face is emphatically not one of the two. From local midnight until
+ the app is next opened that is what every tile on the home screen is, and
+ routing it through here would blank five widgets every morning; it goes under
+ the drawing instead, with the strip burned down and the counts suppressed.
+
+ This is the twin of `RemoteViews.notice` in `RidikCells.kt`, down to the
+ vertical centring and the `RIDIK` eyebrow over it — the two platforms were
+ drawing different things in the one state a new install is guaranteed to see.
+ */
+struct NoticePane: View {
+  let reason: WidgetBlankReason
+  let palette: RidikPalette
+  var compact: Bool = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Eyebrow(text: "RIDIK", palette: palette)
+
+      Text(reason.headline)
+        .font(.system(size: compact ? 13 : 15, weight: .semibold, design: .rounded))
+        .foregroundStyle(palette.text)
+        .lineLimit(2)
+        .minimumScaleFactor(0.8)
+        .padding(.top, 5)
+
+      Text(reason.detail)
+        .font(.system(size: compact ? 11 : 12, weight: .medium, design: .rounded))
+        .foregroundStyle(palette.secondaryText)
+        .lineLimit(3)
+        .minimumScaleFactor(0.8)
+        .padding(.top, 3)
+    }
+    .fixedSize(horizontal: false, vertical: true)
+    // Centred in the tile rather than hung from the top: there is no graphic
+    // above it to caption, and a sentence pinned to the ceiling of an otherwise
+    // empty rectangle is the shape this family does not have.
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
   }
 }
 
@@ -688,6 +772,38 @@ struct RowMark: View {
     HeatCell(level: done ? "2" : "0", palette: palette)
       .frame(width: 7, height: 7)
       .padding(1)
+  }
+}
+
+/**
+ The marks with nothing beside them — the list face at rest (WIDGETS §4).
+
+ Two things it has to get right, and the old version got neither.
+
+ **As many slots as a full list draws.** Four marks where five rows would go is
+ an empty tile that is a different shape from the same tile with a list on it,
+ which is the one thing §4 forbids: all slots present.
+
+ **The whole column, not the top of it.** The slots share the height rather than
+ stacking 9pt marks at the ceiling and leaving two thirds of the tile bare. A
+ populated row is about 16pt tall, so a column of marks that is not distributed
+ occupies barely a third of the extent the list it stands in for would — which
+ is exactly the "looks really plain when there aren't any tasks" complaint, in
+ the one face that has no cells to warm up.
+ */
+struct MarkColumn: View {
+  let count: Int
+  let palette: RidikPalette
+  var spacing: CGFloat = 7
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: spacing) {
+      ForEach(0..<max(0, count), id: \.self) { _ in
+        RowMark(done: false, palette: palette)
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
   }
 }
 

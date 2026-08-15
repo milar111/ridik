@@ -41,18 +41,32 @@ struct RidikHabitsView: View {
     return 14
   }
 
-  private var metrics: HabitsMetrics {
-    switch family {
-    case .systemSmall: return HabitsMetrics(window: 7, gutter: 50, cellHeight: 12, showsBest: false)
-    case .systemLarge: return HabitsMetrics(window: 35, gutter: 70, cellHeight: 20, showsBest: true)
-    default: return HabitsMetrics(window: 21, gutter: 56, cellHeight: 12, showsBest: false)
+  @ViewBuilder
+  private func content(_ palette: RidikPalette) -> some View {
+    if case .blank(let reason) = entry.face {
+      // Nothing published, or a payload this build cannot read. The only two
+      // states in the family that take the whole tile — WIDGETS §4.
+      NoticePane(reason: reason, palette: palette, compact: family == .systemSmall)
+    } else {
+      // **The board is sized by its width and by nothing else.**
+      //
+      // The family it was handed says nothing useful here: a `.systemLarge`
+      // tile is *tall*, not wide, and picking the five-week window from it put
+      // thirty-five columns into the same 305 points that hold twenty-one — a
+      // 6pt column beside a gutter of ellipsised names, which is the tile the
+      // client photographed. Habits gains columns with width and only air with
+      // height, so it is bucketed on width alone, exactly as `railSizeOf` now
+      // does on Android (WIDGETS §2, rule 3).
+      GeometryReader { proxy in
+        let metrics = HabitsMetrics.of(width: proxy.size.width)
+        board(metrics, palette: palette)
+          .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+      }
     }
   }
 
   @ViewBuilder
-  private func content(_ palette: RidikPalette) -> some View {
-    let metrics = self.metrics
-
+  private func board(_ metrics: HabitsMetrics, palette: RidikPalette) -> some View {
     switch entry.face {
     case .ready(let snapshot):
       HabitsBoard(
@@ -75,15 +89,9 @@ struct RidikHabitsView: View {
         palette: palette,
         metrics: metrics
       )
-    case .blank(let reason):
-      HabitsBoard(
-        rails: coldRails(window: metrics.window),
-        letters: deviceLetters(window: metrics.window, at: entry.date),
-        trailing: nil,
-        note: (headline: reason.headline, sub: reason.detail),
-        palette: palette,
-        metrics: metrics
-      )
+    case .blank:
+      // Handled above, before there is any geometry to read.
+      EmptyView()
     }
   }
 
@@ -106,18 +114,9 @@ struct RidikHabitsView: View {
     }
   }
 
-  private func coldRails(window: Int) -> [HabitRailRow] {
-    (0..<HabitsMetrics.slots).map { HabitRailRow.empty($0, window: window) }
-  }
-
   /// The weekday letters over the columns, ending on the day the payload describes.
   private func letters(_ snapshot: WidgetSnapshot, window: Int) -> [String] {
     letters(window: window, endingOn: snapshot.dayNoon, snapshot.calendar)
-  }
-
-  /// With nothing published there is no zone to trust but the device's own.
-  private func deviceLetters(window: Int, at date: Date) -> [String] {
-    letters(window: window, endingOn: date, RidikCalendar.device)
   }
 
   private func letters(window: Int, endingOn end: Date, _ calendar: Calendar) -> [String] {
@@ -152,18 +151,112 @@ struct RidikHabitsView: View {
 
 // MARK: - The board
 
+/**
+ What the board draws at the width it was given.
+
+ Every field here is a function of one number, and that is the point. The four
+ sizing rules in WIDGETS §2 all say the same thing in different words — the tile
+ does not get to stretch what is in it — and on this face they all come down to
+ how many columns fit beside a gutter that can hold a real word.
+ */
 struct HabitsMetrics {
   /// Days per rail: 7, 21 or 35, always the *last* N of the published history.
   let window: Int
+  /// The names' column. Never sized from the text; the text is sized to fit it.
   let gutter: CGFloat
+  /**
+   How tall a bar is allowed to get.
+
+   A cap, not a height. The rails still share the tile's height between them —
+   that is what makes the board fill its rectangle — and the slack shows as
+   space *between* rails rather than as a chart whose thickness means nothing.
+   The same numbers as Android's `RAIL_HEIGHT`.
+   */
   let cellHeight: CGFloat
   let showsBest: Bool
+  let showsStreak: Bool
+  /// What one day of history actually gets, gap included. The ruler lives on this.
+  let column: CGFloat
 
   /// Six, whether or not there are six habits. See the note on this file.
   static let slots = 6
   /// Between the gutter and the rail, and between the letters and their column.
   static let rail: CGFloat = 6
   static let cellGap: CGFloat = 1.4
+
+  /**
+   Ground between one rail and the next, and it is not optional.
+
+   The rails share the tile's height, and the bar is only *capped* at
+   `cellHeight` — so on a short tile carrying a sentence as well the row and the
+   bar are the same height, and six rails with nothing between them fuse into
+   twenty-one full-height columns. The empty board is where that shows, which is
+   the one state this face is judged on. Android reserves the same two points as
+   `layout_marginTop` on every rail row.
+   */
+  static let railGap: CGFloat = 2
+
+  /**
+   Below this a 9pt weekday letter does not fit in its column.
+
+   The ruler is *dropped* below it rather than shrunk into it: 35 columns in 305
+   points is about 6pt each, and the letters were reaching that by way of
+   `minimumScaleFactor(0.6)` — a 5pt glyph, which is a grey smudge over every
+   column and not a label. Android drops the ruler on its large board for the
+   same arithmetic and says so in `rails`.
+   */
+  static let rulerFloor: CGFloat = 8
+
+  var showsRuler: Bool { column >= Self.rulerFloor }
+
+  /**
+   The board, bucketed on width alone — the twin of `railSizeOf` in `RidikCells.kt`.
+
+   The thresholds are Android's, less the 12pt of padding each side that its
+   numbers are quoted on the outside of: 260dp and 360dp of tile are 236 and 336
+   of content. A `.systemMedium` and a `.systemLarge` iPhone tile are both 305
+   points wide, so they draw the same twenty-one columns and differ only in how
+   much air is under them — which is the correct answer to a tile that got
+   taller rather than wider.
+
+   The gutter is the width the *names* need, capped at a share of the tile.
+   Android can quote it in flat dp because its narrowest tile is still 140dp
+   wide; a `.systemSmall` here is 131 points *in total*, and an 84pt gutter on
+   that leaves seven columns 5.9 points each. So it is the smaller of the two,
+   and what gives way as the tile narrows is the streak, then the best — a
+   number you can live without, before a name you cannot.
+   */
+  static func of(width: CGFloat) -> HabitsMetrics {
+    let window: Int
+    let ideal: CGFloat
+    let height: CGFloat
+    switch width {
+    case ..<236: (window, ideal, height) = (7, 84, 16)
+    case ..<336: (window, ideal, height) = (21, 94, 15)
+    default: (window, ideal, height) = (35, 118, 14)
+    }
+
+    // Never more than this share of the tile, whatever the names want. The
+    // gutter that ate a third of the board is the other half of the complaint
+    // the wide one fixed.
+    let gutter = max(44, min(ideal, width * 0.42))
+    let rails = max(1, width - gutter - rail)
+
+    return HabitsMetrics(
+      window: window,
+      gutter: gutter,
+      cellHeight: height,
+      // `best` is a second line under the name and costs height, not width —
+      // but it is only ever asked for on the five-week board, which is the one
+      // wide enough to hold three columns of gutter. Android draws it in the
+      // same place for the same reason.
+      showsBest: window == 35,
+      // A streak beside a name needs about 26 points that a 131pt tile does not
+      // have. Dropped there, kept everywhere else.
+      showsStreak: gutter >= 66,
+      column: rails / CGFloat(window)
+    )
+  }
 }
 
 struct HabitRailRow: Identifiable {
@@ -199,20 +292,34 @@ private struct HabitsBoard: View {
     VStack(alignment: .leading, spacing: 0) {
       TileHeader(eyebrow: "HABITS", trailing: trailing, palette: palette)
 
-      lettersRow
-        .padding(.top, 2)
-
-      ForEach(rails) { rail in
-        row(rail)
-          // Every slot takes exactly its share of what is left, whatever is in
-          // it. Without this the slots with a name in them would be measured
-          // from their text and the empty ones would swallow the difference.
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      // Dropped whole when the columns are too narrow to letter, rather than
+      // set in 5pt type over them. The rails keep the height it would have had.
+      if metrics.showsRuler {
+        lettersRow
+          .padding(.top, 2)
       }
+
+      VStack(spacing: HabitsMetrics.railGap) {
+        ForEach(rails) { rail in
+          row(rail)
+            // Every slot takes exactly its share of what is left, whatever is in
+            // it. Without this the slots with a name in them would be measured
+            // from their text and the empty ones would swallow the difference.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .padding(.top, HabitsMetrics.railGap)
 
       if let note {
         EmptyNote(headline: note.headline, sub: note.sub, palette: palette, compact: true)
           .padding(.top, 3)
+          // The sentence is measured before the board, not after it. Six rails
+          // that each want their full bar height add up to more than a short
+          // tile has, and a `VStack` hands the overflow to whatever is last —
+          // so "Six slots, all cold." was drawn off the bottom edge of the one
+          // tile it exists to explain. The rails shrink; the words do not.
+          .layoutPriority(1)
       }
     }
   }
@@ -222,38 +329,59 @@ private struct HabitsBoard: View {
       Color.clear.frame(width: metrics.gutter, height: 1)
       HStack(spacing: HabitsMetrics.cellGap) {
         ForEach(letters.indices, id: \.self) { index in
+          // No `minimumScaleFactor`: a letter that does not fit is a ruler that
+          // should not be there, and shrinking it is how 35 columns got a 5pt
+          // alphabet. `showsRuler` has already made that call.
           Text(letters[index])
             .font(.system(size: 9, weight: .regular, design: .monospaced))
             .foregroundStyle(palette.tertiaryText)
             .lineLimit(1)
-            .minimumScaleFactor(0.6)
             .frame(maxWidth: .infinity)
         }
       }
     }
   }
 
-  private func row(_ rail: HabitRailRow) -> some View {
-    HStack(spacing: HabitsMetrics.rail) {
-      gutter(rail)
-        .frame(width: metrics.gutter, alignment: .leading)
+  /**
+   The rail, with its name laid *over* the gutter rather than beside it.
 
-      HabitRail(history: rail.history, palette: palette, marksToday: rail.marksToday)
-        .frame(maxHeight: metrics.cellHeight)
-    }
+   An `HStack` would put the name in the row's layout, and a `Text` is never
+   shorter than one line — so six rails carried a 13pt floor each whether or not
+   there was a habit in them, the board demanded 88 points it did not always
+   have, and a `VStack` gave the overflow to the last thing in it: the sentence
+   under the board, drawn off the bottom edge of the tile. Six slots, all cold,
+   and no way to read the words saying so.
+
+   As an overlay the row's own minimum is the rail's, which is nothing — the
+   same thing Android gets from `layout_height="0dp"` with a weight, where the
+   name is simply clipped in a squeezed row. The gutter is centred in whatever
+   height the row ends up with and may spill a point past it, which at these
+   sizes is invisible and is the correct thing to spend before the copy.
+   */
+  private func row(_ rail: HabitRailRow) -> some View {
+    HabitRail(history: rail.history, palette: palette, marksToday: rail.marksToday)
+      .frame(maxHeight: metrics.cellHeight)
+      .padding(.leading, metrics.gutter + HabitsMetrics.rail)
+      .overlay(alignment: .leading) {
+        gutter(rail)
+          .frame(width: metrics.gutter, alignment: .leading)
+      }
   }
 
   @ViewBuilder
   private func gutter(_ rail: HabitRailRow) -> some View {
     VStack(alignment: .leading, spacing: 0) {
       HStack(alignment: .firstTextBaseline, spacing: 3) {
+        // The one thing on this face that never gives way. The gutter is sized
+        // to hold a real habit name; the columns narrow instead, and the streak
+        // beside it goes before the name does.
         Text(rail.name)
           .font(.system(size: 11, weight: .medium, design: .rounded))
           .foregroundStyle(palette.text)
           .lineLimit(1)
           .minimumScaleFactor(0.8)
         Spacer(minLength: 2)
-        if let streak = rail.streak {
+        if metrics.showsStreak, let streak = rail.streak {
           Text(streak)
             .font(.system(size: 9, weight: .medium, design: .monospaced))
             .foregroundStyle(palette.accent)

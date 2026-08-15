@@ -125,7 +125,51 @@ const RAIL_HEIGHT = { small: 16, medium: 15, large: 14 };
 /** Six weeks of seven, because a 31-day month starting on a Sunday needs all six. */
 const PLATE_CELLS = 42;
 
-/** Must equal `ROW_CAP` in `snapshot.ts` and `ROW_SLOTS` in `RidikCells.kt`. */
+/**
+ * A plate cell's height, and the ground between two of them.
+ *
+ * The same rule the rails learned: the *week row* fills, and the cell inside it
+ * is capped. Weighted rows with `match_parent` cells gave a tall tile 45dp
+ * squares — the plate stops being a calendar and becomes a bar chart of
+ * nothing — while a fixed row height overflows the shortest tile Android will
+ * call large. Filling and capping is the only pair that survives both ends.
+ *
+ * 25 and 3 on large are §3.2's own numbers, and the ones iOS draws.
+ */
+const PLATE_CELL = { small: 16, medium: 16, large: 25 };
+const PLATE_GAP = { small: 2, medium: 2, large: 3 };
+
+/**
+ * How hard the plate pulls against the spacer under it, on the large face.
+ *
+ * The plate is the only thing on that tile that can *use* height — up to its
+ * cell cap and not a dp further. Sharing the leftover evenly with a spacer gave
+ * it 16dp rows on a tile with room for its proper 25, so the calendar was
+ * drawn small next to a third of a tile of empty ground. Three to one fills the
+ * cap first; past it the plate stops asking and the spacer keeps the rest.
+ */
+const PLATE_WEIGHT = 3;
+
+/**
+ * The debt strip: a cell's width, and how tall the strip is.
+ *
+ * The cells are a *fixed* width with the slack collected after them, not a
+ * weighted row — the strip is a gauge of 12 or 24 detents, and a gauge whose
+ * detents get fatter as the tile gets wider is the "stretched way too much"
+ * complaint in its purest form. iOS has always drawn it this way (8/10 wide,
+ * 16/18 tall); this is Android catching up.
+ *
+ * On a medium tile narrower than about 310dp the 24th cell falls off the right
+ * edge. That is the correct thing to lose: the strip is oldest-first, so the
+ * tail is cold, and the true count is printed in the footer either way.
+ */
+const DEBT = {
+  small: { cell: 8, height: 16 },
+  medium: { cell: 10, height: 18 },
+  large: { cell: 10, height: 18 },
+};
+
+/** Must equal `ROW_CAP` in `snapshot.ts` and `ROW_SLOTS` in `RidikRowsFace.kt`. */
 const ROW_SLOTS = 6;
 
 /**
@@ -148,8 +192,12 @@ const ELEMENT = {
  * width at runtime — so each is its own layout, picked in `RidikRowsFace`
  * against `DateFormat.is24HourFormat`. A ragged left edge down five rows reads
  * as a rendering fault, which is why this is not just `wrap_content`.
+ *
+ * `narrow` is the small tile's pair. Tasks draws two rows there now, as iOS
+ * does, and a 46dp lead beside a 13sp title on a 176dp tile leaves the title
+ * about nine characters — the numbers are iOS's own (`ridikLeadWidth`).
  */
-const LEAD = { wide: 46, ampm: 62 };
+const LEAD = { wide: 46, ampm: 62, narrow: 38, narrowAmpm: 54 };
 
 /** The habit gutter: the name, the streak, and on large the personal best. */
 /**
@@ -165,10 +213,22 @@ const LEAD = { wide: 46, ampm: 62 };
  * can live without, a name is not.
  */
 const GUTTER = {
-  small: { name: 84, streak: 0, best: 0 },
+  small: { name: 72, streak: 0, best: 0 },
   medium: { name: 68, streak: 26, best: 0 },
   large: { name: 64, streak: 24, best: 30 },
 };
+
+/**
+ * The gutter never takes more than this share of the tile.
+ *
+ * An absolute width is right in the middle of a size bucket and wrong at both
+ * ends: 84dp of name on a 140dp tile leaves seven bars four and a half dp each,
+ * which is the same hairline failure the wide gutter was introduced to fix. The
+ * layout cannot measure, so the share is applied here, against the narrowest
+ * tile each bucket can be resized to.
+ */
+const GUTTER_SHARE = 0.42;
+const NARROWEST = { small: 140, medium: 260, large: 360 };
 
 /** 07 / 11 / 15 / 19 / 23 by default; overwritten at draw time from `day.startMinute`. */
 const AXIS_LABELS = ['07', '11', '15', '19', '23'];
@@ -184,6 +244,12 @@ const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
  * placed widget by its provider class and the resources named from it, so
  * `agenda` stays `agenda` even though the widget is now called Calendar.
  * Renaming either orphans every tile already on a home screen.
+ *
+ * `clocked` lists the sizes that draw a time in a row lead, and therefore need
+ * a second layout with a wider lead for a 12-hour device. It is per *size* and
+ * not per widget: Calendar small is the plate alone and has no rows at all,
+ * while Tasks small has had two of them since it stopped being the one face
+ * that drew none.
  */
 const WIDGETS = [
   {
@@ -201,7 +267,7 @@ const WIDGETS = [
     // The picker renders the preview at the target size, so it is built from the
     // face that shows the most of what the widget is for.
     previewSize: 'medium',
-    timed: false,
+    clocked: [],
     cells: { width: 4, height: 2 },
   },
   {
@@ -215,7 +281,7 @@ const WIDGETS = [
     layout: 'ridik_cal',
     sizes: ['small', 'medium', 'large'],
     previewSize: 'large',
-    timed: true,
+    clocked: ['medium', 'large'],
     cells: { width: 4, height: 3 },
   },
   {
@@ -229,7 +295,7 @@ const WIDGETS = [
     layout: 'ridik_habits',
     sizes: ['small', 'medium', 'large'],
     previewSize: 'medium',
-    timed: false,
+    clocked: [],
     cells: { width: 4, height: 3 },
   },
   {
@@ -243,7 +309,7 @@ const WIDGETS = [
     layout: 'ridik_tasks',
     sizes: ['small', 'medium'],
     previewSize: 'medium',
-    timed: true,
+    clocked: ['small', 'medium'],
     cells: { width: 4, height: 2 },
   },
   {
@@ -257,7 +323,7 @@ const WIDGETS = [
     layout: 'ridik_list',
     sizes: ['small', 'medium'],
     previewSize: 'medium',
-    timed: false,
+    clocked: [],
     cells: { width: 3, height: 3 },
   },
 ];
@@ -268,8 +334,17 @@ const WIDGETS = [
  *
  * The picker cannot run any of our code, so the only way to show it a plausible
  * widget is to bake one into a second layout — and "the widgets look blank" is
- * judged there, before a tile is ever placed. The copy is lifted verbatim from
- * `WIDGETS.md` §3 so that both platforms ship the same fake day.
+ * judged there, before a tile is ever placed.
+ *
+ * Every number and every string here is `WidgetSnapshot.sample` in
+ * `RidikSnapshot.swift`, rendered by hand: §4 requires both platforms to ship
+ * the *same* fake day, and the two had drifted into different ones — four
+ * habits done against two, a list of five against a list of twelve, three debt
+ * cells against two. Two pickers showing two products is worse than either.
+ *
+ * What cannot be copied is the parts iOS derives from `Date()`: the strip, the
+ * plate and the clock times are a fixed afternoon here, because a baked layout
+ * has no clock.
  *
  * The real layouts inflate showing the notice instead, which is the honest state
  * for a widget nobody has published to yet.
@@ -286,7 +361,7 @@ const SAMPLE = {
     count: '2 LATE',
     readout: '15:00',
     title: 'Materials lab',
-    sub: 'leave in 34 min · Studio 2',
+    sub: 'leave in 34 min · Workshop 2',
   },
   cal: {
     // The month is the eyebrow and the day is the number beside it — §3.2, and
@@ -294,29 +369,41 @@ const SAMPLE = {
     // publisher, so "6 LEFT" would be a claim the payload cannot support.
     eyebrow: 'AUGUST',
     count: 'THU 13',
+    // iOS's sample carries one, and it is worth previewing: it is the line
+    // that costs the tile a row, so a picker without it advertises a face the
+    // widget will not always draw.
+    allDay: 'Term starts',
     rows: [
-      { lead: '15:00', text: 'Materials lab', trail: 'Studio 2' },
-      { lead: '17:30', text: 'Studio clean-up', trail: null },
-      { lead: '19:00', text: 'Dinner with Ana', trail: null },
+      { lead: '15:00', text: 'Materials lab', trail: 'Workshop 2' },
+      { lead: '17:30', text: 'Call with Mira', trail: null },
+      { lead: '19:00', text: 'Studio clean-up', trail: 'Unit 4' },
     ],
+    // Three rows exist; two are drawn, because the all-day line above them
+    // costs one — the same arithmetic `RidikRowsFace` does at run time.
+    drawnRows: 2,
   },
   habits: {
     eyebrow: 'HABITS',
-    count: '2/6',
+    // Four of six done, and the four are the rails whose last cell is lit.
+    count: '4/6',
+    // Each is iOS's seven-day pattern repeated to the 21 this preview draws,
+    // with the last cell forced to today's answer.
     rails: [
-      { name: 'Run', streak: '12d', history: '011111111111111111111' },
-      { name: 'Read', streak: '4d', history: '100110011100111100111' },
-      { name: 'Water', streak: null, history: '000001100011100111110' },
-      { name: 'Stretch', streak: null, history: '001000010000100001000' },
-      { name: 'Journal', streak: null, history: '110001100011000110010' },
-      { name: 'Vitamin', streak: null, history: '000000000000000000000' },
+      { name: 'Run', streak: '12d', history: '011111101111110111111' },
+      { name: 'Read', streak: '4d', history: '110110111011011101101' },
+      { name: 'Water', streak: null, history: '001101100110110011011' },
+      { name: 'Stretch', streak: null, history: '001000100100010010000' },
+      { name: 'Journal', streak: '2d', history: '110001111000111100011' },
+      { name: 'Vitamin', streak: null, history: '000010000001000000100' },
     ],
   },
   tasks: {
     eyebrow: 'TASKS',
     count: '2 LATE',
-    // Oldest left, one cell per open task; only the oldest overdue is hot.
-    debt: '321000000000',
+    // `ages: [9, 2]` and then nothing — 9 days is the oldest overdue and the
+    // tile's one hot cell, 2 days is low, and every other slot is a cold
+    // detent of the gauge.
+    debt: '31',
     footLeft: 'oldest 9d',
     footRight: '12 open',
     rows: [
@@ -324,17 +411,23 @@ const SAMPLE = {
       { lead: '2d', text: 'Email the tutor about the resit', trail: null },
       { lead: '17:00', text: 'Submit the parts form', trail: null },
     ],
+    drawnRows: 3,
   },
   list: {
     eyebrow: 'HARDWARE',
-    count: '3 OF 5',
+    // Four open of twelve, with six delivered: the header does the one thing
+    // `total` exists for, which is to be about the list and not about the rows.
+    count: '4 OF 12',
     rows: [
       { text: 'M4 bolts ×20', done: false },
       { text: 'Threadlock', done: false },
       { text: 'Sanding discs', done: false },
+      { text: 'Cable ties', done: false },
       { text: 'Masking tape', done: true },
-      { text: 'Wood glue', done: true },
+      { text: 'Wet-and-dry paper', done: true },
     ],
+    // Five of the six fit a medium tile, which is what iOS shows in the picker.
+    drawnRows: 5,
   },
   // A plausible August: a quiet start, a busy middle week, today on the 13th.
   month: {
@@ -359,6 +452,11 @@ function xml(value) {
 
 function indent(depth) {
   return ' '.repeat(depth);
+}
+
+/** How many of a sample's rows the face would actually draw. See `SAMPLE`. */
+function sampleRows(sample) {
+  return sample.drawnRows == null ? sample.rows.length : sample.drawnRows;
 }
 
 /** `android:text` only when there is sample copy — the live layouts ship empty. */
@@ -602,14 +700,28 @@ ${indent(depth)}</LinearLayout>`;
  * load level. That ring is only visible at all this way: `ridik_widget_ember`
  * and `ridik_widget_heat_3` are the same `#C7360F` in light mode, so a ring
  * around a hot fill is a ring around nothing.
+ *
+ * The week row fills and the cell inside it is capped, which is the rails' rule
+ * applied to a grid: weighted rows of `match_parent` cells turned a tall tile's
+ * plate into 45dp slabs, and pinning the rows instead overflows the shortest
+ * tile Android calls large. Slack shows as ground between the weeks.
+ *
+ * The letters are written at draw time — see `RidikCells.plate` — because the
+ * week does not start on Monday everywhere and "M T W T F S S" is not a
+ * calendar in most of the world. What is baked here is the fallback and what
+ * the picker shows.
  */
-function plate(depth, { numerals, sample, todayIsHot = true }) {
+function plate(depth, { size, numerals, sample, todayIsHot = true }) {
+  const cellHeight = PLATE_CELL[size];
+  const gap = PLATE_GAP[size];
+
   const heads = WEEKDAYS.map((day, index) => {
     const pad = indent(depth + 6);
     return `${indent(depth + 2)}<TextView
+${pad}android:id="@+id/${IDS.wday(index)}"
 ${pad}android:layout_width="0dp"
 ${pad}android:layout_height="wrap_content"
-${pad}android:layout_weight="1"${index === WEEKDAYS.length - 1 ? '' : `\n${pad}android:layout_marginEnd="2dp"`}
+${pad}android:layout_weight="1"${index === WEEKDAYS.length - 1 ? '' : `\n${pad}android:layout_marginEnd="${gap}dp"`}
 ${pad}android:fontFamily="monospace"
 ${pad}android:gravity="center"
 ${pad}android:includeFontPadding="false"
@@ -642,8 +754,8 @@ ${pad}android:textSize="9sp" />`;
       days.push(`${indent(depth + 4)}<TextView
 ${pad}android:id="@+id/${IDS.plate(index)}"
 ${pad}android:layout_width="0dp"
-${pad}android:layout_height="match_parent"
-${pad}android:layout_weight="1"${column === 6 ? '' : `\n${pad}android:layout_marginEnd="2dp"`}
+${pad}android:layout_height="${cellHeight}dp"
+${pad}android:layout_weight="1"${column === 6 ? '' : `\n${pad}android:layout_marginEnd="${gap}dp"`}
 ${pad}android:background="@drawable/ridik_heat_${level}${today ? '_today' : ''}"
 ${pad}android:fontFamily="monospace"
 ${pad}android:gravity="center"
@@ -652,7 +764,7 @@ ${pad}android:maxLines="1"${text(depth + 6, day)}
 ${pad}android:textColor="@color/${
         today && todayIsHot ? 'ridik_widget_on_heat' : 'ridik_widget_ink'
       }"
-${pad}android:textSize="${numerals ? '11sp' : '1sp'}"${attr(
+${pad}android:textSize="${numerals ? '13sp' : '1sp'}"${attr(
         depth + 6,
         'visibility',
         hidden ? 'invisible' : null,
@@ -663,8 +775,9 @@ ${pad}android:textSize="${numerals ? '11sp' : '1sp'}"${attr(
 ${indent(depth + 6)}android:id="@+id/${IDS.plateWeek(week)}"
 ${indent(depth + 6)}android:layout_width="match_parent"
 ${indent(depth + 6)}android:layout_height="0dp"
-${indent(depth + 6)}android:layout_marginTop="2dp"
+${indent(depth + 6)}android:layout_marginTop="${gap}dp"
 ${indent(depth + 6)}android:layout_weight="1"
+${indent(depth + 6)}android:gravity="center_vertical"
 ${indent(depth + 6)}android:orientation="horizontal">
 
 ${days.join('\n\n')}
@@ -676,7 +789,7 @@ ${indent(depth + 4)}android:id="@+id/${IDS.plateArea}"
 ${indent(depth + 4)}android:layout_width="match_parent"
 ${indent(depth + 4)}android:layout_height="0dp"
 ${indent(depth + 4)}android:layout_marginTop="5dp"
-${indent(depth + 4)}android:layout_weight="1"
+${indent(depth + 4)}android:layout_weight="${size === 'large' ? PLATE_WEIGHT : 1}"
 ${indent(depth + 4)}android:orientation="vertical">
 
 ${indent(depth + 2)}<LinearLayout
@@ -705,7 +818,13 @@ ${indent(depth)}</LinearLayout>`;
  */
 function rails(depth, { size, sample }) {
   const days = RAIL_DAYS[size];
-  const gutter = GUTTER[size];
+  const ideal = GUTTER[size];
+  // Content width is the tile less the root padding on both sides.
+  const room = (NARROWEST[size] - 24) * GUTTER_SHARE;
+  const gutter = {
+    ...ideal,
+    name: Math.max(44, Math.min(ideal.name, Math.round(room - ideal.streak - ideal.best))),
+  };
   const wide = gutter.name + gutter.streak + gutter.best;
 
   const label = (depth2, { id, width, gravity, value, colour, sizeSp }) => {
@@ -756,7 +875,6 @@ ${pad}android:layout_width="match_parent"
 ${pad}android:layout_height="0dp"
 ${pad}android:layout_marginTop="2dp"
 ${pad}android:layout_weight="1"
-${pad}android:maxHeight="${RAIL_HEIGHT[size]}dp"
 ${pad}android:gravity="center_vertical"
 ${pad}android:orientation="horizontal">
 
@@ -846,20 +964,35 @@ ${indent(depth)}</LinearLayout>`;
  * `YYYY-MM-DDTHH:mm`, so the model invents an hour whenever the user did not say
  * one — plotting that as a position would render fiction as data. How late
  * something is was never guessed.
+ *
+ * A cell has a size here too. The cells were weighted across the tile, so a
+ * widget dragged out to the full width of the phone drew twenty-four fat
+ * blocks — the gauge stopped reading as detents and started reading as a
+ * stretched bar. They are pinned to iOS's width now and the slack collects in
+ * the spacer at the end, which is what "extra space buys air" means on the one
+ * axis this face does not grow along.
  */
 function debt(depth, { size, sample }) {
   const slots = DEBT_SLOTS[size];
-  const height = size === 'small' ? 40 : 24;
+  const { cell: width, height } = DEBT[size];
   const cells = Array.from({ length: slots }, (_, index) =>
     cell(depth + 2, {
       id: IDS.debt(index),
       level: sample ? Number(sample.debt[index] || 0) : 0,
-      width: '0dp',
+      width: `${width}dp`,
       height: 'match_parent',
-      weight: '1',
       marginEnd: index === slots - 1 ? null : '2dp',
     }),
   );
+
+  // `android.widget.Space` is not on the RemoteViews inflate allow-list — a
+  // layout with one in it gives "Can't load widget" and nothing else. This is
+  // the third time that has cost a build; FrameLayout is allowed.
+  const tail = `${indent(depth + 2)}<FrameLayout
+${indent(depth + 6)}android:layout_width="0dp"
+${indent(depth + 6)}android:layout_height="match_parent"
+${indent(depth + 6)}android:layout_weight="1"
+${indent(depth + 6)}android:importantForAccessibility="no" />`;
 
   return `${indent(depth)}<LinearLayout
 ${indent(depth + 4)}android:id="@+id/${IDS.debtArea}"
@@ -869,6 +1002,8 @@ ${indent(depth + 4)}android:layout_marginTop="7dp"
 ${indent(depth + 4)}android:orientation="horizontal">
 
 ${cells.join('\n\n')}
+
+${tail}
 ${indent(depth)}</LinearLayout>`;
 }
 
@@ -909,11 +1044,16 @@ ${indent(depth)}</LinearLayout>`;
  * The lead is a fixed width rather than `wrap_content` so the titles line up
  * down the list — "9:40" and "11:05" are different widths even in a monospaced
  * face, and a ragged left edge on five rows reads as a rendering fault.
+ *
+ * A preview fills `sample.drawnRows` of them and leaves the rest `gone`,
+ * because the slot count is the layout's capacity and not the face's: iOS caps
+ * the Calendar at three and the checklist at five, and a picker that showed six
+ * would be advertising a tile the widget never draws.
  */
-function rows(depth, { slots, leadWidth, sample }) {
+function rows(depth, { slots, leadWidth, sample, fill = true }) {
   const drawn = [];
   for (let index = 0; index < slots; index++) {
-    const row = sample ? sample.rows[index] : null;
+    const row = sample && index < sampleRows(sample) ? sample.rows[index] : null;
     const pad = indent(depth + 6);
     drawn.push(`${indent(depth + 2)}<LinearLayout
 ${pad}android:id="@+id/${IDS.row(index)}"
@@ -966,9 +1106,8 @@ ${indent(depth + 2)}</LinearLayout>`);
   return `${indent(depth)}<LinearLayout
 ${indent(depth + 4)}android:id="@+id/${IDS.rowArea}"
 ${indent(depth + 4)}android:layout_width="match_parent"
-${indent(depth + 4)}android:layout_height="0dp"
-${indent(depth + 4)}android:layout_marginTop="7dp"
-${indent(depth + 4)}android:layout_weight="1"
+${indent(depth + 4)}android:layout_height="${fill ? '0dp' : 'wrap_content'}"
+${indent(depth + 4)}android:layout_marginTop="7dp"${fill ? `\n${indent(depth + 4)}android:layout_weight="1"` : ''}
 ${indent(depth + 4)}android:orientation="vertical">
 
 ${drawn.join('\n\n')}
@@ -983,10 +1122,10 @@ ${indent(depth)}</LinearLayout>`;
  * house style applied everywhere. The marks are still the family's primitive,
  * at its quietest: a 7dp cell with a 1dp inset of ground.
  */
-function tickRows(depth, { slots, sample }) {
+function tickRows(depth, { slots, sample, fill = true }) {
   const drawn = [];
   for (let index = 0; index < slots; index++) {
-    const row = sample ? sample.rows[index] : null;
+    const row = sample && index < sampleRows(sample) ? sample.rows[index] : null;
     const pad = indent(depth + 6);
     drawn.push(`${indent(depth + 2)}<LinearLayout
 ${pad}android:id="@+id/${IDS.row(index)}"
@@ -1020,9 +1159,8 @@ ${indent(depth + 2)}</LinearLayout>`);
   return `${indent(depth)}<LinearLayout
 ${indent(depth + 4)}android:id="@+id/${IDS.rowArea}"
 ${indent(depth + 4)}android:layout_width="match_parent"
-${indent(depth + 4)}android:layout_height="0dp"
-${indent(depth + 4)}android:layout_marginTop="8dp"
-${indent(depth + 4)}android:layout_weight="1"
+${indent(depth + 4)}android:layout_height="${fill ? '0dp' : 'wrap_content'}"
+${indent(depth + 4)}android:layout_marginTop="8dp"${fill ? `\n${indent(depth + 4)}android:layout_weight="1"` : ''}
 ${indent(depth + 4)}android:orientation="vertical">
 
 ${drawn.join('\n\n')}
@@ -1052,7 +1190,7 @@ ${inner}android:fontFamily="monospace"
 ${inner}android:includeFontPadding="false"
 ${inner}android:maxLines="1"${text(at + 4, sample ? sample.readout : null)}
 ${inner}android:textColor="@color/ridik_widget_ink"
-${inner}android:textSize="${stacked ? '22' : '19'}sp" />`;
+${inner}android:textSize="${stacked ? '30' : '26'}sp" />`;
 
   const title = `${indent(at)}<TextView
 ${inner}android:id="@+id/${IDS.nextTitle}"
@@ -1113,6 +1251,23 @@ ${pad}android:textSize="11sp"${attr(pad.length, 'visibility', sample ? null : 'g
 ${indent(depth)}</LinearLayout>`;
 }
 
+/**
+ * Slack: the vertical air a tile larger than its content has left over.
+ *
+ * A `FrameLayout` and not `android.widget.Space`, which is not on the
+ * RemoteViews inflate allow-list — the symptom is "Can't load widget" on the
+ * home screen and `Class not allowed to be inflated` in logcat, and nothing at
+ * build time. Weighted, so it takes whatever is left and measures zero when
+ * nothing is: a face that overflows its tile is never made worse by this.
+ */
+function slack(depth, weight = 1) {
+  return `${indent(depth)}<FrameLayout
+${indent(depth + 4)}android:layout_width="match_parent"
+${indent(depth + 4)}android:layout_height="0dp"
+${indent(depth + 4)}android:layout_weight="${weight}"
+${indent(depth + 4)}android:importantForAccessibility="no" />`;
+}
+
 /** All-day events are a header line, not a list: "flying to Berlin" is the glance. */
 function allDayLine(depth, { sample }) {
   const pad = indent(depth + 4);
@@ -1124,8 +1279,11 @@ ${pad}android:layout_marginTop="4dp"
 ${pad}android:ellipsize="end"
 ${pad}android:maxLines="1"${text(pad.length, sample ? sample.allDay : null)}
 ${pad}android:textColor="@color/ridik_widget_ink"
-${pad}android:textSize="12sp"
-${pad}android:visibility="gone" />`;
+${pad}android:textSize="12sp"${attr(
+    pad.length,
+    'visibility',
+    sample && sample.allDay ? null : 'gone',
+  )} />`;
 }
 
 /**
@@ -1211,6 +1369,11 @@ function todayFace({ size, preview }) {
   const body = [
     header(4, sample ? { eyebrow: sample.eyebrow, count: sample.count } : {}),
     element(4, { size, sample: day }),
+    // Today is the one face with nothing weighted in it, so every dp the
+    // launcher gave beyond the strip and the readout collected at the bottom
+    // as a void. This is the `Spacer` iOS has between the ruler and the
+    // readout: it takes the slack, and on a tile with none it measures zero.
+    slack(4),
     nextUp(4, { stacked: size === 'small', sample }),
     copy(4),
   ].join('\n\n');
@@ -1231,19 +1394,36 @@ function calFace({ size, leadWidth, preview }) {
 
   if (size === 'small') {
     // No element at this size, so the plate keeps the tile's one hot cell.
-    parts.push(plate(4, { numerals: false, sample: preview ? SAMPLE.month : null }));
+    parts.push(plate(4, { size, numerals: false, sample: preview ? SAMPLE.month : null }));
     parts.push(copy(4));
   } else {
-    parts.push(allDayLine(4, { sample }));
     if (size === 'large') {
       // The element below takes the hot cell; today keeps the ring — §3.2.
       parts.push(
-        plate(4, { numerals: true, sample: preview ? SAMPLE.month : null, todayIsHot: false }),
+        plate(4, {
+          size,
+          numerals: true,
+          sample: preview ? SAMPLE.month : null,
+          todayIsHot: false,
+        }),
       );
     }
+    // Under the plate and directly over the strip, as iOS draws it. "Term
+    // starts" is a fact about *today*, and above the month it read as a
+    // caption on the month — the tile said one thing about August and then a
+    // second, unrelated thing about the 13th, in that order.
+    parts.push(allDayLine(4, { sample }));
     parts.push(element(4, { size, sample: preview ? SAMPLE.day : null }));
+    // The rows sit on the bottom edge and the slack goes above them, which is
+    // where iOS's `Spacer` puts it. Weighted rows top-aligned inside a
+    // weighted box put every spare dp in one void under the last row instead —
+    // on a four-cell tile that is a third of the tile, empty, and it is what
+    // "the calendar doesn't fill the widget" looks like from the sofa.
+    //
+    // The plate above is served first — see `PLATE_WEIGHT`.
+    parts.push(slack(4));
     parts.push(copy(4));
-    parts.push(rows(4, { slots: ROW_SLOTS_BY_SIZE[size], leadWidth, sample }));
+    parts.push(rows(4, { slots: ROW_SLOTS_BY_SIZE[size], leadWidth, sample, fill: false }));
   }
 
   return face({ body: parts.join('\n\n'), preview });
@@ -1261,15 +1441,18 @@ function habitsFace({ size, preview }) {
 
 function tasksFace({ size, leadWidth, preview }) {
   const sample = preview ? SAMPLE.tasks : null;
+  // Small draws rows too. It used to draw none — the 40dp debt strip was the
+  // whole tile — while iOS drew two from the same payload, which is one widget
+  // behaving as two products. The lead is narrower here instead: dropping the
+  // rows to buy the lead its 46dp was paying the wrong price.
   const parts = [
     header(4, sample ? { eyebrow: sample.eyebrow, count: sample.count } : {}),
     debt(4, { size, sample }),
     footer(4, { sample }),
+    slack(4),
     copy(4),
+    rows(4, { slots: ROW_SLOTS_BY_SIZE[size], leadWidth, sample, fill: false }),
   ];
-  // Small has no rows: a 46dp lead on a two-cell tile leaves the title nothing,
-  // so the debt cells get the height instead and the footer carries the count.
-  if (size !== 'small') parts.push(rows(4, { slots: ROW_SLOTS_BY_SIZE[size], leadWidth, sample }));
   return face({ body: parts.join('\n\n'), preview });
 }
 
@@ -1277,8 +1460,15 @@ function listFace({ size, preview }) {
   const sample = preview ? SAMPLE.list : null;
   const body = [
     header(4, sample ? { eyebrow: sample.eyebrow, count: sample.count } : {}),
+    // The marks first and the sentence under them — §4, and where iOS puts it.
+    // "All twelve done." above the column it is about read as a heading for a
+    // list that then contradicted it.
+    tickRows(4, { slots: ROW_SLOTS_BY_SIZE[size], sample, fill: false }),
+    // Marks at the top, sentence on the bottom edge, air between: the two ends
+    // of the tile are occupied, so a tall checklist reads as a tall checklist
+    // rather than as a short one with a void under it.
+    slack(4),
     copy(4),
-    tickRows(4, { slots: ROW_SLOTS_BY_SIZE[size], sample }),
   ].join('\n\n');
   return face({ body, preview });
 }
@@ -1309,14 +1499,29 @@ function layouts() {
     }
   };
 
+  const lead = (size, ampm) => {
+    if (size === 'small') return ampm ? LEAD.narrowAmpm : LEAD.narrow;
+    return ampm ? LEAD.ampm : LEAD.wide;
+  };
+
   for (const widget of WIDGETS) {
     for (const size of widget.sizes) {
-      files[`layout/${widget.layout}_${size}.xml`] = build(widget, size, LEAD.wide, false);
-      if (widget.timed && size !== 'small') {
-        files[`layout/${widget.layout}_${size}_ampm.xml`] = build(widget, size, LEAD.ampm, false);
+      files[`layout/${widget.layout}_${size}.xml`] = build(widget, size, lead(size, false), false);
+      if (widget.clocked.includes(size)) {
+        files[`layout/${widget.layout}_${size}_ampm.xml`] = build(
+          widget,
+          size,
+          lead(size, true),
+          false,
+        );
       }
     }
-    files[`layout/${widget.layout}_preview.xml`] = build(widget, widget.previewSize, LEAD.wide, true);
+    files[`layout/${widget.layout}_preview.xml`] = build(
+      widget,
+      widget.previewSize,
+      lead(widget.previewSize, false),
+      true,
+    );
   }
 
   return files;

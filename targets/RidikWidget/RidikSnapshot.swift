@@ -45,21 +45,13 @@ struct WidgetSnapshot: Decodable {
     var cells: [Character] { Array(load) }
     var breakCells: [Character] { Array(breaks) }
 
-    /**
-     The strip a tile draws when there is no payload at all.
-
-     A blank face still draws the graphic (WIDGETS §4), and the only honest
-     graphic with nothing published is the default window, entirely cold.
-     */
-    static let cold = Day(
-      date: "",
-      startMinute: 7 * 60,
-      cellMinutes: 30,
-      load: String(repeating: "0", count: 32),
-      breaks: String(repeating: "0", count: 32),
-      nextCell: -1,
-      freeMinutes: 32 * 30
-    )
+    // There is deliberately no `cold` day here any more. A face with no payload
+    // at all draws `NoticePane` and nothing else — WIDGETS §4 keeps the whole
+    // tile for exactly "nothing published" and "wrong version" — and a default
+    // 07:00-to-23:00 window invented by the extension was a picture of a day it
+    // had never been told anything about, on the two states where saying so is
+    // the entire job. Every empty state that *does* have a payload behind it
+    // still draws its graphic, from that payload.
   }
 
   /**
@@ -89,18 +81,9 @@ struct WidgetSnapshot: Decodable {
 
     var cells: [Character] { Array(load) }
 
-    /// The plate a blank tile draws: this month, from the device's own clock.
-    static func cold(at date: Date) -> Month {
-      let calendar = RidikCalendar.device
-      let parts = calendar.dateComponents([.year, .month, .day], from: date)
-      let days = calendar.range(of: .day, in: .month, for: date)?.count ?? 31
-      return Month(
-        month: String(format: "%04d-%02d", parts.year ?? 2000, parts.month ?? 1),
-        weekStartsOn: 1,
-        load: String(repeating: "0", count: days),
-        today: parts.day ?? 0
-      )
-    }
+    // No `cold` plate either, and for the same reason as the day above: the
+    // calendar's blank tile is a notice now. A clear *month* — which is a
+    // payload saying nothing is booked — still draws its full plate.
   }
 
   /**

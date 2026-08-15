@@ -32,7 +32,15 @@ import java.util.Locale
  * resolves to 0 and every action against it is dropped in silence.
  */
 internal object RidikRowsFace {
-  /** Must equal `ROW_CAP` in `src/services/widgets/snapshot.ts`. */
+  /**
+   * How many rows the *payload* carries. Must equal `ROW_CAP` in
+   * `src/services/widgets/snapshot.ts`.
+   *
+   * It is a ceiling and not a count: every face draws fewer than this — the
+   * Calendar three, Tasks two or three, the checklist four or five — and asking
+   * for more than the publisher sends would draw an empty row and call it a
+   * quiet day.
+   */
   const val ROW_SLOTS = 6
 
   /**
@@ -130,8 +138,10 @@ internal object RidikRowsFace {
     val ampm = if (DateFormat.is24HourFormat(context)) "" else "_ampm"
     val name = size.name.lowercase(Locale.US)
     return when (kind) {
+      // Calendar small is the plate alone — no rows, so no clock, so no second
+      // variant. Tasks small has two rows now and needs one at every size.
       Kind.AGENDA -> if (size == WidgetSize.SMALL) "ridik_cal_small" else "ridik_cal_$name$ampm"
-      Kind.TASKS -> if (size == WidgetSize.SMALL) "ridik_tasks_small" else "ridik_tasks_$name$ampm"
+      Kind.TASKS -> "ridik_tasks_$name$ampm"
       Kind.HABITS -> "ridik_habits_$name"
       Kind.LIST -> "ridik_list_$name"
     }
@@ -254,18 +264,23 @@ internal object RidikRowsFace {
 
     say(ids, null, null)
     setViewVisibility(ids.rowArea, View.VISIBLE)
-    // Three rows at most: the strip above is the answer to "how is my day", and
-    // the rows are only there to name what the strip has already shown. An
-    // all-day line costs one of them at both sizes — it is about 18dp, and a row
-    // cut through the middle reads as a rendering fault rather than as a full
-    // tile.
+    // Three rows at most, which is what iOS draws at both sizes: the strip
+    // above is the answer to "how is my day", and the rows are only there to
+    // name what the strip has already shown. An all-day line costs one of them
+    // — it is about 18dp, and a row cut through the middle reads as a rendering
+    // fault rather than as a full tile.
+    //
+    // On large the plate and the rows are the two weighted areas and split
+    // what is left between them, so the rows get half of it; the line is a
+    // fixed cost taken off the top before the halving, not out of the rows'
+    // half alone.
     val allDayCost = if (allDay == null) 0 else ALL_DAY_LINE
     val room = if (size == WidgetSize.LARGE) {
       (heightDp - CAL_LARGE_ABOVE - allDayCost) / 2
     } else {
       heightDp - CAL_ABOVE - allDayCost
     }
-    val cap = if (allDay == null) CAL_ROWS_MAX else CAL_ROWS_MAX - 1
+    val cap = if (allDay == null) CAL_ROWS else CAL_ROWS - 1
     rowList(ids, rows.take(capacity(room, cap)), Slots.rows(size))
   }
 
@@ -326,7 +341,7 @@ internal object RidikRowsFace {
       snapshot.habitsDone >= snapshot.habitsTotal ->
         say(
           ids,
-          "All ${word(snapshot.habitsTotal)}, today.",
+          "All ${number(snapshot.habitsTotal)}, today.",
           "Longest run: $best ${if (best == 1) "day" else "days"}.",
         )
       else -> say(ids, null, null)
@@ -405,15 +420,18 @@ internal object RidikRowsFace {
       else -> say(ids, null, null)
     }
 
-    // Small has no row slots at all: a 46dp lead on a two-cell tile leaves the
-    // title nothing, so the age cells take the height instead.
-    if (size == WidgetSize.SMALL) return
     if (rows.isEmpty()) {
       setViewVisibility(ids.rowArea, View.GONE)
       return
     }
     setViewVisibility(ids.rowArea, View.VISIBLE)
-    rowList(ids, rows.take(capacity(heightDp - TASKS_ABOVE, ROW_SLOTS)), Slots.rows(size))
+    // Two on small and three on medium — iOS's counts. Small drew none at all
+    // and medium drew up to six, so one payload made two different tiles: the
+    // same phone beside the same iPhone listed six tasks against three. The
+    // height clamp stays under them, because an Android tile can be half the
+    // height of the family it stands in and a row clipped through the middle
+    // is worse than a row not drawn.
+    rowList(ids, rows.take(capacity(heightDp - TASKS_ABOVE, taskRows(size))), Slots.rows(size))
   }
 
   /* ----------------------------------------------------------------- the list */
@@ -442,23 +460,37 @@ internal object RidikRowsFace {
       // The marks are this face's only graphic, so they stay: a column of cold
       // ticks is what an empty checklist looks like, and hiding them would make
       // this the one empty state in the family that is a bare sentence on a flat
-      // rectangle.
+      // rectangle. As many as a full list would have shown on the same tile —
+      // an empty face drawing a shorter column than a populated one is the tile
+      // looking broken rather than empty.
       setViewVisibility(ids.rowArea, View.VISIBLE)
-      coldTicks(ids, capacity(heightDp - LIST_ABOVE, EMPTY_TICKS))
+      // The copy is one line of headline and one of sub, and it is paid for
+      // once — `LIST_NOTE_LINE` is the pair, not one of them. Charging it twice
+      // *and* taking `closing = true` on top took two rows off a column that is
+      // supposed to be exactly as long as a populated one: an empty face
+      // drawing a shorter graphic than a full one is the tile looking broken
+      // rather than empty, which is the whole complaint this state answers.
+      coldTicks(ids, capacity(heightDp - LIST_ABOVE - LIST_NOTE_LINE, listRows(size, closing = true)))
       say(ids, "No list yet.", "Say \"add bolts to the hardware list\".")
       return
     }
 
     head(ids, list.name.uppercase(Locale.getDefault()), openCount(list))
     setViewVisibility(ids.rowArea, View.VISIBLE)
-    tickList(ids, list.rows.take(capacity(heightDp - LIST_ABOVE, ROW_SLOTS)), Slots.rows(size))
+    // Four on small and five on medium, less the row the closing sentence
+    // stands in — iOS's numbers exactly. It used to be six wherever six fitted,
+    // so the same list was five items long on an iPhone and six on the phone
+    // next to it.
+    val closing = list.open == 0 && list.total > 0
+    val room = heightDp - LIST_ABOVE - if (closing) LIST_NOTE_LINE else 0
+    tickList(ids, list.rows.take(capacity(room, listRows(size, closing))), Slots.rows(size))
 
-    if (list.open == 0 && list.total > 0) {
+    if (closing) {
       // The header already carries the name, so the headline would only repeat
       // it; the sentence is what the state is actually worth saying. `total` is
       // counted before the cap, so a fully ticked list of twelve says twelve and
       // not "All six done."
-      say(ids, null, "All ${word(list.total)} done.")
+      say(ids, null, "All ${number(list.total)} done.")
     } else {
       say(ids, null, null)
     }
@@ -471,18 +503,57 @@ internal object RidikRowsFace {
    * is exact however long the list is. It used to have only the rows it was
    * handed, which are capped at six, and had to degrade to "4 OPEN" rather than
    * claim a list of twelve had six things on it.
+   *
+   * Nothing open is not "0 OF 12": §4 gives that state the name and the
+   * sentence "All twelve done." and nothing else, and iOS drops the count for
+   * the same reason — a zero in the header argues with the line underneath it.
    */
   private fun openCount(list: Checklist): String? =
-    if (list.total <= 0) null else "${list.open} OF ${list.total}"
+    if (list.total <= 0 || list.open <= 0) null else "${list.open} OF ${list.total}"
 
   /* --------------------------------------------------------------- the plumbing */
 
-  /** Room above the rows, in dp, for each face that has any. Crude on purpose. */
-  private const val CAL_ABOVE = 92
-  private const val CAL_LARGE_ABOVE = 96
-  private const val TASKS_ABOVE = 96
-  private const val LIST_ABOVE = 52
-  private const val CAL_ROWS_MAX = 3
+  /**
+   * Room above the rows, in dp, for each face that has any. Crude on purpose,
+   * but it has to count *everything* above them or it hands the rows space
+   * another line is already standing in.
+   *
+   * Both the 12dp paddings are in these numbers, and so is every line between
+   * them: on Calendar the header, the strip and its ruler; on Tasks the header,
+   * the debt strip and the footer; on the checklist the header alone. The
+   * all-day line is the one that varies, so it is subtracted separately.
+   */
+  private const val CAL_ABOVE = 99
+  private const val CAL_LARGE_ABOVE = 115
+  private const val TASKS_ABOVE = 90
+  private const val LIST_ABOVE = 49
+
+  /**
+   * One line of copy under the checklist's marks, in dp.
+   *
+   * The checklist is the one face whose sentence sits *below* its graphic
+   * rather than in place of it, so it is the one face where the two compete
+   * for the same height. "No list yet." spends two of these; "All twelve
+   * done." spends one.
+   */
+  private const val LIST_NOTE_LINE = 18
+
+  /**
+   * How many rows each face draws, which is iOS's count and not the tile's.
+   *
+   * Android reads its size back from the launcher and could fit more; that is
+   * exactly the problem. A widget that lists six tasks beside an iPhone listing
+   * three is two products, and the one number the reader carries away — "how
+   * far behind am I" — differs between them for no reason either platform
+   * could explain.
+   */
+  private const val CAL_ROWS = 3
+
+  private fun taskRows(size: WidgetSize) = if (size == WidgetSize.SMALL) 2 else 3
+
+  /** The closing sentence stands in a row, so it costs one — as it does on iOS. */
+  private fun listRows(size: WidgetSize, closing: Boolean): Int =
+    (if (size == WidgetSize.SMALL) 4 else 5) - if (closing) 1 else 0
 
   /**
    * What the all-day line costs the rows under it, in dp.
@@ -493,9 +564,6 @@ internal object RidikRowsFace {
    */
   private const val ALL_DAY_LINE = 18
 
-  /** Cold marks under "No list yet." — the same four iOS draws. */
-  private const val EMPTY_TICKS = 4
-
   /**
    * How many rows fit in the space left over, from the size the launcher reports.
    *
@@ -505,8 +573,9 @@ internal object RidikRowsFace {
    * in a weighted container and anything past the bottom is clipped, not pushed.
    */
   private fun capacity(roomDp: Int, cap: Int): Int {
-    if (roomDp <= 0) return minOf(3, cap)
-    return (roomDp / 22).coerceIn(1, cap)
+    val ceiling = minOf(cap, ROW_SLOTS)
+    if (roomDp <= 0) return minOf(3, ceiling)
+    return (roomDp / 22).coerceIn(1, ceiling)
   }
 
   /** "AUGUST" — the plate's own header, from the payload's month and not the device's. */
