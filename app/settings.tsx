@@ -1,27 +1,28 @@
 /**
- * Settings, deliberately small.
+ * Profile: who you are to Ridik, what you are paying for, and your data.
  *
- * Every knob here is one a person can reasonably want to change and cannot
- * break the app by getting wrong. Everything else — the model name, the
- * confidence threshold, the silence window, the spend caps, the diagnostics log
- * — is engineering instrumentation. It still exists and still works; it lives
- * on `/developer`, behind seven taps on the version row.
+ * There is one preference left on it. Every knob here has to be one a person can
+ * reasonably want to change and cannot break the app by getting wrong — and by
+ * that test almost nothing qualified. The model name fails it: one typo and
+ * voice is dead. The briefing hour failed a different test: it was a decision
+ * the app should make, not a slider. "Speak replies" passes.
  *
- * The test for belonging on this screen: if a stranger set it to the worst
- * possible value, would the app still work? A timezone text field fails that —
- * one typo and every date in the app is wrong. A model name fails it — one typo
- * and voice is dead. "Speak replies" passes.
+ * Engineering instrumentation — the model, the confidence threshold, the spend
+ * caps, the assistant key, connecting Google Calendar — still exists and still
+ * works. It lives on `/developer`, behind seven taps on the version row, where
+ * a paying user will never meet it.
  *
- * Permissions are not listed either. An inventory of four rows with green ticks
- * is a developer's view of the system; what a person needs is to be told, once,
- * when something they switched on cannot work yet.
+ * Permissions are not inventoried either. Four rows with green ticks is a
+ * developer's view of the system; what a person needs is to be told, once, when
+ * something they switched on cannot work yet.
  */
 import { useCallback, useState } from 'react';
-import { Linking, View } from 'react-native';
+import { Linking, Platform, View } from 'react-native';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 
 import { createLogger } from '@/core/logger';
+import { now } from '@/core/clock';
 import { formatRelative } from '@/core/time';
 import {
   Group,
@@ -33,16 +34,13 @@ import {
   SwitchRow,
 } from '@/features/settings';
 import { useSetting } from '@/hooks';
-import { useAssistantMode } from '@/hooks/useAssistant';
+import { useBillingAvailable, useEntitlement, useRestorePurchases } from '@/hooks/useBilling';
+import { describePlan, FREE } from '@/services/billing/entitlement';
 import {
-  useCalendarConnection,
-  useConnectCalendar,
-  useDisconnectCalendar,
   useEraseAllData,
   useExportEverything,
   usePermissions,
   useRequestPermission,
-  useSecret,
   type PermissionId,
 } from '@/hooks/useSystem';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
@@ -55,26 +53,102 @@ export default function SettingsScreen() {
   const developer = useSetting('developerMode');
 
   return (
-    <Screen back title="Settings">
-      <ErrorBoundary label="settings: attention">
+    <Screen back title="Profile">
+      <ErrorBoundary label="profile: plan">
+        <PlanGroup />
+      </ErrorBoundary>
+      <ErrorBoundary label="profile: attention">
         <AttentionGroup />
       </ErrorBoundary>
-      <ErrorBoundary label="settings: voice">
-        <VoiceGroup />
+      <ErrorBoundary label="profile: preferences">
+        <PreferencesGroup />
       </ErrorBoundary>
-      <ErrorBoundary label="settings: calendar">
-        <CalendarGroup />
-      </ErrorBoundary>
-      <ErrorBoundary label="settings: setup">
-        <SetupGroup />
-      </ErrorBoundary>
-      <ErrorBoundary label="settings: data">
+      <ErrorBoundary label="profile: data">
         <DataGroup />
       </ErrorBoundary>
-      <ErrorBoundary label="settings: about">
+      <ErrorBoundary label="profile: about">
         <AboutGroup unlocked={developer.value} onUnlock={() => developer.set(true)} />
       </ErrorBoundary>
     </Screen>
+  );
+}
+
+/* -------------------------------------------------------------------- plan */
+
+/**
+ * What you are paying for, and how to stop.
+ *
+ * Reads the entitlement seam rather than a store SDK, so it is the same screen
+ * whether or not `react-native-purchases` is compiled into the build. In a
+ * build without it there is nothing to show and the group renders nothing at
+ * all — a "Free" badge in a build that cannot sell anything is just noise.
+ *
+ * Managing and cancelling deliberately hand off to the platform. Both stores
+ * require it, and an in-app cancel flow would be a lie: only the store can
+ * actually end the subscription.
+ */
+/** Where each store lets a person actually cancel. Only the store can. */
+const MANAGE_URL = Platform.select({
+  ios: 'https://apps.apple.com/account/subscriptions',
+  android: 'https://play.google.com/store/account/subscriptions',
+  default: 'https://apps.apple.com/account/subscriptions',
+});
+
+function PlanGroup() {
+  const router = useRouter();
+  const available = useBillingAvailable();
+  const entitlement = useEntitlement();
+  const restore = useRestorePurchases();
+  const toast = useToast();
+
+  if (!available) return null;
+  if (entitlement.isLoading && !entitlement.data) return <GroupSkeleton title="Plan" rows={1} />;
+
+  const plan = entitlement.data ?? FREE;
+
+  return (
+    <Group title="Plan">
+      <Row
+        icon={plan.active ? 'checkmark-circle-outline' : 'lock-closed-outline'}
+        label={describePlan(plan)}
+        hint={
+          plan.renewsAt !== null
+            ? `${plan.cancelled ? 'Ends' : 'Renews'} ${formatRelative(plan.renewsAt, now())}`
+            : 'Ridik works without it — the assistant is the part that needs a plan.'
+        }
+        right={
+          plan.active ? (
+            <Button label="Manage" size="sm" onPress={() => void Linking.openURL(MANAGE_URL)} />
+          ) : (
+            <Button label="See plans" size="sm" variant="primary" onPress={() => router.push('/plans')} />
+          )
+        }
+      />
+      {plan.active ? null : (
+        <Row
+          icon="refresh-outline"
+          label="Restore purchases"
+          hint="Already subscribed on another device, or reinstalled."
+          right={
+            <Button
+              label="Restore"
+              size="sm"
+              loading={restore.isPending}
+              onPress={() =>
+                restore.mutate(undefined, {
+                  onSuccess: (result) =>
+                    toast.show({
+                      message: result.active ? 'Plan restored' : 'Nothing to restore',
+                      tone: result.active ? 'success' : 'neutral',
+                    }),
+                  onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
+                })
+              }
+            />
+          }
+        />
+      )}
+    </Group>
   );
 }
 
@@ -82,7 +156,7 @@ export default function SettingsScreen() {
 
 const PERMISSION_COPY: Record<PermissionId, { label: string; why: string }> = {
   microphone: { label: 'Microphone', why: 'Ridik cannot hear you without it.' },
-  notifications: { label: 'Notifications', why: 'Reminders and the briefing will not arrive.' },
+  notifications: { label: 'Notifications', why: 'Reminders will not arrive.' },
   calendar: { label: 'Calendar', why: 'Events cannot appear in your phone calendar.' },
   location: { label: 'Location', why: 'Place reminders will not fire.' },
 };
@@ -97,14 +171,16 @@ const PERMISSION_COPY: Record<PermissionId, { label: string; why: string }> = {
 function AttentionGroup() {
   const permissions = usePermissions();
   const request = useRequestPermission();
-  const briefing = useSetting('briefingEnabled');
   const toast = useToast();
 
   const state = permissions.data;
   if (!state) return null;
 
-  const needed: PermissionId[] = ['microphone'];
-  if (briefing.value) needed.push('notifications');
+  // Both, always. The microphone is the product, and notifications carry every
+  // reminder the app makes — a task falling due, arriving somewhere, a focus
+  // phase ending. They stopped being conditional when the briefing stopped
+  // being the only thing that used them.
+  const needed: PermissionId[] = ['microphone', 'notifications'];
 
   const missing = needed.filter((id) => {
     const level = state[id]?.level;
@@ -152,199 +228,15 @@ function AttentionGroup() {
 
 /* ------------------------------------------------------------------- voice */
 
-function VoiceGroup() {
+function PreferencesGroup() {
   const tts = useSetting('ttsEnabled');
-  const briefing = useSetting('briefingEnabled');
-  const hour = useSetting('briefingHour');
-  const mode = useAssistantMode();
-  const key = useSecret('llm');
-
-  // A key row only makes sense in a build that talks to a provider directly. A
-  // store build routes through the backend and has nothing to paste.
-  const showKey = mode.data === 'personal-key' || mode.data === 'offline';
-
   return (
-    <Group title="Voice">
+    <Group title="Preferences">
       <SwitchRow
         label="Speak replies"
         hint="Read confirmations and the briefing out loud."
         value={tts.value}
         onChange={tts.set}
-      />
-      <SwitchRow
-        label="Morning briefing"
-        hint="One notification with the day ahead."
-        value={briefing.value}
-        onChange={briefing.set}
-      />
-      {briefing.value ? (
-        <SliderRow
-          label="Briefing at"
-          value={hour.value}
-          min={4}
-          max={12}
-          step={1}
-          format={(v) => `${String(Math.round(v)).padStart(2, '0')}:00`}
-          onChange={(v) => hour.set(Math.round(v))}
-        />
-      ) : null}
-      {showKey ? (
-        <SecretRow
-          slot="llm"
-          label="Assistant key"
-          hint="Kept in the device keychain. Without one, Ridik understands only simple phrases."
-          state={key.data}
-        />
-      ) : null}
-    </Group>
-  );
-}
-
-/* ---------------------------------------------------------------- calendar */
-
-function CalendarGroup() {
-  const connection = useCalendarConnection();
-  const connect = useConnectCalendar();
-  const disconnect = useDisconnectCalendar();
-  const permissions = usePermissions();
-  const request = useRequestPermission();
-  const toast = useToast();
-
-  if (connection.isLoading && !connection.data) return <GroupSkeleton title="Calendar" rows={1} />;
-  if (connection.isError) {
-    return (
-      <Group title="Calendar">
-        <RetryRow
-          message="Could not read your calendar status."
-          onRetry={() => void connection.refetch()}
-        />
-      </Group>
-    );
-  }
-
-  const status = connection.data;
-  const connected = status?.connected ?? false;
-  const configured = status?.configured ?? false;
-
-  return (
-    <Group title="Calendar">
-      <Row
-        icon="calendar-outline"
-        label="Google Calendar"
-        value={
-          !configured
-            ? 'Not available in this build'
-            : connected
-              ? (status?.email ?? 'Connected')
-              : 'Not connected'
-        }
-        hint={
-          connected
-            ? 'Your events sync both ways in the background.'
-            : 'Events stay on this phone until you connect it.'
-        }
-        right={
-          !configured ? undefined : connected ? (
-            <Button
-              label="Disconnect"
-              size="sm"
-              loading={disconnect.isPending}
-              onPress={() =>
-                disconnect.mutate(undefined, {
-                  onSuccess: () => toast.show({ message: 'Disconnected' }),
-                  onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
-                })
-              }
-            />
-          ) : (
-            <Button
-              label="Connect"
-              size="sm"
-              variant="primary"
-              loading={connect.isPending}
-              onPress={() =>
-                connect.mutate(undefined, {
-                  onSuccess: () => toast.show({ message: 'Connected', tone: 'success' }),
-                  onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
-                })
-              }
-            />
-          )
-        }
-      />
-      <MirrorRow
-        granted={status?.nativeMirror ?? false}
-        blocked={permissions.data?.calendar?.level === 'blocked'}
-        onAllow={() =>
-          request.mutate('calendar', {
-            onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
-          })
-        }
-      />
-    </Group>
-  );
-}
-
-/**
- * Mirroring into the phone's own calendar is a permission, not a preference —
- * the OS owns the off switch. So this states where things stand and offers the
- * one action that can change it, rather than pretending to be a toggle that
- * cannot actually turn itself off.
- */
-function MirrorRow({
-  granted,
-  blocked,
-  onAllow,
-}: {
-  granted: boolean;
-  blocked: boolean;
-  onAllow: () => void;
-}) {
-  return (
-    <Row
-      icon="phone-portrait-outline"
-      label="Show in your phone calendar"
-      value={granted ? 'On' : blocked ? 'Turned off in system settings' : 'Off'}
-      hint={
-        granted
-          ? 'Ridik events appear in Apple Calendar and any app that reads it.'
-          : 'Ridik keeps its own calendar so its events show up alongside everything else.'
-      }
-      right={
-        granted ? undefined : blocked ? (
-          <Button label="Open settings" size="sm" onPress={() => void Linking.openSettings().catch(() => {})} />
-        ) : (
-          <Button label="Turn on" size="sm" variant="primary" onPress={onAllow} />
-        )
-      }
-    />
-  );
-}
-
-/* ------------------------------------------------------------------- setup */
-
-/**
- * Two screens' worth of data people set up once. Not settings, so they are
- * links rather than controls — but this is where someone goes looking for them,
- * which matters more than the taxonomy.
- */
-function SetupGroup() {
-  const router = useRouter();
-  return (
-    <Group title="Setup">
-      <Row
-        icon="school-outline"
-        label="Your week"
-        hint="Classes and anything that repeats. Ridik uses it to work out when homework is due."
-        right={<Chevron />}
-        onPress={() => router.push('/curriculum')}
-      />
-      <Row
-        icon="location-outline"
-        label="Places"
-        hint="Home, the lab — so you can be reminded when you arrive."
-        right={<Chevron />}
-        onPress={() => router.push('/places')}
       />
     </Group>
   );

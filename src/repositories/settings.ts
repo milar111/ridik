@@ -41,8 +41,15 @@ export const SETTINGS = {
   voiceConfidenceThreshold: define(z.number().min(0).max(1), () => 0.7),
   silenceTimeoutMs: define(z.number().int().min(200).max(10_000), () => 1500),
   defaultBufferMinutes: define(z.number().int().min(0).max(240), () => 20),
-  briefingHour: define(z.number().int().min(0).max(23), () => 7),
-  briefingEnabled: define(z.boolean(), () => true),
+  /**
+   * The local date the briefing was last put in front of the user, or null.
+   *
+   * Replaced `briefingHour` and `briefingEnabled`. The briefing is no longer a
+   * scheduled notification you configure — it is shown once, on the first time
+   * you open the app on a given day — so what the app needs to remember is not
+   * when to send it but whether today's has already been seen.
+   */
+  lastBriefingShown: define<string | null>(z.string().min(1).nullable(), () => null),
   ttsEnabled: define(z.boolean(), () => true),
   ttsRate: define(z.number().min(0.1).max(2), () => 1),
   primaryCurrency: define(z.string().regex(/^[A-Z]{3}$/), () => 'EUR'),

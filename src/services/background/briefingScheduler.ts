@@ -9,7 +9,7 @@
 import { now } from '@/core/clock';
 import type { Logger } from '@/core/logger';
 import { countLabel, joinNatural } from '@/core/format';
-import { fail, ok, type Result } from '@/core/result';
+import { err, fail, ok, toAppError, type Result } from '@/core/result';
 import {
   DateTime,
   currentZone,
@@ -116,54 +116,28 @@ export type BriefingSchedule = {
 };
 
 /**
- * Cancels whatever briefing was queued and books exactly one replacement.
+ * Clears any briefing the OS is still holding.
  *
- * Called at startup and again after every background run, which is also how the
- * body stays roughly current: the counts are a snapshot taken when the
- * notification is booked, not when it is delivered.
+ * The briefing used to be a notification you scheduled for an hour of your
+ * choosing. It is not any more: it is shown once, on the first time you open
+ * the app on a given day, so there is nothing left to book — only the copies an
+ * earlier version of the app queued, which have to be taken back or they will
+ * keep arriving for a week.
+ *
+ * Kept as a startup step rather than a one-off migration because a notification
+ * can be re-queued by a background task that was already in flight when the
+ * update landed.
  */
-export async function scheduleNextBriefing(): Promise<Result<BriefingSchedule>> {
-  // Hoisted so the catch can explain itself: the runtime load is itself one of
-  // the things that can fail here.
+export async function cancelScheduledBriefing(): Promise<Result<BriefingSchedule>> {
   let log: Logger | null = null;
   try {
     const runtime = await loadRuntime();
-    const { notifications, repos } = runtime;
     log = runtime.log;
-
-    // Unconditional, and before the enabled check: switching briefings off has
-    // to clear the copy already sitting in the OS queue.
-    await notifications.cancelForEntity(BRIEFING_ENTITY_ID);
-
-    const settings = await repos.settings.getAll();
-    const zone = isValidZone(settings.timezone) ? settings.timezone : currentZone();
-    const at = nextBriefingAt({
-      now: now(),
-      zone,
-      hour: settings.briefingHour,
-      enabled: settings.briefingEnabled,
-    });
-    if (at === null) {
-      return ok({ scheduled: false, at: null, notificationId: null, summary: null });
-    }
-
-    const summary = await summariseDay(repos, at, zone, log);
-    const scheduled = await notifications.scheduleAt({
-      title: BRIEFING_TITLE,
-      body: briefingBody(summary),
-      at,
-      channel: notifications.CHANNELS.briefing,
-      data: { kind: 'briefing', entityId: BRIEFING_ENTITY_ID, href: BRIEFING_HREF },
-    });
-    if (!scheduled.ok) return scheduled;
-
-    log.info('briefing scheduled', { at, events: summary.events, tasksDue: summary.tasksDue });
-    return ok({ scheduled: true, at, notificationId: scheduled.value, summary });
+    await runtime.notifications.cancelForEntity(BRIEFING_ENTITY_ID);
+    return ok({ scheduled: false, at: null, notificationId: null, summary: null });
   } catch (error) {
-    // Keep the cause in the log: without it this reads as an unexplained
-    // failure in the diagnostics view, which is where a user would look first.
-    log?.warn('briefing scheduling threw', error);
-    return fail('unknown', 'Could not schedule the daily briefing.', { cause: error });
+    log?.warn('could not clear the queued briefing', error);
+    return err(toAppError(error, 'Could not clear the queued briefing.'));
   }
 }
 

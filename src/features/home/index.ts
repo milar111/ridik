@@ -9,4 +9,5 @@ export { HomeMic } from './HomeMic';
 export { LastAction } from './LastAction';
 export { NextUpLine } from './NextUpLine';
 export { nextUp, type NextUp } from './next';
+export { useDailyBriefing } from './useDailyBriefing';
 export { lastUndoable, undoableAction, type UndoableAction, type UndoKind } from './undo';

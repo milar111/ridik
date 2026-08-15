@@ -21,7 +21,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
-import { HomeMic, LastAction, NextUpLine, nextUp } from '@/features/home';
+import { HomeMic, LastAction, NextUpLine, nextUp, useDailyBriefing } from '@/features/home';
 // Imported from the modules rather than `@/features/today`: that barrel pulls
 // in every section of the old Today screen, and with them the briefing's
 // text-to-speech and the focus runtime. Home needs three pure things from it,
@@ -54,7 +54,14 @@ export default function HomeScreen() {
   const reduced = useReducedMotion();
   const status = useVoiceStore((s) => s.status);
 
+
+
   const snapshot = today.data;
+
+  // Shown once a day, on the first open — it replaced the scheduled
+  // notification. Held until the day has loaded: expo-router silently drops a
+  // push made before the navigator mounts.
+  useDailyBriefing(snapshot != null);
 
   const next = useMemo(() => {
     if (!snapshot) return null;

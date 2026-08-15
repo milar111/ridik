@@ -52,6 +52,8 @@ jest.mock('react-native-reanimated', () => {
 });
 
 const mockPush = jest.fn();
+const mockSetSetting = jest.fn();
+let mockLastBriefingShown: string | null = '2026-08-11';
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, back: jest.fn(), replace: jest.fn(), canGoBack: () => true }),
   // `useNavigateOnce` releases its guard when the screen is focused again.
@@ -61,7 +63,12 @@ jest.mock('expo-router', () => ({
   },
 }));
 
-jest.mock('@/hooks', () => ({ useToday: jest.fn() }));
+jest.mock('@/hooks', () => ({
+  useToday: jest.fn(),
+  // The briefing is presented once a day from home. Marked already-seen by
+  // default so it does not navigate out from under every other assertion.
+  useSetting: () => ({ value: mockLastBriefingShown, isLoading: false, error: null, set: mockSetSetting }),
+}));
 
 /* The undo goes through the same mutations the screens use, so the whole
    repository graph would come with them. What matters here is which one is
@@ -74,6 +81,11 @@ jest.mock('@/hooks/useVoiceUndo', () => ({
 /* The screen re-derives "next" from a ticking clock. Pinned, or the fixture day
    is always in the past and every assertion about it is about an empty list. */
 jest.mock('@/features/today/useNow', () => ({ useNow: () => mockNow }));
+
+/* `useDailyBriefing` compares today's local date against the last one seen. On
+   the real clock every fixture day is "yesterday", so the briefing would open
+   over the top of every test in this file. */
+jest.mock('@/core/clock', () => ({ now: () => mockNow }));
 
 const hooks = jest.requireMock('@/hooks') as { useToday: jest.Mock };
 
@@ -142,6 +154,8 @@ beforeEach(() => {
   // Cleared, not reset: a reset would strip the async implementation and the
   // component's `.then()` would be reading it off undefined.
   mockUndoRun.mockClear();
+  mockSetSetting.mockReset();
+  mockLastBriefingShown = '2026-08-11';
   useVoiceStore.getState().reset();
   hooks.useToday.mockReturnValue({ data: snapshot(), isPending: false, isError: false });
 });
@@ -250,6 +264,29 @@ describe('home screen', () => {
   /* expo-router does not de-duplicate: two taps 80ms apart put two copies of
      Settings on the stack, and getting out took two presses of Back on what
      looked like one screen. */
+  /* The briefing stopped being a notification you schedule and became something
+     the app shows you once, the first time you open it that day. */
+  it('shows the briefing on the first open of a new day, and records it', async () => {
+    mockLastBriefingShown = '2026-08-10';
+
+    await wrap();
+
+    expect(mockPush).toHaveBeenCalledWith('/briefing');
+    expect(mockSetSetting).toHaveBeenCalledWith('2026-08-11');
+  });
+
+  it('does not show it again later the same day', async () => {
+    mockLastBriefingShown = '2026-08-11';
+    await wrap();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('shows it on a first ever launch, when nothing has been recorded', async () => {
+    mockLastBriefingShown = null;
+    await wrap();
+    expect(mockPush).toHaveBeenCalledWith('/briefing');
+  });
+
   it('opens one Settings however fast you tap', async () => {
     await wrap();
 

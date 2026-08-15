@@ -52,9 +52,29 @@ const GROUPS: { title: string; entries: Entry[] }[] = [
     ],
   },
   {
+    // Things you set once and then forget. They used to live inside Settings,
+    // which is where nobody looked for them: they are screens with content, not
+    // preferences, and they belong beside the other screens.
+    title: 'Set up',
+    entries: [
+      {
+        href: '/curriculum',
+        icon: 'school-outline',
+        label: 'Your week',
+        hint: 'Classes and anything that repeats',
+      },
+      {
+        href: '/places',
+        icon: 'location-outline',
+        label: 'Places',
+        hint: 'Home, the lab — for arriving reminders',
+      },
+    ],
+  },
+  {
     title: 'App',
     entries: [
-      { href: '/settings', icon: 'settings-outline', label: 'Settings', hint: 'Voice, calendar, your data' },
+      { href: '/settings', icon: 'person-circle-outline', label: 'Profile', hint: 'Your plan, your data' },
     ],
   },
 ];

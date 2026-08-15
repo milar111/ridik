@@ -20,6 +20,8 @@ import { formatDateTime, isValidZone } from '@/core/time';
 import { copyToClipboard } from '@/features/export';
 import {
   Group,
+  GroupSkeleton,
+  RetryRow,
   Row,
   SecretRow,
   SliderRow,
@@ -32,6 +34,9 @@ import { useAssistantMode } from '@/hooks/useAssistant';
 import { formatCostMicros } from '@/llm/usage';
 import {
   useBackgroundStatus,
+  useCalendarConnection,
+  useConnectCalendar,
+  useDisconnectCalendar,
   useDatabaseStats,
   useLogEntries,
   usePermissions,
@@ -63,6 +68,9 @@ export default function DeveloperScreen() {
       </ErrorBoundary>
       <ErrorBoundary label="developer: recognition">
         <RecognitionGroup />
+      </ErrorBoundary>
+      <ErrorBoundary label="developer: calendar">
+        <CalendarGroup />
       </ErrorBoundary>
       <ErrorBoundary label="developer: system">
         <SystemGroup />
@@ -104,6 +112,7 @@ function AssistantGroup() {
   const dailyCap = useSetting('llmDailyRequestCap');
   const monthlyCap = useSetting('llmMonthlyRequestCap');
   const usage = useAssistantUsage(dailyCap.value, monthlyCap.value).data;
+  const key = useSecret('llm');
 
   const hosted = mode.data === 'hosted';
 
@@ -179,6 +188,106 @@ function AssistantGroup() {
           onChange={(v) => monthlyCap.set(Math.round(v))}
         />
       )}
+
+      {/* Moved off the profile. A store build routes through the backend and
+          has nothing to paste; the only person who needs this field is whoever
+          is running the app against their own provider, and they can find it
+          behind seven taps. */}
+      {hosted ? null : (
+        <SecretRow
+          slot="llm"
+          label="Assistant key"
+          hint="Kept in the device keychain. Without one, Ridik understands only simple phrases."
+          state={key.data}
+        />
+      )}
+    </Group>
+  );
+}
+
+/* ---------------------------------------------------------------- calendar */
+
+/**
+ * Connecting Google Calendar, moved off the profile.
+ *
+ * It cannot be replaced by a default — the connect step is an interactive OAuth
+ * consent screen, so something has to offer it. But it is a one-time setup act,
+ * not a preference, and a paying user should meet it during onboarding rather
+ * than find it sitting in their profile forever.
+ *
+ * "Show in your phone calendar" used to sit beside it and is gone: it was never
+ * a preference at all, only a mirror of an OS permission that the app now asks
+ * for at the point it needs it.
+ */
+function CalendarGroup() {
+  const connection = useCalendarConnection();
+  const connect = useConnectCalendar();
+  const disconnect = useDisconnectCalendar();
+  const toast = useToast();
+
+  if (connection.isLoading && !connection.data) return <GroupSkeleton title="Calendar" rows={1} />;
+  if (connection.isError) {
+    return (
+      <Group title="Calendar">
+        <RetryRow
+          message="Could not read your calendar status."
+          onRetry={() => void connection.refetch()}
+        />
+      </Group>
+    );
+  }
+
+  const status = connection.data;
+  const connected = status?.connected ?? false;
+  const configured = status?.configured ?? false;
+
+  return (
+    <Group title="Calendar">
+      <Row
+        icon="calendar-outline"
+        label="Google Calendar"
+        value={
+          !configured
+            ? 'Not available in this build'
+            : connected
+              ? (status?.email ?? 'Connected')
+              : 'Not connected'
+        }
+        hint={
+          connected
+            ? 'Your events sync both ways in the background.'
+            : 'Events stay on this phone until you connect it.'
+        }
+        right={
+          !configured ? undefined : connected ? (
+            <Button
+              label="Disconnect"
+              size="sm"
+              loading={disconnect.isPending}
+              onPress={() =>
+                disconnect.mutate(undefined, {
+                  onSuccess: () => toast.show({ message: 'Disconnected' }),
+                  onError: (error: Error) => toast.show({ message: error.message, tone: 'danger' }),
+                })
+              }
+            />
+          ) : (
+            <Button
+              label="Connect"
+              size="sm"
+              variant="primary"
+              loading={connect.isPending}
+              onPress={() =>
+                connect.mutate(undefined, {
+                  onSuccess: () => toast.show({ message: 'Connected', tone: 'success' }),
+                  onError: (error: Error) => toast.show({ message: error.message, tone: 'danger' }),
+                })
+              }
+            />
+          )
+        }
+      />
+
     </Group>
   );
 }
@@ -324,7 +433,7 @@ function SystemGroup() {
                       ? `Skipped: ${summary.queue.skipped}`
                       : `Pushed ${countLabel(summary.queue.succeeded, 'change')}`,
                   }),
-                onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
+                onError: (error: Error) => toast.show({ message: error.message, tone: 'danger' }),
               })
             }
           />
@@ -400,7 +509,7 @@ function StorageGroup() {
                     message: `Reindexed ${countLabel(count, 'note')}`,
                     tone: 'success',
                   }),
-                onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
+                onError: (error: Error) => toast.show({ message: error.message, tone: 'danger' }),
               })
             }
           />

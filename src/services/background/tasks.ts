@@ -11,7 +11,7 @@ import * as TaskManager from 'expo-task-manager';
 
 import { createLogger } from '@/core/logger';
 
-import { scheduleNextBriefing } from './briefingScheduler';
+import { cancelScheduledBriefing } from './briefingScheduler';
 
 export const BACKGROUND_SYNC_TASK = 'ridik.background-sync';
 
@@ -45,7 +45,7 @@ export async function runBackgroundSync(): Promise<BackgroundSyncOutcome> {
     }
   }
 
-  const briefing = await scheduleNextBriefing();
+  const briefing = await cancelScheduledBriefing();
   if (briefing.ok) outcome.briefingAt = briefing.value.at;
   else log.warn('briefing reschedule failed', briefing.error.message);
 

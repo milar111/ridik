@@ -356,6 +356,50 @@ exists to satisfy a guideline.
 
 ---
 
+## 5c. The map picker — what to get before I build it
+
+The address editor in Places works, but you cannot see where the pin landed. A
+real map is a small change to one block of `app/places.tsx`; it is the setup
+around it that you have to do, because it needs accounts only you can open.
+
+**What I need from you: one Google Maps API key, for Android only.**
+
+iOS needs nothing. `react-native-maps` renders Apple Maps through MapKit on iOS
+with no key and no account. Android has no equivalent — without a key the map
+view renders as a blank grey grid, which looks exactly like a bug.
+
+To create it:
+
+1. Go to the [Google Cloud console](https://console.cloud.google.com/), make a
+   project (or reuse the one holding your Calendar OAuth client — the Calendar
+   client ids in `app.config.ts` under `extra.googleOAuth` are a different kind
+   of credential and cannot be reused for this).
+2. Enable **Maps SDK for Android**. That is the only API the map itself needs.
+3. Credentials → Create credentials → API key.
+4. **Restrict it before you use it.** Application restriction → Android apps,
+   then add the package name `ai.raisen.ridik` together with your signing
+   certificate's SHA-1 fingerprint. An unrestricted Maps key that reaches a
+   public repository gets used by strangers and billed to you.
+5. API restriction → limit it to Maps SDK for Android.
+
+Maps SDK for Android has no per-map charge at the volume this app will produce,
+but the key still has to sit on a project with billing enabled.
+
+Two things worth knowing before you decide it is worth it:
+
+- **Adding the library needs a native rebuild** of both platforms
+  (`npx expo prebuild --clean` and a fresh build), because it ships native code.
+  Everything currently installed on your simulators would be replaced.
+- **Search will still not offer a "did you mean" list.** `expo-location`'s
+  `geocodeAsync` returns coordinates for a string and nothing else — no place
+  names, no candidates, no disambiguation. The map fixes *confirming* a pin,
+  which is the real problem: you will be able to see that the address resolved
+  somewhere sensible before you save it. A proper search-as-you-type list is the
+  Google **Places** API, which is separately enabled and genuinely metered.
+
+Send me the key and I will wire it into `app.config.ts`, prebuild both
+platforms and build the picker.
+
 ## 6. Battle-tested vs production-ready
 
 You are right that these are different questions. Taking them separately.

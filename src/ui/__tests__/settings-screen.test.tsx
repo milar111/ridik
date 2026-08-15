@@ -149,7 +149,7 @@ describe('settings screen', () => {
   it('renders against a completely empty database', async () => {
     await wrap(<SettingsScreen />);
 
-    for (const group of ['VOICE', 'CALENDAR', 'SETUP', 'YOUR DATA', 'ABOUT']) {
+    for (const group of ['PREFERENCES', 'YOUR DATA', 'ABOUT']) {
       expect(await screen.findByText(group)).toBeTruthy();
     }
   });
@@ -161,9 +161,9 @@ describe('settings screen', () => {
    * Asserting their absence is what stops them drifting back one convenience at
    * a time.
    */
-  it('keeps the knobs that can break the app off the main screen', async () => {
+  it('keeps the knobs that can break the app off the profile', async () => {
     await wrap(<SettingsScreen />);
-    await screen.findByText('VOICE');
+    await screen.findByText('PREFERENCES');
 
     for (const gone of [
       'Model',
@@ -177,31 +177,35 @@ describe('settings screen', () => {
       'Rebuild search index',
       'Week starts on',
       'Default travel buffer',
+      // Moved to developer: a store build has nothing to paste, and connecting
+      // Google is a one-time setup act rather than a preference.
+      'Assistant key',
+      'Google Calendar',
+      // Deleted outright — it was a mirror of an OS permission, not a setting.
+      'Show in your phone calendar',
     ]) {
       expect(screen.queryByText(gone)).toBeNull();
     }
   });
 
-  it('offers the assistant key only where there is something to paste', async () => {
-    mockAssistantMode = 'offline';
-    const offline = await wrap(<SettingsScreen />);
-    expect(await screen.findByText('Assistant key')).toBeTruthy();
-    await offline.unmount();
-
-    // A store build routes through the backend; a key field there would invite
-    // someone to break something they cannot fix.
-    mockAssistantMode = 'hosted';
+  /*
+   * The briefing stopped being a scheduled notification and became something
+   * shown on the first open of the day, so there is no hour to choose and no
+   * switch to find. Both were decisions the app should make.
+   */
+  it('has no briefing schedule to configure', async () => {
     await wrap(<SettingsScreen />);
-    await screen.findByText('VOICE');
-    expect(screen.queryByText('Assistant key')).toBeNull();
+    await screen.findByText('PREFERENCES');
+
+    expect(screen.queryByText('Briefing at')).toBeNull();
+    expect(screen.queryByText('Morning briefing')).toBeNull();
   });
 
-  it('masks a stored key rather than showing it', async () => {
-    mockSecret = { present: true, preview: '••••••••9f2a' };
-    mockAssistantMode = 'personal-key';
+  it('leaves exactly one preference, and it cannot break anything', async () => {
     await wrap(<SettingsScreen />);
-    expect(await screen.findByText('••••••••9f2a')).toBeTruthy();
+    expect(await screen.findByText('Speak replies')).toBeTruthy();
   });
+
 
   /*
    * Permissions are surfaced by need, not inventoried. Microphone is the
@@ -213,14 +217,34 @@ describe('settings screen', () => {
       microphone: 'granted',
       calendar: 'denied',
       location: 'denied',
+      notifications: 'granted',
+    };
+    await wrap(<SettingsScreen />);
+    await screen.findByText('PREFERENCES');
+
+    // Calendar and location are denied, and stay unmentioned: nothing the user
+    // has switched on needs them. They are asked for on the screens that do —
+    // Places asks for location at the moment a reminder cannot be watched.
+    expect(screen.queryByText('Needs your permission')).toBeNull();
+  });
+
+  /*
+   * Notifications used to be conditional on the briefing switch. They are not
+   * any more: every reminder the app makes is a notification — a task falling
+   * due, arriving somewhere, a focus phase ending — so denying them breaks
+   * things the user never associated with a briefing.
+   */
+  it('asks for notifications, which carry every reminder the app makes', async () => {
+    mockPermissionLevel = {
+      microphone: 'granted',
+      calendar: 'granted',
+      location: 'granted',
       notifications: 'denied',
     };
     await wrap(<SettingsScreen />);
-    await screen.findByText('VOICE');
 
-    // Calendar and location are denied but nothing here needs them yet, and the
-    // briefing is off by default, so notifications are not asked for either.
-    expect(screen.queryByText('Needs your permission')).toBeNull();
+    expect(await screen.findByText('Notifications')).toBeTruthy();
+    expect(screen.getByText('Reminders will not arrive.')).toBeTruthy();
   });
 
   it('asks for the microphone, because without it there is no product', async () => {

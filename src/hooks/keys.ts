@@ -185,6 +185,10 @@ export const qk = {
    * the user, but nothing here is invalidated by a repository write — only by
    * the prompt or the sync that actually changed it.
    */
+  billing: {
+    all: [ROOT, 'billing'] as const,
+    entitlement: () => [ROOT, 'billing', 'entitlement'] as const,
+  },
   system: {
     all: [ROOT, 'system'] as const,
     secret: (slot: string) => [ROOT, 'system', 'secret', slot] as const,

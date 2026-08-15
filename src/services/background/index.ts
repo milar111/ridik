@@ -15,7 +15,7 @@ import { fail, ok, type Result } from '@/core/result';
 import { cancelForEntity, configureNotifications, listScheduled } from '@/services/notifications';
 import { registerBootstrapStep } from '@/startup/bootstrap';
 
-import { BRIEFING_ENTITY_ID, scheduleNextBriefing } from './briefingScheduler';
+import { BRIEFING_ENTITY_ID, cancelScheduledBriefing } from './briefingScheduler';
 import { BACKGROUND_SYNC_TASK, defineBackgroundTasks, runBackgroundSync } from './tasks';
 
 /**
@@ -65,7 +65,7 @@ async function performRegistration(): Promise<Result<BackgroundWorkRegistration>
 
     // Both of these are OS-side and keep firing even when background refresh is
     // switched off for the app, so neither is gated on `taskRegistered`.
-    const briefing = await scheduleNextBriefing();
+    const briefing = await cancelScheduledBriefing();
     if (!briefing.ok) {
       // Not having notification permission yet is the normal state on a first
       // launch, not a fault; logging it as a warning fills the user-facing
@@ -223,7 +223,7 @@ export {
   BACKGROUND_SYNC_TASK,
   BRIEFING_ENTITY_ID,
   runBackgroundSync,
-  scheduleNextBriefing,
+  cancelScheduledBriefing,
 };
 export { briefingBody, nextBriefingAt } from './briefingScheduler';
 export type { BriefingSchedule, DaySummary, NextBriefingInput } from './briefingScheduler';
