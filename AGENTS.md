@@ -93,9 +93,13 @@ different products. These are banned; use the replacement:
 | `shadowColor`/`elevation` | `elevate()` from `src/ui/shadow.ts` | Android ignores every iOS shadow prop and cannot colour or offset `elevation` |
 | bare `RefreshControl` | `Refresh` | `tintColor` is iOS-only, `colors` Android-only |
 
-A sheet is `SHEET` in `app/_layout.tsx` — `presentation: 'modal'` plus an
-explicit animation and gesture direction, because `modal` alone gets Android a
-full-screen push with no gesture. **And it must always draw its own Close.** The
+A sheet is `SHEET` in `app/_layout.tsx`, and it is the one place where the two
+platforms deliberately take **different** options to reach the same result:
+`modal` on iOS, `formSheet` on Android. They are not interchangeable —
+`formSheet` on iOS renders the screen with no height at all, so the sheet
+appears correctly shaped and completely empty, and plain `modal` on Android is a
+full-screen push with no card and no gesture. Matching the *option* is what
+produced two different screens; matching the *result* needs two options. **And it must always draw its own Close.** The
 menu shipped for one commit with the drag as its only exit, which on iOS meant
 there was simply no way off it: the gesture is invisible, it is the first thing
 to fail for anyone with a motor impairment, and Android users reach for system

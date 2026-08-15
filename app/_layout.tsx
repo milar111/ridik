@@ -7,7 +7,7 @@ import * as SystemUI from 'expo-system-ui';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useColorScheme } from 'react-native';
+import { Platform, useColorScheme } from 'react-native';
 
 import { VoiceDock } from '@/features/voice/VoiceDock';
 import { useWidgetPublisher } from '@/hooks/useWidgetPublisher';
@@ -16,7 +16,7 @@ import { ThemeProvider } from '@/ui/ThemeProvider';
 import { Spinner, ToastProvider } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { Txt } from '@/ui/components/Text';
-import { makeTheme } from '@/ui/theme';
+import { makeTheme, radius } from '@/ui/theme';
 import { bootstrap, type BootstrapResult } from '@/startup/bootstrap';
 // Must be imported for its side effects, before bootstrap() runs.
 import '@/startup/register';
@@ -38,19 +38,34 @@ const queryClient = new QueryClient({
 });
 
 /**
- * How a sheet is presented, identically on both platforms.
+ * How a sheet is presented. The same result on both, by two different routes.
  *
- * `presentation: 'modal'` alone is an iOS behaviour; on Android
- * react-native-screens falls back to a plain full-screen push with no gesture,
- * which is how the menu ended up arriving two different ways. Naming the
- * animation and the gesture direction gets Android to the same place.
+ * iOS gets `modal`, which is UIKit's own sheet: it sits over the page, the page
+ * stays visible and scaled behind it, and it can be pulled down. That is the
+ * behaviour to match, not to replace — an earlier attempt flattened iOS to a
+ * plain card to look like Android and made it strictly worse.
+ *
+ * Android gets `formSheet`, which react-native-screens implements natively and
+ * which is the only presentation that gives Android the same thing: a rounded
+ * card over a dimmed page, draggable away. Plain `modal` there is a full-screen
+ * push with no gesture and no sense of a layer.
+ *
+ * They are not interchangeable. `formSheet` on iOS renders the screen with no
+ * height at all — the sheet appears, correctly shaped, and completely empty.
  */
-const SHEET = {
-  presentation: 'modal',
-  animation: 'slide_from_bottom',
-  gestureEnabled: true,
-  gestureDirection: 'vertical',
-} as const;
+const SHEET: React.ComponentProps<typeof Stack.Screen>['options'] = Platform.select({
+  ios: { presentation: 'modal', gestureEnabled: true },
+  default: {
+    presentation: 'formSheet',
+    // One detent: enough of home shows through to read as a layer, and there is
+    // no half-open state to get stuck in.
+    sheetAllowedDetents: [0.92],
+    sheetCornerRadius: radius.xl,
+    sheetGrabberVisible: true,
+    sheetElevation: 24,
+    gestureEnabled: true,
+  },
+});
 
 export default function RootLayout() {
   const scheme = useColorScheme() === 'light' ? 'light' : 'dark';
