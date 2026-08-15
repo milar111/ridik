@@ -44,6 +44,7 @@ export default function HabitsScreen() {
 
   return (
     <Screen
+      back
       title="Habits"
       right={
         <Button

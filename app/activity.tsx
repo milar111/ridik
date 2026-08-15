@@ -59,7 +59,7 @@ export default function ActivityScreen() {
   const [period, setPeriod] = useState<Period>('week');
 
   return (
-    <Screen title="Activity">
+    <Screen back title="Activity">
       <Segmented options={PERIODS} value={period} onChange={setPeriod} />
       <ErrorBoundary label="activity">
         <ActivityBody period={period} />

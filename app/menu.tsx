@@ -12,11 +12,11 @@
  * of, and then the things you set once.
  */
 import { View } from 'react-native';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Card, Divider, Screen, Section, Txt } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
+import { useNavigateOnce } from '@/ui/useNavigateOnce';
 
 type Entry = {
   href: string;
@@ -60,7 +60,7 @@ const GROUPS: { title: string; entries: Entry[] }[] = [
 ];
 
 export default function MenuScreen() {
-  const router = useRouter();
+  const nav = useNavigateOnce();
   const { colors, spacing } = useTheme();
 
   return (
@@ -77,7 +77,7 @@ export default function MenuScreen() {
                   padded={false}
                   // Replace, not push: the menu is a junction, not a step. Back
                   // from Tasks should reach home, not the list you came through.
-                  onPress={() => router.replace(entry.href as never)}
+                  onPress={() => nav.replace(entry.href as never)}
                   style={{ borderWidth: 0, backgroundColor: 'transparent' }}
                 >
                   <View

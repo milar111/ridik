@@ -10,7 +10,7 @@
  * against, and a wrong parity or a switched-off row is only visible here.
  */
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -127,6 +127,7 @@ export default function CurriculumScreen() {
 
   return (
     <Screen
+      back
       title="Programme"
       subtitle={
         rows.length > 0
@@ -517,6 +518,12 @@ function EntrySheet({
         style={[styles.backdrop, { backgroundColor: colors.overlay }]}
         onPress={onClose}
       />
+      {/* A Modal is its own window on Android, so the activity's adjustResize
+          never reaches it and the keyboard covered the fields it opened for. */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.sheetWrap}
+      >
       <View
         style={[
           styles.sheet,
@@ -645,6 +652,7 @@ function EntrySheet({
           )}
         </ScrollView>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -687,6 +695,7 @@ const styles = StyleSheet.create({
   },
   listRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, minHeight: 46 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  sheetWrap: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   sheet: {
     position: 'absolute',

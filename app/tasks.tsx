@@ -88,6 +88,7 @@ export default function TasksScreen() {
 
   return (
     <Screen
+      back
       title="Tasks"
       subtitle={subtitle}
       scroll={false}

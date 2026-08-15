@@ -43,7 +43,12 @@ module.exports = {
       setupFiles: ['<rootDir>/jest/setup-ui.ts'],
       setupFilesAfterEnv: ['<rootDir>/jest/setup-ui-after.ts'],
       transformIgnorePatterns: [
-        'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|drizzle-orm)',
+        // `standard-navigation` is an expo-router dependency that ships
+        // untransformed ESM. Any component importing expo-router — `Screen`
+        // does, for its back button — drags it into every suite that renders a
+        // screen, and without it here the failure is a bare parse error that
+        // names a file nothing in this repo imports directly.
+        'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|standard-navigation|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|drizzle-orm)',
       ],
       clearMocks: true,
     },

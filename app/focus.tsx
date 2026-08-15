@@ -49,7 +49,7 @@ const PRESETS: Preset[] = [
 
 export default function FocusScreen() {
   return (
-    <Screen title="Focus">
+    <Screen back title="Focus">
       <ErrorBoundary
         label="focus"
         fallback={(error, reset) => <InlineError message={error.message} onRetry={reset} />}

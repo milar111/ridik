@@ -42,7 +42,7 @@ export function Sheet({
         onPress={onClose}
       />
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.wrap}
         pointerEvents="box-none"
       >

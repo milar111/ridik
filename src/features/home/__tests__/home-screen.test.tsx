@@ -54,6 +54,11 @@ jest.mock('react-native-reanimated', () => {
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, back: jest.fn(), replace: jest.fn(), canGoBack: () => true }),
+  // `useNavigateOnce` releases its guard when the screen is focused again.
+  useFocusEffect: (effect: () => void | (() => void)) => {
+    const { useEffect } = jest.requireActual<typeof import('react')>('react');
+    useEffect(effect, [effect]);
+  },
 }));
 
 jest.mock('@/hooks', () => ({ useToday: jest.fn() }));
@@ -230,13 +235,29 @@ describe('home screen', () => {
     expect(screen.queryByTestId('last-action-undo')).toBeNull();
   });
 
-  it('opens the menu and the profile from the corners', async () => {
+  it('opens the menu from the corner', async () => {
     await wrap();
-
     await fireEvent.press(screen.getByTestId('home-menu'));
     expect(mockPush).toHaveBeenCalledWith('/menu');
+  });
 
+  it('opens the profile from the corner', async () => {
+    await wrap();
     await fireEvent.press(screen.getByTestId('home-profile'));
     expect(mockPush).toHaveBeenCalledWith('/settings');
+  });
+
+  /* expo-router does not de-duplicate: two taps 80ms apart put two copies of
+     Settings on the stack, and getting out took two presses of Back on what
+     looked like one screen. */
+  it('opens one Settings however fast you tap', async () => {
+    await wrap();
+
+    const profile = screen.getByTestId('home-profile');
+    await fireEvent.press(profile);
+    await fireEvent.press(profile);
+    await fireEvent.press(profile);
+
+    expect(mockPush).toHaveBeenCalledTimes(1);
   });
 });

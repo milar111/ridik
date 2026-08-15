@@ -55,7 +55,7 @@ export default function SettingsScreen() {
   const developer = useSetting('developerMode');
 
   return (
-    <Screen title="Settings">
+    <Screen back title="Settings">
       <ErrorBoundary label="settings: attention">
         <AttentionGroup />
       </ErrorBoundary>

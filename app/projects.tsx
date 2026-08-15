@@ -110,6 +110,7 @@ export default function ProjectsScreen() {
 
   return (
     <Screen
+      back
       title="Projects"
       subtitle={rows.length === 0 ? undefined : countLabel(activeCount, 'active project')}
       right={

@@ -12,7 +12,6 @@
  */
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   FadeIn,
@@ -35,6 +34,7 @@ import { useToday } from '@/hooks';
 import { HeatField, type HeatState } from '@/ui/HeatField';
 import { useTheme } from '@/ui/ThemeProvider';
 import { STAGGER_MS, tap } from '@/ui/motion';
+import { useNavigateOnce } from '@/ui/useNavigateOnce';
 
 /** The field answers to the voice session; speaking and thinking look alike. */
 const FIELD_STATE: Record<string, HeatState> = {
@@ -48,7 +48,7 @@ const FIELD_STATE: Record<string, HeatState> = {
 export default function HomeScreen() {
   const { colors, spacing } = useTheme();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
+  const nav = useNavigateOnce();
   const today = useToday();
   const at = useNow();
   const reduced = useReducedMotion();
@@ -86,12 +86,12 @@ export default function HomeScreen() {
         }}
       >
         <Animated.View entering={arrive(0)} style={styles.corners}>
-          <CornerButton icon="menu" label="Menu" testID="home-menu" onPress={() => router.push('/menu')} />
+          <CornerButton icon="menu" label="Menu" testID="home-menu" onPress={() => nav.push('/menu')} />
           <CornerButton
             icon="person"
             label="Profile and settings"
             testID="home-profile"
-            onPress={() => router.push('/settings')}
+            onPress={() => nav.push('/settings')}
           />
         </Animated.View>
 

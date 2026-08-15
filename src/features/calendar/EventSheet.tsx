@@ -62,7 +62,7 @@ export function EventSheet({ target, zone, googleConnected, onClose, onMoved }: 
         onPress={onClose}
       />
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.sheetWrap}
       >
         <View

@@ -84,7 +84,7 @@ export function CreateProjectSheet({
         onPress={onClose}
       />
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.wrap}
       >
         <View

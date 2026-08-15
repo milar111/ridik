@@ -11,7 +11,7 @@
  * this screen has to change.
  */
 import { useMemo, useState } from 'react';
-import { Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -134,6 +134,7 @@ export default function PlacesScreen() {
 
   return (
     <Screen
+      back
       title="Places"
       subtitle={
         rows.length > 0 ? `${countLabel(rows.length, 'place')} · ${countLabel(live.length, 'reminder')}` : undefined
@@ -517,6 +518,13 @@ function PlaceSheet({
         style={[styles.backdrop, { backgroundColor: colors.overlay }]}
         onPress={onClose}
       />
+      {/* A Modal is its own window on Android, so the activity's adjustResize
+          never reaches it and the keyboard covered the address field it had
+          just opened for. */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.sheetWrap}
+      >
       <View
         style={[
           styles.sheet,
@@ -682,6 +690,7 @@ function PlaceSheet({
           )}
         </ScrollView>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -722,6 +731,7 @@ function RetryCard({ message, onRetry }: { message: string; onRetry: () => void 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, minHeight: 48 },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  sheetWrap: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   sheet: {
     position: 'absolute',

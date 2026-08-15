@@ -74,7 +74,7 @@ export default function LedgerScreen() {
   const [period, setPeriod] = useState<Period>('month');
 
   return (
-    <Screen title="Ledger">
+    <Screen back title="Ledger">
       <Segmented options={PERIODS} value={period} onChange={setPeriod} />
       <ErrorBoundary label="ledger">
         <LedgerBody period={period} />
@@ -572,7 +572,7 @@ function EditSheet({
         onPress={onClose}
       />
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.sheetWrap}
       >
         <View

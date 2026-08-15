@@ -80,6 +80,7 @@ export default function TodayScreen() {
 
   return (
     <Screen
+      back
       title="Today"
       subtitle={longDate(snapshot?.at ?? at, snapshot?.zone)}
       right={<TodayHeaderActions sync={snapshot?.sync} />}

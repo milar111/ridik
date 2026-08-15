@@ -53,7 +53,7 @@ export default function NotesScreen() {
   }, [wanted, list]);
 
   return (
-    <Screen title="Notes" scroll={false} contentStyle={{ flex: 1, gap: spacing.sm }}>
+    <Screen back title="Notes" scroll={false} contentStyle={{ flex: 1, gap: spacing.sm }}>
       <Segmented
         value={pane}
         onChange={setPane}

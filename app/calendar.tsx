@@ -64,7 +64,7 @@ export default function CalendarScreen() {
   const goToday = useCallback(() => reveal(localDateOf(now(), zone)), [reveal, zone]);
 
   return (
-    <Screen scroll={false} padded={false} contentStyle={{ flex: 1, gap: 0 }}>
+    <Screen back scroll={false} padded={false} contentStyle={{ flex: 1, gap: 0 }}>
       <View style={[styles.header, { paddingHorizontal: spacing.lg }]}>
         <Pressable
           accessibilityRole="button"
