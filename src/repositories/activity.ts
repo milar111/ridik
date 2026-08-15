@@ -23,6 +23,12 @@ export type ActivityLogInput = {
   projectId?: string;
   /** UTC epoch ms; defaults to now. */
   at?: number;
+  /**
+   * How the entry got here. Defaults to spoken because that was the only way
+   * for most of this app's life; the Activity screen can now log one by hand
+   * and must say so, or the feed quietly claims the user said things they typed.
+   */
+  source?: 'voice' | 'manual';
 };
 
 export type ActivityDayBucket = {
@@ -99,7 +105,7 @@ export function createActivityRepository(db: RidikDatabase) {
           loggedAt: at,
           projectId: input.projectId ?? null,
           localDate: localDateOf(at, currentZone()),
-          source: 'voice',
+          source: input.source ?? 'voice',
         })
         .returning();
 

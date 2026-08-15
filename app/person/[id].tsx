@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View, type DimensionValue } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
-import { countLabel, formatMoney, truncate } from '@/core/format';
+import { countLabel, formatMoney, joinNatural, pluralise, truncate } from '@/core/format';
 import { epochToLocal, formatDayHeading, formatRelative } from '@/core/time';
 import type { CrmCommitment, CrmInteraction, Transaction } from '@/db/schema';
 import {
@@ -11,8 +11,11 @@ import {
   useAddEntityAlias,
   useCompleteCommitment,
   useCrmProfile,
+  useDeleteEntity,
   useLogInteraction,
+  useRemoveCommitment,
   useRemoveEntityAlias,
+  useRemoveInteraction,
   useTask,
   useUpdateEntityContext,
 } from '@/hooks';
@@ -79,6 +82,8 @@ function PersonBody({ profile }: { profile: CrmEntityProfile }) {
   const { spacing } = useTheme();
   const toast = useToast();
   const complete = useCompleteCommitment();
+  const dropCommitment = useRemoveCommitment();
+  const dropInteraction = useRemoveInteraction();
 
   const [composer, setComposer] = useState<'none' | 'commitment' | 'interaction'>('none');
   // Optimistic overrides keyed by commitment id: the checkbox flips now, the
@@ -124,6 +129,36 @@ function PersonBody({ profile }: { profile: CrmEntityProfile }) {
       },
     );
   };
+
+  const deleteCommitment = (c: CrmCommitment) =>
+    dropCommitment.mutate(
+      { id: c.id },
+      {
+        onSuccess: () =>
+          toast.show({
+            message: 'Commitment deleted',
+            detail: truncate(c.commitmentText, 60),
+            tone: 'neutral',
+          }),
+        onError: (error) =>
+          toast.show({ message: 'Could not delete that', detail: error.message, tone: 'danger' }),
+      },
+    );
+
+  const deleteInteraction = (i: CrmInteraction) =>
+    dropInteraction.mutate(
+      { id: i.id },
+      {
+        onSuccess: () =>
+          toast.show({
+            message: 'Interaction deleted',
+            detail: truncate(i.summary, 60),
+            tone: 'neutral',
+          }),
+        onError: (error) =>
+          toast.show({ message: 'Could not delete that', detail: error.message, tone: 'danger' }),
+      },
+    );
 
   return (
     <>
@@ -176,6 +211,8 @@ function PersonBody({ profile }: { profile: CrmEntityProfile }) {
                       commitment={c}
                       checked={checkedOf(c)}
                       onToggle={(next) => setCommitment(c, next)}
+                      onDelete={() => deleteCommitment(c)}
+                      deleting={dropCommitment.isPending}
                     />
                   </View>
                 ))}
@@ -186,14 +223,24 @@ function PersonBody({ profile }: { profile: CrmEntityProfile }) {
                 commitments={completedCommitments}
                 checkedOf={checkedOf}
                 onToggle={setCommitment}
+                onDelete={deleteCommitment}
+                deleting={dropCommitment.isPending}
               />
             ) : null}
           </Section>
 
           {transactions.length > 0 ? <MoneySection profile={profile} /> : null}
-          {interactions.length > 0 ? <HistorySection interactions={interactions} /> : null}
+          {interactions.length > 0 ? (
+            <HistorySection
+              interactions={interactions}
+              onDelete={deleteInteraction}
+              deleting={dropInteraction.isPending}
+            />
+          ) : null}
         </>
       )}
+
+      <DeletePerson profile={profile} />
     </>
   );
 }
@@ -343,21 +390,36 @@ function CommitmentRow({
   commitment,
   checked,
   onToggle,
+  onDelete,
+  deleting,
 }: {
   commitment: CrmCommitment;
   checked: boolean;
   onToggle: (next: boolean) => void;
+  onDelete: () => void;
+  deleting: boolean;
 }) {
   const { colors, spacing } = useTheme();
   const router = useRouter();
   const task = useTask(commitment.taskId ?? undefined);
+  const [asking, setAsking] = useState(false);
 
   const mine = commitment.direction === 'i_owe';
   const overdue = !checked && commitment.dueDate !== null && commitment.dueDate < Date.now();
 
   return (
     <View style={{ paddingHorizontal: spacing.md }}>
-      <Checkbox checked={checked} onToggle={onToggle} label={commitment.commitmentText} />
+      <Checkbox
+        checked={checked}
+        onToggle={onToggle}
+        label={commitment.commitmentText}
+        right={
+          <TrashButton
+            label={`Delete commitment: ${commitment.commitmentText}`}
+            onPress={() => setAsking(true)}
+          />
+        }
+      />
       <View style={[styles.metaRow, { gap: spacing.sm, paddingBottom: spacing.sm }]}>
         <Badge label={mine ? 'You owe' : 'They owe'} tone={mine ? 'accent' : 'info'} />
         {commitment.dueDate !== null ? (
@@ -386,7 +448,64 @@ function CommitmentRow({
           </Pressable>
         ) : null}
       </View>
+      {asking ? (
+        <RowConfirm
+          question={
+            task.data ? 'Delete this commitment? The linked task stays.' : 'Delete this commitment?'
+          }
+          busy={deleting}
+          onDelete={onDelete}
+          onKeep={() => setAsking(false)}
+        />
+      ) : null}
     </View>
+  );
+}
+
+/**
+ * Same delete, a different row: a closed promise carries no badge, no due date
+ * and no task link, so it does not go through `CommitmentRow`.
+ */
+function ClosedCommitmentRow({
+  commitment,
+  checked,
+  onToggle,
+  onDelete,
+  deleting,
+}: {
+  commitment: CrmCommitment;
+  checked: boolean;
+  onToggle: (next: boolean) => void;
+  onDelete: () => void;
+  deleting: boolean;
+}) {
+  const [asking, setAsking] = useState(false);
+
+  return (
+    <>
+      <Checkbox
+        checked={checked}
+        onToggle={onToggle}
+        label={commitment.commitmentText}
+        sublabel={
+          commitment.completedAt !== null ? `done ${formatRelative(commitment.completedAt)}` : undefined
+        }
+        right={
+          <TrashButton
+            label={`Delete commitment: ${commitment.commitmentText}`}
+            onPress={() => setAsking(true)}
+          />
+        }
+      />
+      {asking ? (
+        <RowConfirm
+          question="Delete this commitment?"
+          busy={deleting}
+          onDelete={onDelete}
+          onKeep={() => setAsking(false)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -394,10 +513,14 @@ function CompletedCommitments({
   commitments,
   checkedOf,
   onToggle,
+  onDelete,
+  deleting,
 }: {
   commitments: CrmCommitment[];
   checkedOf: (c: CrmCommitment) => boolean;
   onToggle: (c: CrmCommitment, next: boolean) => void;
+  onDelete: (c: CrmCommitment) => void;
+  deleting: boolean;
 }) {
   const { colors, spacing } = useTheme();
   const [open, setOpen] = useState(false);
@@ -426,11 +549,12 @@ function CompletedCommitments({
           {commitments.map((c, i) => (
             <View key={c.id} style={{ paddingHorizontal: spacing.md }}>
               {i > 0 ? <Divider /> : null}
-              <Checkbox
+              <ClosedCommitmentRow
+                commitment={c}
                 checked={checkedOf(c)}
                 onToggle={(next) => onToggle(c, next)}
-                label={c.commitmentText}
-                sublabel={c.completedAt !== null ? `done ${formatRelative(c.completedAt)}` : undefined}
+                onDelete={() => onDelete(c)}
+                deleting={deleting}
               />
             </View>
           ))}
@@ -652,7 +776,53 @@ function TransactionRow({ tx }: { tx: Transaction }) {
 
 /* ----------------------------------------------------------------- history -- */
 
-function HistorySection({ interactions }: { interactions: CrmInteraction[] }) {
+function InteractionRow({
+  interaction,
+  onDelete,
+  deleting,
+}: {
+  interaction: CrmInteraction;
+  onDelete: () => void;
+  deleting: boolean;
+}) {
+  const { spacing } = useTheme();
+  const [asking, setAsking] = useState(false);
+
+  return (
+    <View style={{ paddingHorizontal: spacing.md }}>
+      <View style={[styles.historyRow, { gap: spacing.sm }]}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Txt variant="body">{interaction.summary}</Txt>
+          <Txt variant="micro" tone="tertiary">
+            {formatDayHeading(interaction.occurredAt)}
+          </Txt>
+        </View>
+        <TrashButton
+          label={`Delete interaction: ${interaction.summary}`}
+          onPress={() => setAsking(true)}
+        />
+      </View>
+      {asking ? (
+        <RowConfirm
+          question="Delete this interaction?"
+          busy={deleting}
+          onDelete={onDelete}
+          onKeep={() => setAsking(false)}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+function HistorySection({
+  interactions,
+  onDelete,
+  deleting,
+}: {
+  interactions: CrmInteraction[];
+  onDelete: (interaction: CrmInteraction) => void;
+  deleting: boolean;
+}) {
   const { colors, spacing } = useTheme();
   const [showAll, setShowAll] = useState(false);
 
@@ -682,12 +852,11 @@ function HistorySection({ interactions }: { interactions: CrmInteraction[] }) {
             {month.items.map((item, i) => (
               <View key={item.id}>
                 {i > 0 ? <Divider /> : null}
-                <View style={[styles.historyRow, { paddingHorizontal: spacing.md }]}>
-                  <Txt variant="body">{item.summary}</Txt>
-                  <Txt variant="micro" tone="tertiary">
-                    {formatDayHeading(item.occurredAt)}
-                  </Txt>
-                </View>
+                <InteractionRow
+                  interaction={item}
+                  onDelete={() => onDelete(item)}
+                  deleting={deleting}
+                />
               </View>
             ))}
           </Card>
@@ -707,6 +876,156 @@ function HistorySection({ interactions }: { interactions: CrmInteraction[] }) {
         </Pressable>
       ) : null}
     </Section>
+  );
+}
+
+/* ------------------------------------------------------------------ delete -- */
+
+/**
+ * Asks before it destroys, and the answer is not under the finger that asked:
+ * these lists are dense, and a single-tap delete on the wrong row loses a
+ * conversation that nothing in the app can put back.
+ */
+function TrashButton({ label, onPress }: { label: string; onPress: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      hitSlop={8}
+      style={({ pressed }) => [styles.trash, { opacity: pressed ? 0.5 : 1 }]}
+    >
+      <Ionicons name="trash-outline" size={15} color={colors.textTertiary} />
+    </Pressable>
+  );
+}
+
+function RowConfirm({
+  question,
+  busy,
+  onDelete,
+  onKeep,
+}: {
+  question: string;
+  busy: boolean;
+  onDelete: () => void;
+  onKeep: () => void;
+}) {
+  const { spacing } = useTheme();
+  return (
+    <View style={[styles.rowConfirm, { gap: spacing.sm, paddingBottom: spacing.sm }]}>
+      <Txt variant="micro" tone="danger" style={{ flex: 1 }}>
+        {question}
+      </Txt>
+      <Button label="Delete" variant="danger" size="sm" loading={busy} onPress={onDelete} />
+      <Button label="Keep" variant="ghost" size="sm" onPress={onKeep} />
+    </View>
+  );
+}
+
+/**
+ * A mis-heard name is a whole contact, so this is the way back out of one — and
+ * it counts the rows out loud first, because "delete this contact" reads as one
+ * row and can be a year of history.
+ */
+function DeletePerson({ profile }: { profile: CrmEntityProfile }) {
+  const router = useRouter();
+  const { colors, spacing } = useTheme();
+  const toast = useToast();
+  const remove = useDeleteEntity();
+  const [asking, setAsking] = useState(false);
+
+  const { entity, interactions, openCommitments, completedCommitments, transactions } = profile;
+  const commitments = openCommitments.length + completedCommitments.length;
+  const linkedTasks = new Set(
+    [...openCommitments, ...completedCommitments]
+      .map((c) => c.taskId)
+      .filter((id): id is string => id !== null),
+  ).size;
+
+  const goes =
+    interactions.length === 0 && commitments === 0
+      ? 'Nothing else is recorded against them.'
+      : `${countLabel(interactions.length, 'interaction')} and ${countLabel(commitments, 'commitment')} go with them.`;
+
+  // What survives is worth saying too: a task or a payment that vanished with
+  // the contact would be found missing much later, by which time nothing
+  // explains it.
+  const staying = linkedTasks + transactions.length;
+  const kept = [
+    linkedTasks > 0 ? countLabel(linkedTasks, 'linked task') : null,
+    transactions.length > 0
+      ? countLabel(transactions.length, 'ledger entry', 'ledger entries')
+      : null,
+  ].filter((part): part is string => part !== null);
+
+  const confirmDelete = () =>
+    remove.mutate(
+      { entityId: entity.id, confirmed: true },
+      {
+        // The receipt quotes what the repository actually took, not what this
+        // screen counted a moment earlier.
+        onSuccess: (deleted) => {
+          const went = deleted.interactions + deleted.commitments;
+          toast.show({
+            message: `${deleted.entity.name} deleted`,
+            detail:
+              went > 0
+                ? `${countLabel(deleted.interactions, 'interaction')} and ${countLabel(deleted.commitments, 'commitment')} went too`
+                : undefined,
+            tone: 'danger',
+          });
+          if (router.canGoBack()) router.back();
+          else router.replace('/people');
+        },
+        onError: (error) =>
+          toast.show({
+            message: 'Could not delete that contact',
+            detail: error.message,
+            tone: 'danger',
+          }),
+      },
+    );
+
+  if (!asking) {
+    return (
+      <View style={{ paddingTop: spacing.md }}>
+        <Button
+          label="Delete person"
+          icon="trash-outline"
+          variant="danger"
+          size="sm"
+          onPress={() => setAsking(true)}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <Card accent={colors.danger} style={{ gap: spacing.sm }}>
+      <Txt variant="bodyStrong" tone="danger">
+        {`Delete ${entity.name}?`}
+      </Txt>
+      <Txt variant="caption" tone="secondary">
+        {`${goes} There is no undo.`}
+      </Txt>
+      {kept.length > 0 ? (
+        <Txt variant="caption" tone="tertiary">
+          {`${joinNatural(kept)} ${pluralise(staying, 'stays', 'stay')}.`}
+        </Txt>
+      ) : null}
+      <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+        <Button
+          label="Delete"
+          variant="danger"
+          size="sm"
+          loading={remove.isPending}
+          onPress={confirmDelete}
+        />
+        <Button label="Keep" variant="ghost" size="sm" onPress={() => setAsking(false)} />
+      </View>
+    </Card>
   );
 }
 
@@ -843,10 +1162,12 @@ const styles = StyleSheet.create({
     paddingLeft: CHECKBOX_INSET,
   },
   taskLink: { flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: 180 },
+  trash: { width: 32, height: 44, alignItems: 'center', justifyContent: 'center' },
+  rowConfirm: { flexDirection: 'row', alignItems: 'center' },
   disclosure: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 32 },
   mutedRow: { flexDirection: 'row', alignItems: 'center', minHeight: 32 },
   balanceRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 12 },
   txRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 9 },
-  historyRow: { paddingVertical: 9, gap: 2 },
+  historyRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 9 },
   moreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 36 },
 });

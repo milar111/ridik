@@ -71,6 +71,20 @@ export type CrmEntitySummary = {
   lastInteractionAt: number | null;
 };
 
+/**
+ * What actually went with a deleted contact.
+ *
+ * The screen counts the same rows to ask the question; this is the answer, so
+ * a delete that took more than the user was told is visible rather than silent.
+ */
+export type EntityDeletion = {
+  entity: CrmEntity;
+  interactions: number;
+  commitments: number;
+  /** Tasks those commitments pointed at. The tasks themselves are left alone. */
+  keptTasks: number;
+};
+
 function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
@@ -152,6 +166,31 @@ export function createCrmRepository(db: RidikDatabase) {
     return row;
   }
 
+  /**
+   * The hand correction `getOrCreateEntity` will not make: that one only ever
+   * fills a blank, because a guess from a transcript must not overwrite what
+   * the user typed. This one is the user typing, so it overwrites — including
+   * with nothing, which clears the field rather than storing "": a blank
+   * context is a missing one everywhere else in the app.
+   */
+  async function setRelationshipContext(
+    entityId: string,
+    relationshipContext: string,
+  ): Promise<Result<CrmEntity>> {
+    const entity = await findEntityById(entityId);
+    if (!entity) return fail('not_found', 'I could not find that contact.');
+
+    const context = relationshipContext.trim() || null;
+    if (context === entity.relationshipContext) return ok(entity);
+
+    const at = now();
+    await db
+      .update(crmEntities)
+      .set({ relationshipContext: context, updatedAt: at })
+      .where(eq(crmEntities.id, entityId));
+    return ok({ ...entity, relationshipContext: context, updatedAt: at });
+  }
+
   async function addAlias(entityId: string, alias: string): Promise<Result<CrmEntity>> {
     const trimmed = alias.trim();
     if (!trimmed) return fail('invalid_input', 'That alias is empty.');
@@ -171,6 +210,78 @@ export function createCrmRepository(db: RidikDatabase) {
       .set({ aliases: next, updatedAt: at })
       .where(eq(crmEntities.id, entityId));
     return ok({ ...entity, aliases: next, updatedAt: at });
+  }
+
+  /** Matched the way lookups match, so the chip the user tapped is the one that goes. */
+  async function removeAlias(entityId: string, alias: string): Promise<Result<CrmEntity>> {
+    const entity = await findEntityById(entityId);
+    if (!entity) return fail('not_found', 'I could not find that contact.');
+
+    const aliases = parseAliases(entity.aliases);
+    const target = normalise(alias);
+    const remaining = aliases.filter((a) => normalise(a) !== target);
+    // `updatedAt` breaks ties in the people list; removing an alias that was
+    // never there must not push the contact up it.
+    if (remaining.length === aliases.length) return ok(entity);
+
+    const at = now();
+    const next = remaining.length > 0 ? JSON.stringify(remaining) : null;
+    await db
+      .update(crmEntities)
+      .set({ aliases: next, updatedAt: at })
+      .where(eq(crmEntities.id, entityId));
+    return ok({ ...entity, aliases: next, updatedAt: at });
+  }
+
+  /**
+   * Removes a contact and the history that is theirs.
+   *
+   * Interactions and commitments belong to the person and cascade with the row.
+   * A task a commitment pointed at does not: it stands on its own in the task
+   * list, and the only thing that goes is the reference the commitment held.
+   * Ledger entries are matched by name rather than linked, so they stay too.
+   *
+   * Irreversible, and voice mishears names — the caller must have asked first.
+   */
+  async function deleteEntity(
+    id: string,
+    options: { confirmed?: boolean } = {},
+  ): Promise<Result<EntityDeletion>> {
+    if (options.confirmed !== true) {
+      return fail('invalid_input', 'Deleting a contact needs an explicit confirmation.', {
+        details: { requires: 'confirmation', entityId: id },
+      });
+    }
+    const entity = await findEntityById(id);
+    if (!entity) return fail('not_found', 'I could not find that contact.');
+
+    // The counts and the delete are one unit: what is reported back is exactly
+    // what went, not what was there a statement earlier.
+    db.$client.execSync('BEGIN');
+    try {
+      const commitments = await db
+        .select({ taskId: crmCommitments.taskId })
+        .from(crmCommitments)
+        .where(eq(crmCommitments.entityId, id));
+      const [interactions] = await db
+        .select({ count: sql<number>`count(*)`.mapWith(Number) })
+        .from(crmInteractions)
+        .where(eq(crmInteractions.entityId, id));
+
+      await db.delete(crmEntities).where(eq(crmEntities.id, id));
+
+      db.$client.execSync('COMMIT');
+      return ok({
+        entity,
+        interactions: interactions?.count ?? 0,
+        commitments: commitments.length,
+        keptTasks: new Set(commitments.map((c) => c.taskId).filter((t): t is string => t !== null))
+          .size,
+      });
+    } catch (error) {
+      db.$client.execSync('ROLLBACK');
+      throw error;
+    }
   }
 
   async function resolveEntity(query: string): Promise<Result<CrmEntity>> {
@@ -281,6 +392,16 @@ export function createCrmRepository(db: RidikDatabase) {
     }
   }
 
+  /** The interaction goes; the contact it was logged against stays. */
+  async function removeInteraction(id: string): Promise<Result<CrmInteraction>> {
+    const rows = await db.select().from(crmInteractions).where(eq(crmInteractions.id, id)).limit(1);
+    const existing = rows[0];
+    if (!existing) return fail('not_found', 'I could not find that interaction.');
+
+    await db.delete(crmInteractions).where(eq(crmInteractions.id, id));
+    return ok(existing);
+  }
+
   async function completeCommitment(
     id: string,
     completed = true,
@@ -295,6 +416,20 @@ export function createCrmRepository(db: RidikDatabase) {
       .set({ isCompleted: completed, completedAt })
       .where(eq(crmCommitments.id, id));
     return ok({ ...existing, isCompleted: completed, completedAt });
+  }
+
+  /**
+   * Drops a promise. A task linked to it was created alongside the commitment
+   * but is a row of the user's own; it stays, and loses only the reference the
+   * commitment held.
+   */
+  async function removeCommitment(id: string): Promise<Result<CrmCommitment>> {
+    const rows = await db.select().from(crmCommitments).where(eq(crmCommitments.id, id)).limit(1);
+    const existing = rows[0];
+    if (!existing) return fail('not_found', 'I could not find that commitment.');
+
+    await db.delete(crmCommitments).where(eq(crmCommitments.id, id));
+    return ok(existing);
   }
 
   // `is_completed` is nullable in the DDL, so NULL has to read as "open".
@@ -423,12 +558,17 @@ export function createCrmRepository(db: RidikDatabase) {
 
   return {
     getOrCreateEntity,
+    setRelationshipContext,
     addAlias,
+    removeAlias,
+    deleteEntity,
     resolveEntity,
     addCommitment,
     linkCommitmentTask,
     logInteraction,
+    removeInteraction,
     completeCommitment,
+    removeCommitment,
     listOpenCommitments,
     listCommitmentsFor,
     getEntityProfile,

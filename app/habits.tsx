@@ -203,10 +203,14 @@ function HabitCard({
     ]);
   };
 
-  const meta = [
-    habit.longestStreak > 0 ? `best ${habit.longestStreak}` : null,
-    habit.targetPerWeek ? `${habit.targetPerWeek}×/week` : null,
-  ].filter((part): part is string => part !== null);
+  // `targetPerWeek` used to be rendered here and never could be: the only
+  // writer is `getOrCreateHabit`'s options argument, and nothing — not the Add
+  // card, not the voice path's habit_log — ever passes one. The column and the
+  // repository option stay for a habit_create tool to use; the branch that
+  // could not fire does not.
+  const meta = [habit.longestStreak > 0 ? `best ${habit.longestStreak}` : null].filter(
+    (part): part is string => part !== null,
+  );
 
   return (
     <Card

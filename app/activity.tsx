@@ -1,8 +1,17 @@
 import { useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { now } from '@/core/clock';
 import { countLabel, truncate } from '@/core/format';
 import { ok, toAppError, type Result } from '@/core/result';
 import {
@@ -20,7 +29,7 @@ import {
 } from '@/core/time';
 import type { ActivityEntry } from '@/db/schema';
 import { copyToClipboard, shareAsFile, weeklyStandup } from '@/features/export';
-import { useActivitySummary, useRemoveActivityEntry } from '@/hooks';
+import { useActivitySummary, useLogActivity, useRemoveActivityEntry } from '@/hooks';
 import type { ActivitySummary } from '@/repositories/activity';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
@@ -30,6 +39,7 @@ import {
   Chip,
   Divider,
   EmptyState,
+  Input,
   Screen,
   Segmented,
   Txt,
@@ -57,13 +67,21 @@ function reason(error: unknown): string {
 
 export default function ActivityScreen() {
   const [period, setPeriod] = useState<Period>('week');
+  const [logging, setLogging] = useState(false);
 
   return (
-    <Screen back title="Activity">
+    <Screen
+      back
+      title="Activity"
+      right={
+        <Button icon="add" label="Add" size="sm" variant="primary" onPress={() => setLogging(true)} />
+      }
+    >
       <Segmented options={PERIODS} value={period} onChange={setPeriod} />
       <ErrorBoundary label="activity">
         <ActivityBody period={period} />
       </ErrorBoundary>
+      {logging ? <LogSheet onClose={() => setLogging(false)} /> : null}
     </Screen>
   );
 }
@@ -74,7 +92,7 @@ function ActivityBody({ period }: { period: Period }) {
   const toast = useToast();
 
   const range = useMemo(() => {
-    const at = Date.now();
+    const at = now();
     if (period === 'day') {
       const date = todayLocalDate(zone);
       return { from: date, to: date };
@@ -283,6 +301,131 @@ function EntryRow({
         </Txt>
       ) : null}
     </Pressable>
+  );
+}
+
+/**
+ * Logging by hand.
+ *
+ * `activity_log` writes and nothing in the LLM contract corrects, so a mis-heard
+ * entry could be deleted from a row here but never replaced — the screen could
+ * take rows away and not put one back. Description and duration are the whole
+ * form: `ActivityLogInput` also takes a habit name and a project id, and neither
+ * survives being typed. An unmatched habit name creates a second habit rather
+ * than failing, and a project id is not something a person knows.
+ */
+function LogSheet({ onClose }: { onClose: () => void }) {
+  const { colors, radius, spacing } = useTheme();
+  const insets = useSafeAreaInsets();
+  const toast = useToast();
+  const log = useLogActivity();
+
+  const [description, setDescription] = useState('');
+  const [minutes, setMinutes] = useState('');
+
+  const trimmed = description.trim();
+  const rawMinutes = minutes.trim();
+  // Blank is not an error: most of what gets logged has no clock on it.
+  const parsedMinutes = rawMinutes === '' ? null : Number(rawMinutes);
+  const minutesError =
+    parsedMinutes !== null && (!Number.isFinite(parsedMinutes) || parsedMinutes <= 0)
+      ? 'Minutes must be a number above zero.'
+      : null;
+  const invalid = trimmed === '' || minutesError !== null;
+
+  const submit = () => {
+    // The keyboard's Done key gets here without going past the disabled button.
+    if (invalid) return;
+    log.mutate(
+      {
+        description: trimmed,
+        // `duration_minutes` is an integer column, and a keyboard that offers a
+        // decimal point would otherwise write 45.5 into it.
+        durationMinutes: parsedMinutes === null ? undefined : Math.round(parsedMinutes),
+        // The feed defaults to 'voice' because that was the only way in for most
+        // of this app's life. This one was typed, and the row should say so.
+        source: 'manual',
+      },
+      {
+        onSuccess: () => {
+          toast.show({ message: 'Entry logged', tone: 'success' });
+          onClose();
+        },
+        onError: (error) =>
+          toast.show({ message: 'Could not log that', detail: reason(error), tone: 'danger' }),
+      },
+    );
+  };
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Close"
+        style={[StyleSheet.absoluteFill, { backgroundColor: colors.overlay }]}
+        onPress={onClose}
+      />
+      {/* A Modal is its own window on Android, so the activity's adjustResize
+          never reaches it and the keyboard covers the field it opened for.
+          `box-none` keeps the backdrop under this one tappable. */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.sheetWrap}
+        pointerEvents="box-none"
+      >
+        <View
+          style={[
+            styles.sheet,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              borderTopLeftRadius: radius.xl,
+              borderTopRightRadius: radius.xl,
+              paddingBottom: insets.bottom + spacing.md,
+            },
+          ]}
+        >
+          <Txt variant="heading">Log an entry</Txt>
+
+          <Input
+            label="What you did"
+            testID="activity-description"
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Rewrote the pump firmware"
+            autoFocus
+            returnKeyType="next"
+            error={
+              description.length > 0 && trimmed === '' ? 'An entry needs a description.' : undefined
+            }
+          />
+
+          <Input
+            label="Minutes (optional)"
+            testID="activity-minutes"
+            value={minutes}
+            onChangeText={setMinutes}
+            placeholder="45"
+            keyboardType="number-pad"
+            returnKeyType="done"
+            onSubmitEditing={submit}
+            error={minutesError ?? undefined}
+          />
+
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            <Button
+              label="Log entry"
+              variant="primary"
+              disabled={invalid}
+              loading={log.isPending}
+              onPress={submit}
+              style={{ flex: 1 }}
+            />
+            <Button label="Cancel" variant="ghost" onPress={onClose} />
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -19,9 +19,13 @@ const mockRepos = {
     listRecent: jest.fn(),
     monthlyTotals: jest.fn(),
     distinctCategories: jest.fn(),
+    addTransaction: jest.fn(),
   },
   crm: {
     listEntities: jest.fn(),
+  },
+  settings: {
+    getAll: jest.fn(),
   },
   habits: {
     listHabits: jest.fn(),
@@ -29,6 +33,7 @@ const mockRepos = {
   },
   activity: {
     summarise: jest.fn(),
+    log: jest.fn(),
   },
 };
 
@@ -149,7 +154,9 @@ beforeEach(() => {
   mockRepos.ledger.listRecent.mockResolvedValue([]);
   mockRepos.ledger.monthlyTotals.mockResolvedValue([]);
   mockRepos.ledger.distinctCategories.mockResolvedValue([]);
+  mockRepos.ledger.addTransaction.mockResolvedValue(transaction());
   mockRepos.crm.listEntities.mockResolvedValue([]);
+  mockRepos.settings.getAll.mockResolvedValue({ primaryCurrency: 'EUR' });
   mockRepos.habits.listHabits.mockResolvedValue([]);
   mockRepos.habits.habitHistory.mockResolvedValue([]);
   mockRepos.activity.summarise.mockResolvedValue(emptySummary());
@@ -245,6 +252,89 @@ describe('ledger screen', () => {
     await fireEvent.press(await screen.findByLabelText('Delete'));
     expect(alert.mock.calls[0]?.[0]).toBe('Delete this transaction?');
   });
+
+  /* The voice executor was the only writer of a transaction, so an install
+     without an LLM key had a Money screen it could read and never add to,
+     coaching a sentence that nothing was listening for. */
+  it('opens a compose sheet from the header without a word being spoken', async () => {
+    mockRepos.ledger.distinctCategories.mockResolvedValue(['filament']);
+
+    await wrap(<LedgerScreen />);
+    expect(screen.queryByText('New transaction')).toBeNull();
+
+    await fireEvent.press(await screen.findByLabelText('Add'));
+
+    expect(screen.getByText('New transaction')).toBeTruthy();
+    // The same fields as the edit sheet, offering the same spellings, so a
+    // typed row and a spoken one group together instead of forking the chart.
+    expect(await screen.findByLabelText('filament')).toBeTruthy();
+    expect(screen.getByText('PERSON OR PLACE')).toBeTruthy();
+    expect(screen.getByText('WHEN')).toBeTruthy();
+  });
+
+  it('adds what was typed, in the currency the settings name', async () => {
+    // Not EUR: the amount carries whatever the setting says, and nothing on the
+    // sheet offers a second place to get that wrong.
+    mockRepos.settings.getAll.mockResolvedValue({ primaryCurrency: 'BGN' });
+    mockRepos.ledger.distinctCategories.mockResolvedValue(['filament']);
+
+    await wrap(<LedgerScreen />);
+    await fireEvent.press(await screen.findByLabelText('Add'));
+
+    expect(await screen.findByText('AMOUNT (BGN)')).toBeTruthy();
+    await fireEvent.changeText(screen.getByTestId('transaction-amount'), '12,50');
+    await fireEvent.changeText(screen.getByTestId('transaction-description'), 'Spool of PLA');
+    await fireEvent.press(screen.getByLabelText('filament'));
+    await fireEvent.press(screen.getByText('Income'));
+    await fireEvent.press(screen.getByLabelText('Yesterday'));
+    await fireEvent.press(screen.getByLabelText('Add transaction'));
+
+    await waitFor(() => expect(mockRepos.ledger.addTransaction).toHaveBeenCalled());
+    const input = mockRepos.ledger.addTransaction.mock.calls[0][0];
+    expect(input).toMatchObject({
+      // A comma is what a European keyboard offers first.
+      amount: 12.5,
+      currency: 'BGN',
+      category: 'filament',
+      description: 'Spool of PLA',
+      direction: 'income',
+    });
+    // The day is a named choice, never a typed date: it can only ever land on
+    // the day it says.
+    expect(epochToLocal(input.at, ZONE).toISODate()).toBe(YESTERDAY);
+    // The sheet closes on the write, not before it.
+    await waitFor(() => expect(screen.queryByText('New transaction')).toBeNull());
+  });
+
+  it('refuses an amount that is not a number rather than writing a zero', async () => {
+    mockRepos.ledger.distinctCategories.mockResolvedValue(['filament']);
+
+    await wrap(<LedgerScreen />);
+    await fireEvent.press(await screen.findByLabelText('Add'));
+    await fireEvent.changeText(screen.getByTestId('transaction-amount'), 'twelve');
+    await fireEvent.press(await screen.findByLabelText('filament'));
+    await fireEvent.press(screen.getByLabelText('Add transaction'));
+
+    expect(mockRepos.ledger.addTransaction).not.toHaveBeenCalled();
+    // Still open, over everything that was typed: a rejected save that also
+    // threw the entry away would be worse than the bad amount.
+    expect(screen.getByText('New transaction')).toBeTruthy();
+    expect(screen.getByTestId('transaction-amount').props.value).toBe('twelve');
+  });
+
+  it('refuses a transaction with no category, which is what the breakdown groups on', async () => {
+    mockRepos.ledger.distinctCategories.mockResolvedValue(['filament']);
+
+    await wrap(<LedgerScreen />);
+    await fireEvent.press(await screen.findByLabelText('Add'));
+    await fireEvent.changeText(screen.getByTestId('transaction-amount'), '12.50');
+    // Offered and left alone: nothing is picked for the user.
+    expect(await screen.findByLabelText('filament')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Add transaction'));
+
+    expect(mockRepos.ledger.addTransaction).not.toHaveBeenCalled();
+    expect(screen.getByText('New transaction')).toBeTruthy();
+  });
 });
 
 describe('habits screen', () => {
@@ -294,25 +384,32 @@ describe('habits screen', () => {
 });
 
 describe('activity screen', () => {
+  const ENTRY = {
+    id: 'e1',
+    habitId: null,
+    description: 'Rewrote the pump firmware',
+    durationMinutes: 90,
+    loggedAt: Date.now(),
+    projectId: 'p1',
+    localDate: TODAY,
+    source: 'voice',
+  };
+
   function withOneEntry() {
-    const entry = {
-      id: 'e1',
-      habitId: null,
-      description: 'Rewrote the pump firmware',
-      durationMinutes: 90,
-      loggedAt: Date.now(),
-      projectId: 'p1',
-      localDate: TODAY,
-      source: 'voice',
-    };
     mockRepos.activity.summarise.mockResolvedValue(
       emptySummary({
-        entries: [entry],
+        entries: [ENTRY],
         totalMinutes: 90,
-        byDay: [{ date: TODAY, entries: [entry], minutes: 90 }],
+        byDay: [{ date: TODAY, entries: [ENTRY], minutes: 90 }],
         byProject: [{ id: 'p1', name: 'Pump', count: 1, minutes: 90 }],
       }),
     );
+  }
+
+  /** Opens the header's log sheet on an otherwise empty period. */
+  async function openLogSheet() {
+    await wrap(<ActivityScreen />);
+    await fireEvent.press(await screen.findByLabelText('Add'));
   }
 
   it('summarises the period and offers the export once there is something to export', async () => {
@@ -371,5 +468,50 @@ describe('activity screen', () => {
       nativeEvent: { actionName: 'longpress' },
     });
     expect(alert.mock.calls[0]?.[0]).toBe('Delete this entry?');
+  });
+
+  /* Two fields and no more. `ActivityLogInput` also takes a habit name and a
+     project id: a typed habit name creates a second habit instead of failing,
+     and a project id is not something anyone can type. */
+  it('asks for a description and a duration when an entry is added', async () => {
+    await openLogSheet();
+
+    expect(screen.getByText('Log an entry')).toBeTruthy();
+    expect(screen.getByTestId('activity-description')).toBeTruthy();
+    expect(screen.getByTestId('activity-minutes')).toBeTruthy();
+    expect(screen.queryByText('HABIT')).toBeNull();
+    expect(screen.queryByText('PROJECT')).toBeNull();
+  });
+
+  it('logs what was typed, with the duration in minutes', async () => {
+    mockRepos.activity.log.mockResolvedValue(ENTRY);
+
+    await openLogSheet();
+    await fireEvent.changeText(screen.getByTestId('activity-description'), 'Soldered the board');
+    await fireEvent.changeText(screen.getByTestId('activity-minutes'), '45');
+    await fireEvent.press(screen.getByLabelText('Log entry'));
+
+    await waitFor(() =>
+      expect(mockRepos.activity.log).toHaveBeenCalledWith({
+        description: 'Soldered the board',
+        durationMinutes: 45,
+        // The feed defaults to 'voice' because that was the only way in for
+        // most of this app's life. This one was typed and has to say so.
+        source: 'manual',
+      }),
+    );
+  });
+
+  /* The repository refuses a blank description by throwing, which would reach
+     the user as a failed write of something they never asked to write. */
+  it('refuses an entry with no description', async () => {
+    await openLogSheet();
+    await fireEvent.changeText(screen.getByTestId('activity-minutes'), '45');
+
+    const submit = screen.getByLabelText('Log entry');
+    expect(submit.props.accessibilityState).toMatchObject({ disabled: true });
+
+    await fireEvent.press(submit);
+    expect(mockRepos.activity.log).not.toHaveBeenCalled();
   });
 });

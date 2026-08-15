@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -11,17 +11,27 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { now } from '@/core/clock';
 import { countLabel, formatMoney, percent } from '@/core/format';
 import { toAppError } from '@/core/result';
-import { currentZone, epochToLocal, formatDayHeading, formatTime, localDateOf } from '@/core/time';
+import {
+  currentZone,
+  epochToLocal,
+  formatDayHeading,
+  formatTime,
+  localDateOf,
+  localToEpoch,
+} from '@/core/time';
 import type { Transaction } from '@/db/schema';
 import {
+  useAddTransaction,
   useCrmEntities,
   useDeleteTransaction,
   useLedgerCategories,
   useLedgerQuery,
   useMonthlyTotals,
   useRecentTransactions,
+  useSetting,
   useUpdateTransaction,
 } from '@/hooks';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
@@ -60,6 +70,16 @@ const RECENT_WINDOW = 500;
 
 const TREND_MONTHS = 6;
 
+/**
+ * How far back the compose sheet will date a transaction.
+ *
+ * Spending is remembered rather than filed as it happens, so the last few days
+ * have to be reachable — but not by a typed date, which has no map to be caught
+ * against and no field on the edit sheet to correct it in afterwards. Four days
+ * back is as far as named days stay unambiguous.
+ */
+const BACKDATE_DAYS = 4;
+
 /** `formatMoney` puts the minus inside the symbol ("€-190"); a net needs it outside. */
 function signedMoney(value: number, currency: string): string {
   const magnitude = formatMoney(Math.abs(value), currency);
@@ -70,15 +90,31 @@ function reason(error: unknown): string {
   return toAppError(error).userMessage;
 }
 
+/** Comma decimals are what a European keyboard offers first. */
+function parseAmount(text: string): number | null {
+  const parsed = Number(text.replace(',', '.'));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 export default function LedgerScreen() {
   const [period, setPeriod] = useState<Period>('month');
+  const [adding, setAdding] = useState(false);
 
   return (
-    <Screen back title="Ledger">
+    <Screen
+      back
+      title="Ledger"
+      right={
+        <Button icon="add" label="Add" size="sm" variant="primary" onPress={() => setAdding(true)} />
+      }
+    >
       <Segmented options={PERIODS} value={period} onChange={setPeriod} />
       <ErrorBoundary label="ledger">
         <LedgerBody period={period} />
       </ErrorBoundary>
+      {/* Outside the boundary: a totals card that throws must not take the only
+          way to write a row down with it. */}
+      {adding ? <AddSheet onClose={() => setAdding(false)} /> : null}
     </Screen>
   );
 }
@@ -512,8 +548,7 @@ function EditSheet({
   onClose: () => void;
   onDelete: () => void;
 }) {
-  const { colors, radius, spacing } = useTheme();
-  const insets = useSafeAreaInsets();
+  const { spacing } = useTheme();
   const toast = useToast();
   const update = useUpdateTransaction();
   const categories = useLedgerCategories();
@@ -531,9 +566,8 @@ function EditSheet({
   );
 
   const save = () => {
-    // Comma decimals are what a European keyboard offers first.
-    const parsed = Number(amount.replace(',', '.'));
-    if (!Number.isFinite(parsed) || parsed <= 0) {
+    const parsed = parseAmount(amount);
+    if (parsed === null) {
       toast.show({ message: 'That amount is not a number', tone: 'danger' });
       return;
     }
@@ -564,6 +598,245 @@ function EditSheet({
   };
 
   return (
+    <Sheet
+      title="Edit transaction"
+      onClose={onClose}
+      footer={
+        <>
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            <Button
+              label="Save"
+              variant="primary"
+              onPress={save}
+              loading={update.isPending}
+              style={{ flex: 1 }}
+            />
+            <Button label="Cancel" variant="ghost" onPress={onClose} />
+          </View>
+
+          <Button label="Delete" icon="trash-outline" variant="danger" fullWidth onPress={onDelete} />
+        </>
+      }
+    >
+      <Input
+        label={`Amount (${tx.currency})`}
+        value={amount}
+        onChangeText={setAmount}
+        keyboardType="decimal-pad"
+      />
+
+      <ChipField
+        label="Category"
+        options={categories.data ?? []}
+        value={category}
+        onChange={setCategory}
+        placeholder="New category"
+      />
+
+      <Input label="Description" value={description} onChangeText={setDescription} />
+
+      <ChipField
+        label="Person or place"
+        options={entityNames}
+        value={entity}
+        onChange={setEntity}
+        noneLabel="None"
+        placeholder="New name"
+      />
+
+      <Segmented
+        value={direction}
+        onChange={setDirection}
+        options={[
+          { value: 'expense', label: 'Expense' },
+          { value: 'income', label: 'Income' },
+        ]}
+      />
+    </Sheet>
+  );
+}
+
+/**
+ * The typed way in.
+ *
+ * The voice executor was the only writer, so an install without an LLM key had
+ * a Money screen it could read and never add to. Same fields as the edit sheet,
+ * in the same order, plus the one thing an edit does not need: which day this
+ * happened on, because a spend is usually written down after the fact.
+ */
+function AddSheet({ onClose }: { onClose: () => void }) {
+  const { spacing } = useTheme();
+  const zone = currentZone();
+  const toast = useToast();
+  const add = useAddTransaction();
+  const categories = useLedgerCategories();
+  const entities = useCrmEntities();
+  // No picker beside it, for the same reason the edit sheet has none: a
+  // per-row currency is a second place to get it wrong, and the setting
+  // already answers the question for every row this screen will ever add.
+  const currency = useSetting('primaryCurrency').value;
+
+  const [amount, setAmount] = useState('');
+  const [category, setCategory] = useState('');
+  const [description, setDescription] = useState('');
+  const [entity, setEntity] = useState('');
+  const [direction, setDirection] = useState<Direction>('expense');
+  const [daysBack, setDaysBack] = useState(0);
+
+  const entityNames = useMemo(
+    () => (entities.data ?? []).map((summary) => summary.entity.name),
+    [entities.data],
+  );
+
+  const days = useMemo(() => dayLabels(zone), [zone]);
+
+  const save = () => {
+    const parsed = parseAmount(amount);
+    if (parsed === null) {
+      toast.show({ message: 'That amount is not a number', tone: 'danger' });
+      return;
+    }
+    if (!category.trim()) {
+      toast.show({ message: 'Pick a category', tone: 'danger' });
+      return;
+    }
+    add.mutate(
+      {
+        amount: parsed,
+        currency,
+        category,
+        description,
+        entityName: entity,
+        direction,
+        at: epochForDay(daysBack, zone),
+        zone,
+      },
+      {
+        onSuccess: () => {
+          toast.show({ message: 'Transaction added', tone: 'success' });
+          onClose();
+        },
+        onError: (error) =>
+          toast.show({ message: 'Could not save that', detail: reason(error), tone: 'danger' }),
+      },
+    );
+  };
+
+  return (
+    <Sheet
+      title="New transaction"
+      onClose={onClose}
+      footer={
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+          <Button
+            label="Add transaction"
+            variant="primary"
+            onPress={save}
+            loading={add.isPending}
+            style={{ flex: 1 }}
+          />
+          <Button label="Cancel" variant="ghost" onPress={onClose} />
+        </View>
+      }
+    >
+      <Input
+        label={`Amount (${currency})`}
+        testID="transaction-amount"
+        value={amount}
+        onChangeText={setAmount}
+        keyboardType="decimal-pad"
+        autoFocus
+      />
+
+      <ChipField
+        label="Category"
+        options={categories.data ?? []}
+        value={category}
+        onChange={setCategory}
+        placeholder="New category"
+      />
+
+      <Input
+        label="Description"
+        testID="transaction-description"
+        value={description}
+        onChangeText={setDescription}
+      />
+
+      <ChipField
+        label="Person or place"
+        options={entityNames}
+        value={entity}
+        onChange={setEntity}
+        noneLabel="None"
+        placeholder="New name"
+      />
+
+      <Segmented
+        value={direction}
+        onChange={setDirection}
+        options={[
+          { value: 'expense', label: 'Expense' },
+          { value: 'income', label: 'Income' },
+        ]}
+      />
+
+      <View style={{ gap: 5 }}>
+        <Txt variant="micro" tone="tertiary" style={styles.fieldLabel}>
+          WHEN
+        </Txt>
+        <View style={styles.chipRow}>
+          {days.map((label, back) => (
+            <Chip
+              key={label}
+              label={label}
+              size="sm"
+              selected={back === daysBack}
+              onPress={() => setDaysBack(back)}
+            />
+          ))}
+        </View>
+      </View>
+    </Sheet>
+  );
+}
+
+/** The chips of the WHEN field: today first, then back through named days. */
+function dayLabels(zone: string): string[] {
+  const today = epochToLocal(now(), zone);
+  return Array.from({ length: BACKDATE_DAYS + 1 }, (_, back) =>
+    back === 0 ? 'Today' : back === 1 ? 'Yesterday' : today.minus({ days: back }).toFormat('cccc'),
+  );
+}
+
+/**
+ * Today is the moment of saving, so the row lands in the feed where it
+ * happened. An earlier day is noon rather than midnight, because a zone that
+ * skips its own midnight on a switchover would drop the row into the day
+ * before.
+ */
+function epochForDay(back: number, zone: string): number {
+  const at = now();
+  if (back === 0) return at;
+  const date = epochToLocal(at, zone).minus({ days: back }).toISODate();
+  return date === null ? at : localToEpoch(`${date}T12:00`, zone);
+}
+
+/** The chrome both transaction sheets wear, so neither can drift from the other. */
+function Sheet({
+  title,
+  onClose,
+  footer,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  footer: ReactNode;
+  children: ReactNode;
+}) {
+  const { colors, radius, spacing } = useTheme();
+  const insets = useSafeAreaInsets();
+  return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable
         accessibilityRole="button"
@@ -571,6 +844,8 @@ function EditSheet({
         style={[StyleSheet.absoluteFill, { backgroundColor: colors.overlay }]}
         onPress={onClose}
       />
+      {/* A Modal is its own window on Android, so the activity's adjustResize
+          never reaches it and the keyboard sits over the field it just opened. */}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.sheetWrap}
@@ -588,7 +863,7 @@ function EditSheet({
             },
           ]}
         >
-          <Txt variant="heading">Edit transaction</Txt>
+          <Txt variant="heading">{title}</Txt>
 
           <ScrollView
             style={{ maxHeight: 420 }}
@@ -596,54 +871,10 @@ function EditSheet({
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <Input
-              label={`Amount (${tx.currency})`}
-              value={amount}
-              onChangeText={setAmount}
-              keyboardType="decimal-pad"
-            />
-
-            <ChipField
-              label="Category"
-              options={categories.data ?? []}
-              value={category}
-              onChange={setCategory}
-              placeholder="New category"
-            />
-
-            <Input label="Description" value={description} onChangeText={setDescription} />
-
-            <ChipField
-              label="Person or place"
-              options={entityNames}
-              value={entity}
-              onChange={setEntity}
-              noneLabel="None"
-              placeholder="New name"
-            />
-
-            <Segmented
-              value={direction}
-              onChange={setDirection}
-              options={[
-                { value: 'expense', label: 'Expense' },
-                { value: 'income', label: 'Income' },
-              ]}
-            />
+            {children}
           </ScrollView>
 
-          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-            <Button
-              label="Save"
-              variant="primary"
-              onPress={save}
-              loading={update.isPending}
-              style={{ flex: 1 }}
-            />
-            <Button label="Cancel" variant="ghost" onPress={onClose} />
-          </View>
-
-          <Button label="Delete" icon="trash-outline" variant="danger" fullWidth onPress={onDelete} />
+          {footer}
         </View>
       </KeyboardAvoidingView>
     </Modal>

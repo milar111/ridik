@@ -9,6 +9,7 @@ import { createHabitsRepository, type HabitsRepository } from '@/repositories/ha
 const ZONE = 'Europe/Sofia';
 const at = (local: string): number => localToEpoch(local, ZONE);
 
+
 describe('activity repository', () => {
   let t: TestDatabase;
   let repo: ActivityRepository;
@@ -34,6 +35,26 @@ describe('activity repository', () => {
     await t.db.insert(projects).values({ id, name, createdAt: stamp, updatedAt: stamp });
     return id;
   }
+
+  describe('provenance', () => {
+    it('records how the entry got here, defaulting to spoken', async () => {
+      const spoken = await repo.log({ description: 'read a chapter' });
+      const typed = await repo.log({ description: 'fixed the printer', source: 'manual' });
+
+      const rows = t.client.getAllSync<{ description: string; source: string }>(
+        'SELECT description, source FROM activity_feed',
+        [],
+      );
+      const bySource = new Map(rows.map((r) => [r.description, r.source]));
+
+      expect(spoken.description).toBe('read a chapter');
+      expect(typed.description).toBe('fixed the printer');
+      // The feed used to hardcode 'voice', so a typed entry claimed the user had
+      // said it. Nothing reads this column yet; it is still the wrong fact to store.
+      expect(bySource.get('read a chapter')).toBe('voice');
+      expect(bySource.get('fixed the printer')).toBe('manual');
+    });
+  });
 
   it('stamps the local date from the epoch in the user zone', async () => {
     const entry = await repo.log({ description: 'Wrote the report', durationMinutes: 45 });

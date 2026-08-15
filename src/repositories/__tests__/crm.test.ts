@@ -1,8 +1,9 @@
 import { freezeClock } from '@/core/clock';
 import { localToEpoch, setZoneOverride } from '@/core/time';
 import { createTestDatabase, type TestDatabase } from '@/db/testing';
-import { createCrmRepository, type CrmRepository } from '@/repositories/crm';
+import { createCrmRepository, parseAliases, type CrmRepository } from '@/repositories/crm';
 import { createLedgerRepository, type LedgerRepository } from '@/repositories/ledger';
+import { createTasksRepository, type TasksRepository } from '@/repositories/tasks';
 
 const SOFIA = 'Europe/Sofia';
 const NOW = localToEpoch('2026-03-15T12:00', SOFIA);
@@ -12,12 +13,14 @@ describe('crm repository', () => {
   let t: TestDatabase;
   let crm: CrmRepository;
   let ledger: LedgerRepository;
+  let tasks: TasksRepository;
   let restoreClock: () => void;
 
   beforeEach(() => {
     t = createTestDatabase();
     crm = createCrmRepository(t.db);
     ledger = createLedgerRepository(t.db);
+    tasks = createTasksRepository(t.db);
     restoreClock = freezeClock(NOW);
     setZoneOverride(SOFIA);
   });
@@ -385,5 +388,196 @@ describe('crm repository', () => {
     expect(listed[0]!.openCommitments).toBe(0);
     expect(listed[2]!.lastInteractionAt).toBeNull();
     expect(commitments.entity.name).toBe('Old Friend');
+  });
+
+  /* -------------------------------------------------------------- hand edits */
+
+  it('overwrites a relationship context by hand, and clears it', async () => {
+    const ivan = await crm.getOrCreateEntity('Ivan', { relationshipContext: 'neighbour' });
+
+    const set = await crm.setRelationshipContext(ivan.id, '  CNC shop  ');
+    if (!set.ok) throw set.error;
+    expect(set.value.relationshipContext).toBe('CNC shop');
+
+    const cleared = await crm.setRelationshipContext(ivan.id, '   ');
+    if (!cleared.ok) throw cleared.error;
+    // Blank is missing everywhere else in the app, so it is NULL and never "".
+    expect(cleared.value.relationshipContext).toBeNull();
+    const profile = await crm.getEntityProfile(ivan.id);
+    if (!profile.ok) throw profile.error;
+    expect(profile.value.entity.relationshipContext).toBeNull();
+
+    const missing = await crm.setRelationshipContext('nope', 'whoever');
+    expect(missing.ok).toBe(false);
+    if (missing.ok) throw new Error('expected a failure');
+    expect(missing.error.code).toBe('not_found');
+  });
+
+  it('removes an alias the way a lookup would have matched it', async () => {
+    const ivan = await crm.getOrCreateEntity('Ivan Petrov');
+    await crm.addAlias(ivan.id, 'Vanya');
+    await crm.addAlias(ivan.id, 'Vanko');
+
+    const removed = await crm.removeAlias(ivan.id, 'VANYA');
+    if (!removed.ok) throw removed.error;
+    expect(parseAliases(removed.value.aliases)).toEqual(['Vanko']);
+
+    // An alias nobody has must not touch the row: `updatedAt` orders the list.
+    const later = freezeClock(NOW + 60_000);
+    const noop = await crm.removeAlias(ivan.id, 'Nobody');
+    if (!noop.ok) throw noop.error;
+    expect(noop.value.updatedAt).toBe(removed.value.updatedAt);
+    later();
+
+    const emptied = await crm.removeAlias(ivan.id, 'Vanko');
+    if (!emptied.ok) throw emptied.error;
+    expect(emptied.value.aliases).toBeNull();
+
+    // The name is gone from the contact, so it is free to be someone else.
+    const stranger = await crm.getOrCreateEntity('Vanya');
+    expect(stranger.id).not.toBe(ivan.id);
+
+    const gone = await crm.removeAlias('nope', 'Vanya');
+    expect(gone.ok).toBe(false);
+    if (gone.ok) throw new Error('expected a failure');
+    expect(gone.error.code).toBe('not_found');
+  });
+
+  /* ----------------------------------------------------------------- deletes */
+
+  it('deletes one interaction and leaves the contact and the rest standing', async () => {
+    const first = await crm.logInteraction({ entityName: 'Ivan', summary: 'coffee' });
+    await crm.logInteraction({ entityName: 'Ivan', summary: 'lent him the drill' });
+
+    const removed = await crm.removeInteraction(first.interaction.id);
+    if (!removed.ok) throw removed.error;
+    expect(removed.value.summary).toBe('coffee');
+
+    const profile = await crm.getEntityProfile(first.entity.id);
+    if (!profile.ok) throw profile.error;
+    expect(profile.value.interactions.map((i) => i.summary)).toEqual(['lent him the drill']);
+    expect(await crm.listEntities()).toHaveLength(1);
+
+    const missing = await crm.removeInteraction('nope');
+    expect(missing.ok).toBe(false);
+    if (missing.ok) throw new Error('expected a failure');
+    expect(missing.error.code).toBe('not_found');
+  });
+
+  it('deletes one commitment and leaves the task it was linked to alone', async () => {
+    const task = await tasks.createTask({ title: 'Send the CAD files' });
+    const { entity, commitment } = await crm.addCommitment({
+      entityName: 'Ivan',
+      commitmentText: 'send the CAD files',
+    });
+    await crm.linkCommitmentTask(commitment.id, task.id);
+    const kept = await crm.addCommitment({ entityName: 'Ivan', commitmentText: 'return the drill' });
+
+    const removed = await crm.removeCommitment(commitment.id);
+    if (!removed.ok) throw removed.error;
+    expect(removed.value.taskId).toBe(task.id);
+
+    expect((await crm.listCommitmentsFor(entity.id)).map((c) => c.id)).toEqual([
+      kept.commitment.id,
+    ]);
+    // The promise was the contact's; the task is the user's own work.
+    expect(await tasks.getTask(task.id)).not.toBeNull();
+
+    const missing = await crm.removeCommitment('nope');
+    expect(missing.ok).toBe(false);
+    if (missing.ok) throw new Error('expected a failure');
+    expect(missing.error.code).toBe('not_found');
+  });
+
+  it('will not delete a contact that has not been confirmed', async () => {
+    const { entity } = await crm.addCommitment({
+      entityName: 'Ivan',
+      commitmentText: 'return the drill',
+      interactionSummary: 'Borrowed the drill.',
+    });
+
+    const refused = await crm.deleteEntity(entity.id);
+    expect(refused.ok).toBe(false);
+    if (refused.ok) throw new Error('expected a failure');
+    expect(refused.error.code).toBe('invalid_input');
+
+    expect(await crm.listEntities()).toHaveLength(1);
+    expect(await crm.listCommitmentsFor(entity.id)).toHaveLength(1);
+
+    const missing = await crm.deleteEntity('nope', { confirmed: true });
+    expect(missing.ok).toBe(false);
+    if (missing.ok) throw new Error('expected a failure');
+    expect(missing.error.code).toBe('not_found');
+  });
+
+  it('takes a deleted contact’s history with them, and nothing else', async () => {
+    const task = await tasks.createTask({ title: 'Send the CAD files' });
+    const { entity, commitment } = await crm.addCommitment({
+      entityName: 'Ivan Petrov',
+      commitmentText: 'send the CAD files',
+      interactionSummary: 'Promised the CAD files by Friday.',
+    });
+    await crm.linkCommitmentTask(commitment.id, task.id);
+    await crm.logInteraction({ entityName: 'Ivan Petrov', summary: 'coffee' });
+    const closed = await crm.addCommitment({
+      entityName: 'Ivan Petrov',
+      commitmentText: 'paid back',
+    });
+    await crm.completeCommitment(closed.commitment.id);
+    await ledger.addTransaction({
+      amount: 40,
+      currency: 'EUR',
+      category: 'Rent',
+      entityName: 'Ivan Petrov',
+      direction: 'expense',
+    });
+
+    // Somebody else with a history of their own: the cascade stops at the row
+    // it was handed.
+    const maria = await crm.logInteraction({ entityName: 'Maria', summary: 'lunch' });
+    await crm.addCommitment({ entityName: 'Maria', commitmentText: 'lend her the drill' });
+
+    const deleted = await crm.deleteEntity(entity.id, { confirmed: true });
+    if (!deleted.ok) throw deleted.error;
+    expect(deleted.value.entity.name).toBe('Ivan Petrov');
+    // Exactly what the screen said would go: two interactions, two commitments.
+    expect(deleted.value).toMatchObject({ interactions: 2, commitments: 2, keptTasks: 1 });
+
+    const gone = await crm.getEntityProfile(entity.id);
+    expect(gone.ok).toBe(false);
+    expect(await crm.listCommitmentsFor(entity.id)).toEqual([]);
+    expect((await crm.listEntities()).map((e) => e.entity.name)).toEqual(['Maria']);
+
+    // A linked task is the user's own work and a ledger entry is their own
+    // record; neither belongs to the contact.
+    expect(await tasks.getTask(task.id)).not.toBeNull();
+    expect(await ledger.listForEntity('Ivan Petrov')).toHaveLength(1);
+
+    const survivor = await crm.getEntityProfile(maria.entity.id);
+    if (!survivor.ok) throw survivor.error;
+    expect(survivor.value.interactions).toHaveLength(1);
+    expect(survivor.value.openCommitments).toHaveLength(1);
+    expect(await crm.listOpenCommitments()).toHaveLength(1);
+  });
+
+  it('leaves the contact untouched when the delete cannot finish', async () => {
+    const { entity } = await crm.addCommitment({
+      entityName: 'Ivan',
+      commitmentText: 'return the drill',
+      interactionSummary: 'Borrowed the drill.',
+    });
+    t.client.execSync(
+      `CREATE TRIGGER reject_deletes BEFORE DELETE ON crm_entities
+       BEGIN SELECT RAISE(ABORT, 'disk full'); END;`,
+    );
+
+    await expect(crm.deleteEntity(entity.id, { confirmed: true })).rejects.toThrow(/disk full/);
+
+    t.client.execSync('DROP TRIGGER reject_deletes');
+    expect(await crm.listEntities()).toHaveLength(1);
+    expect(await crm.listCommitmentsFor(entity.id)).toHaveLength(1);
+    const profile = await crm.getEntityProfile(entity.id);
+    if (!profile.ok) throw profile.error;
+    expect(profile.value.interactions).toHaveLength(1);
   });
 });
