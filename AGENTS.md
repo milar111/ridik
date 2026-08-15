@@ -195,17 +195,54 @@ adb logcat -d -s ReactNativeJS -s AndroidRuntime
 
 A change is not verified until it has run on both.
 
+## Widgets
+
+One payload, five faces per platform. `src/services/widgets/snapshot.ts` builds it; everything
+a widget draws is computed there, where it can be tested under plain Node, because neither
+WidgetKit nor an `AppWidgetProvider` can run this app's JavaScript or open its SQLite file.
+
+Four numbers have to agree across four files, and nothing fails loudly when they do not:
+
+| What | Where |
+| --- | --- |
+| `WIDGET_SNAPSHOT_VERSION` | `snapshot.ts`, `SnapshotStore.supportedVersion` (Swift), `WidgetSnapshot.SUPPORTED_VERSION` (Kotlin) |
+| `ROW_CAP` = 6 | `snapshot.ts`, `RidikRowsFace.ROW_SLOTS`, `ROW_SLOTS` in the Android plugin |
+
+**Bump the version whenever the payload shape changes.** An older widget reading a newer
+payload draws "Ridik was updated" rather than a half-decoded face — that is the whole point of
+the field, and skipping the bump is how a widget silently renders a lie.
+
+**Android resolves every resource id by name** (`Resources.getIdentifier`), because the layouts
+are injected into the *app* module by `plugins/withRidikAndroidWidget.js` and a library cannot
+see the app's `R`. Rename an id in the plugin without changing `RidikRowsFace.kt` and the build
+stays green while the widget renders blank. Both lists are kept adjacent to each other for that
+reason: `ROW_IDS` in the plugin, `RowIds` in the Kotlin.
+
+**RemoteViews cannot loop and cannot set a width.** So the row slots are written out six times
+in the layout and hidden when unused, and the lead column's width is a *layout variant* rather
+than a runtime value — `ridik_rows` (46dp), `ridik_rows_ampm` (66dp) and `ridik_rows_tight`
+(16dp), picked per kind and per `DateFormat.is24HourFormat`. A 12-hour device given the 46dp
+lead truncates every row to "10:00 …".
+
+**The row count comes from the launcher, per widget id.** `AppWidgetManager.getAppWidgetOptions`
+is read in `drawRows`, so the same face is three rows tall in one corner of the home screen and
+six in another; `onAppWidgetOptionsChanged` is wired for the same reason, or a resize would
+redraw without re-cutting the list.
+
+**Publishing waits for the checklists.** Today's snapshot resolves a beat before them, and a
+payload published in that gap carries `list: null` — which the list widget correctly draws as
+"No lists yet" over a list that exists. `useWidgetPublisher` holds the first publish until the
+list queries have *settled*, not succeeded, so a failing one cannot hold the other four hostage.
+
 ## Known gaps
 
 Honest list. Everything else in the brief is built, tested and has been run on both simulators.
 
-- ~~Home-screen widgets~~ — built and verified on both home screens. `modules/ridik-widgets`
-  is the bridge; the widget runs in its own process and can only read what the app published,
-  so `src/services/widgets/snapshot.ts` owns the payload shape and both faces decode it.
-  Android resolves its resource ids by name (`Resources.getIdentifier`) because the layout is
-  injected into the *app* by `plugins/withRidikAndroidWidget.js` and a library cannot see the
-  app's `R` — rename an id in the plugin without changing `RidikWidgetFace.kt` and the build
-  stays green while the widget renders blank.
+- ~~Home-screen widgets~~ — five of them, built and verified on both home screens: Today,
+  Agenda, Tasks, Habits and List. `modules/ridik-widgets` is the bridge; each widget runs in
+  its own process and can only read what the app published, so
+  `src/services/widgets/snapshot.ts` owns the payload shape and every face decodes it.
+  See **Widgets** below for what will bite you.
 - **The old note, kept because the transport half is what mattered:** `src/services/widgets/`
   builds and diffs the payload — tested, and fed on every data change — but a widget reads a
   shared App Group (iOS) or SharedPreferences (Android), and JavaScript can reach neither.

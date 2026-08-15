@@ -37,6 +37,121 @@ const WIDGET_IDS = {
   noticeBody: 'ridik_widget_notice_body',
 };
 
+// -------------------------------------------------------------- the list widgets
+
+/** Must equal `ROW_SLOTS` in `RidikRowsFace.kt` and `ROW_CAP` in `snapshot.ts`. */
+const ROW_SLOTS = 6;
+
+/** Every id `RidikRowsFace.RowIds` looks up. Keep the two lists together. */
+const ROW_IDS = {
+  body: 'ridik_rows_body',
+  eyebrow: 'ridik_rows_eyebrow',
+  count: 'ridik_rows_count',
+  empty: 'ridik_rows_empty',
+  list: 'ridik_rows_list',
+  notice: 'ridik_rows_notice',
+  noticeTitle: 'ridik_rows_notice_title',
+  noticeBody: 'ridik_rows_notice_body',
+  row: (index) => `ridik_rows_row_${index}`,
+  lead: (index) => `ridik_rows_lead_${index}`,
+  text: (index) => `ridik_rows_text_${index}`,
+  trail: (index) => `ridik_rows_trail_${index}`,
+};
+
+/**
+ * The four list widgets, each of which is one receiver, one provider XML and
+ * one preview.
+ *
+ * `layout` is the shared face they inflate: three variants of one template that
+ * differ only in how much room the lead column reserves. A clock time needs a
+ * fixed width or the titles beside it step in and out on every row, and
+ * "10:00 AM" needs half again as much of it as "10:00"; a tick needs 16dp, and
+ * giving it 46 would indent the whole list for nothing. RemoteViews cannot
+ * change a width at runtime, so each is its own layout — `RidikRowsFace` picks
+ * between the two timed ones against the device's own clock setting.
+ */
+const ROWS_LAYOUT = 'ridik_rows';
+const ROWS_LAYOUT_AMPM = 'ridik_rows_ampm';
+const ROWS_LAYOUT_TIGHT = 'ridik_rows_tight';
+
+const LEAD_WIDTH = { [ROWS_LAYOUT]: 46, [ROWS_LAYOUT_AMPM]: 66, [ROWS_LAYOUT_TIGHT]: 16 };
+
+const ROW_WIDGETS = [
+  {
+    kind: 'agenda',
+    provider: 'ai.raisen.ridik.widgets.RidikAgendaWidgetProvider',
+    layout: ROWS_LAYOUT,
+    label: 'Ridik — Agenda',
+    description: 'Everything still to come today, in order.',
+    preview: {
+      eyebrow: 'TODAY',
+      count: '5 left',
+      rows: [
+        { lead: '11:00', text: 'Materials lab', trail: 'Workshop 2' },
+        { lead: '13:15', text: 'Lunch with Sam', trail: null },
+        { lead: '14:30', text: 'Call with Mira', trail: null },
+        { lead: '16:00', text: 'Pick up the order', trail: 'Unit 4' },
+        { lead: '17:30', text: 'Studio clean-up', trail: null },
+      ],
+    },
+  },
+  {
+    kind: 'tasks',
+    provider: 'ai.raisen.ridik.widgets.RidikTasksWidgetProvider',
+    layout: ROWS_LAYOUT,
+    label: 'Ridik — Tasks',
+    description: 'What is overdue and what is due today, most behind first.',
+    preview: {
+      eyebrow: 'TASKS',
+      count: '1 late',
+      countColor: 'ridik_widget_danger',
+      rows: [
+        { lead: 'late', text: 'Send the deposit', trail: null, leadColor: 'ridik_widget_danger' },
+        { lead: '14:00', text: 'Order M4 bolts', trail: null },
+        { lead: '16:45', text: 'Reply to the landlord', trail: null },
+        { lead: '18:30', text: 'Book the van', trail: null },
+        { lead: '·', text: 'Chase the invoice', trail: null },
+      ],
+    },
+  },
+  {
+    kind: 'habits',
+    provider: 'ai.raisen.ridik.widgets.RidikHabitsWidgetProvider',
+    layout: ROWS_LAYOUT_TIGHT,
+    label: 'Ridik — Habits',
+    description: "Today's habits, the ones still owed first, with their streaks.",
+    preview: {
+      eyebrow: 'HABITS',
+      count: '3/5',
+      rows: [
+        { lead: '○', text: 'Read', trail: '12d' },
+        { lead: '○', text: 'Practice guitar', trail: '5d' },
+        { lead: '✓', text: 'Walk', trail: '31d' },
+        { lead: '✓', text: 'Stretch', trail: '4d' },
+        { lead: '✓', text: 'Journal', trail: '2d' },
+      ],
+    },
+  },
+  {
+    kind: 'list',
+    provider: 'ai.raisen.ridik.widgets.RidikListWidgetProvider',
+    layout: ROWS_LAYOUT_TIGHT,
+    label: 'Ridik — List',
+    description: 'The checklist you still have something open on.',
+    preview: {
+      eyebrow: 'HARDWARE',
+      count: '3 open',
+      rows: [
+        { lead: '○', text: 'M4 bolts ×20', trail: null },
+        { lead: '○', text: 'Threadlock', trail: null },
+        { lead: '○', text: 'Sanding discs', trail: null },
+        { lead: '✓', text: 'Masking tape', trail: null },
+        { lead: '✓', text: 'Wood glue', trail: null },
+      ],
+    },
+  },
+];
+
 const GENERATED = 'Written by plugins/withRidikAndroidWidget.js — edit that, not this.';
 
 /**
@@ -212,8 +327,282 @@ function chip(id, colorName, text, { last }) {
           android:textSize="11sp" />`;
 }
 
+/**
+ * The shared list face: a header, six row slots, and the same notice pane the
+ * Today widget uses.
+ *
+ * RemoteViews cannot loop, so the slots are written out and `RidikRowsFace`
+ * hides the ones it has nothing for. Six is the payload's own cap — publishing
+ * a seventh row would put it nowhere.
+ *
+ * With `preview` this becomes the tile the widget picker shows. The picker
+ * cannot run any of our code, so sample copy is the only way to show it a
+ * plausible widget; the real layout inflates showing the notice instead, which
+ * is the honest state for a widget nobody has published to yet.
+ */
+function rowsLayout({ leadWidth, preview }) {
+  const body = preview ? 'visible' : 'gone';
+  const notice = preview ? 'gone' : 'visible';
+  const sampleRows = preview ? preview.rows : [];
+
+  const slots = Array.from({ length: ROW_SLOTS }, (_, index) =>
+    rowSlot(index, leadWidth, sampleRows[index])
+  ).join('\n\n');
+
+  const count = preview
+    ? `\n          android:text="${preview.count}"\n          android:textColor="@color/${preview.countColor || 'ridik_widget_ink_soft'}"`
+    : '\n          android:textColor="@color/ridik_widget_ink_soft"';
+
+  return `<?xml version="1.0" encoding="utf-8"?>
+<!-- ${GENERATED} -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/ridik_widget_ground"
+    android:padding="12dp">
+
+  <LinearLayout
+      android:id="@+id/${ROW_IDS.body}"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:orientation="vertical"
+      android:visibility="${body}">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:baselineAligned="true"
+        android:orientation="horizontal">
+
+      <TextView
+          android:id="@+id/${ROW_IDS.eyebrow}"
+          android:layout_width="0dp"
+          android:layout_height="wrap_content"
+          android:layout_weight="1"
+          android:ellipsize="end"
+          android:fontFamily="monospace"
+          android:letterSpacing="0.14"
+          android:maxLines="1"${preview ? `\n          android:text="${preview.eyebrow}"` : ''}
+          android:textAllCaps="true"
+          android:textColor="@color/ridik_widget_ember"
+          android:textSize="10sp" />
+
+      <TextView
+          android:id="@+id/${ROW_IDS.count}"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:layout_marginStart="6dp"
+          android:fontFamily="monospace"
+          android:maxLines="1"${count}
+          android:textSize="10sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/${ROW_IDS.empty}"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="9dp"
+        android:ellipsize="end"
+        android:maxLines="2"
+        android:textColor="@color/ridik_widget_ink_soft"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/${ROW_IDS.list}"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="7dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+${slots}
+    </LinearLayout>
+  </LinearLayout>
+
+  <LinearLayout
+      android:id="@+id/${ROW_IDS.notice}"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:gravity="center_vertical"
+      android:orientation="vertical"
+      android:visibility="${notice}">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:letterSpacing="0.14"
+        android:maxLines="1"
+        android:text="RIDIK"
+        android:textAllCaps="true"
+        android:textColor="@color/ridik_widget_ember"
+        android:textSize="10sp" />
+
+    <TextView
+        android:id="@+id/${ROW_IDS.noticeTitle}"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="5dp"
+        android:ellipsize="end"
+        android:maxLines="2"
+        android:text="Nothing published yet"
+        android:textColor="@color/ridik_widget_ink"
+        android:textSize="15sp" />
+
+    <TextView
+        android:id="@+id/${ROW_IDS.noticeBody}"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:ellipsize="end"
+        android:maxLines="3"
+        android:text="Open Ridik once and today lands here."
+        android:textColor="@color/ridik_widget_ink_soft"
+        android:textSize="12sp" />
+  </LinearLayout>
+</FrameLayout>
+`;
+}
+
+/**
+ * One row: a lead column, the title, and an optional trailing note.
+ *
+ * The lead is a fixed width rather than `wrap_content` so the titles line up
+ * down the list — "9:40" and "11:05" are different widths even in a monospaced
+ * face, and a ragged left edge on five rows reads as a rendering fault.
+ */
+function rowSlot(index, leadWidth, sample) {
+  const visibility = sample ? 'visible' : 'gone';
+  const gap = index === 0 ? '' : '\n          android:layout_marginTop="5dp"';
+  const lead = sample ? `\n            android:text="${sample.lead}"` : '';
+  const leadColor = (sample && sample.leadColor) || 'ridik_widget_ember';
+  const text = sample ? `\n            android:text="${sample.text}"` : '';
+  const trail = sample && sample.trail ? `\n            android:text="${sample.trail}"` : '';
+  const trailVisibility = sample && sample.trail ? 'visible' : 'gone';
+
+  return `      <LinearLayout
+          android:id="@+id/${ROW_IDS.row(index)}"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"${gap}
+          android:baselineAligned="true"
+          android:orientation="horizontal"
+          android:visibility="${visibility}">
+
+        <TextView
+            android:id="@+id/${ROW_IDS.lead(index)}"
+            android:layout_width="${leadWidth}dp"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:fontFamily="monospace"
+            android:includeFontPadding="false"
+            android:maxLines="1"${lead}
+            android:textColor="@color/${leadColor}"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/${ROW_IDS.text(index)}"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="7dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"${text}
+            android:textColor="@color/ridik_widget_ink"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/${ROW_IDS.trail(index)}"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="7dp"
+            android:ellipsize="end"
+            android:fontFamily="monospace"
+            android:includeFontPadding="false"
+            android:maxLines="1"${trail}
+            android:textColor="@color/ridik_widget_ink_soft"
+            android:textSize="10sp"
+            android:visibility="${trailVisibility}" />
+      </LinearLayout>`;
+}
+
+/**
+ * A list widget's `appwidget-provider`.
+ *
+ * Three cells square by default and resizable in both directions, because the
+ * face reads the height back at draw time and cuts the list to fit — see
+ * `RidikRowsFace.capacityFor`. The floor is two cells, which still holds a
+ * header and two rows.
+ */
+function rowsInfo(widget) {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<!-- ${GENERATED} -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/ridik_rows_${widget.kind}_description"
+    android:initialLayout="@layout/${widget.layout}"
+    android:maxResizeHeight="400dp"
+    android:maxResizeWidth="400dp"
+    android:minHeight="150dp"
+    android:minResizeHeight="110dp"
+    android:minResizeWidth="140dp"
+    android:minWidth="180dp"
+    android:previewLayout="@layout/ridik_rows_preview_${widget.kind}"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellHeight="3"
+    android:targetCellWidth="3"
+    android:updatePeriodMillis="1800000"
+    android:widgetCategory="home_screen" />
+`;
+}
+
+/** `'` ends a string resource unless it is escaped, and `&` is XML on top of that. */
+function androidString(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/'/g, "\\'");
+}
+
+function rowsStrings() {
+  const lines = ROW_WIDGETS.flatMap((widget) => [
+    `  <string name="ridik_rows_${widget.kind}_label">${androidString(widget.label)}</string>`,
+    `  <string name="ridik_rows_${widget.kind}_description">${androidString(widget.description)}</string>`,
+  ]);
+  return `<?xml version="1.0" encoding="utf-8"?>
+<!-- ${GENERATED} -->
+<resources>
+${lines.join('\n')}
+</resources>
+`;
+}
+
+function rowsResources() {
+  // Everything about the three is identical but the lead column, which is the
+  // point of generating them from one template rather than keeping three
+  // layouts in step by hand.
+  const files = { 'values/ridik_rows_strings.xml': rowsStrings() };
+  for (const [name, leadWidth] of Object.entries(LEAD_WIDTH)) {
+    files[`layout/${name}.xml`] = rowsLayout({ leadWidth, preview: null });
+  }
+
+  for (const widget of ROW_WIDGETS) {
+    files[`layout/ridik_rows_preview_${widget.kind}.xml`] = rowsLayout({
+      leadWidth: LEAD_WIDTH[widget.layout],
+      preview: widget.preview,
+    });
+    files[`xml/ridik_rows_${widget.kind}_info.xml`] = rowsInfo(widget);
+  }
+
+  return files;
+}
+
 function resourceFiles() {
   return {
+    ...rowsResources(),
+
     [`layout/${LAYOUT}.xml`]: widgetLayout({ preview: false }),
     [`layout/${LAYOUT}_preview.xml`]: widgetLayout({ preview: true }),
 
@@ -254,6 +643,7 @@ function resourceFiles() {
       ink: '#2E1508',
       inkSoft: '#BD2E1508',
       ember: '#C7360F',
+      danger: '#BE2A18',
       wash: '#1FC7360F',
     }),
 
@@ -264,6 +654,7 @@ function resourceFiles() {
       ink: '#FFEEDF',
       inkSoft: '#A8FFEEDF',
       ember: '#FF8253',
+      danger: '#FF6F5C',
       wash: '#29FF8253',
     }),
 
@@ -294,7 +685,7 @@ function resourceFiles() {
   };
 }
 
-function colors({ ground, ink, inkSoft, ember, wash }) {
+function colors({ ground, ink, inkSoft, ember, danger, wash }) {
   return `<?xml version="1.0" encoding="utf-8"?>
 <!-- ${GENERATED} -->
 <resources>
@@ -302,6 +693,7 @@ function colors({ ground, ink, inkSoft, ember, wash }) {
   <color name="ridik_widget_ink">${ink}</color>
   <color name="ridik_widget_ink_soft">${inkSoft}</color>
   <color name="ridik_widget_ember">${ember}</color>
+  <color name="ridik_widget_danger">${danger}</color>
   <color name="ridik_widget_wash">${wash}</color>
 </resources>
 `;
@@ -332,6 +724,30 @@ const withWidgetResources = (config) =>
     },
   ]);
 
+/**
+ * One receiver per widget: Android identifies a widget by its provider class,
+ * so five widgets is five classes and five entries here.
+ *
+ * The system, not another app, is what broadcasts APPWIDGET_UPDATE, and it can
+ * only reach an exported receiver. Nothing is trusted from the broadcast
+ * itself — every redraw re-reads the app's own preferences.
+ */
+function receiver({ name, label, info }) {
+  return {
+    $: {
+      'android:name': name,
+      'android:exported': 'true',
+      'android:label': label,
+    },
+    'intent-filter': [
+      { action: [{ $: { 'android:name': 'android.appwidget.action.APPWIDGET_UPDATE' } }] },
+    ],
+    'meta-data': [
+      { $: { 'android:name': 'android.appwidget.provider', 'android:resource': info } },
+    ],
+  };
+}
+
 const withWidgetReceiver = (config) =>
   withAndroidManifest(config, (config) => {
     const application = config.modResults.manifest.application?.[0];
@@ -339,35 +755,30 @@ const withWidgetReceiver = (config) =>
       throw new Error('withRidikAndroidWidget: the manifest has no <application> to add to.');
     }
 
-    const receivers = (application.receiver ?? []).filter(
-      (receiver) => receiver.$?.['android:name'] !== PROVIDER_CLASS,
-    );
+    const ours = [
+      receiver({
+        name: PROVIDER_CLASS,
+        label: '@string/ridik_widget_label',
+        info: `@xml/${INFO}`,
+      }),
+      ...ROW_WIDGETS.map((widget) =>
+        receiver({
+          name: widget.provider,
+          label: `@string/ridik_rows_${widget.kind}_label`,
+          info: `@xml/ridik_rows_${widget.kind}_info`,
+        })
+      ),
+    ];
 
-    receivers.push({
-      $: {
-        'android:name': PROVIDER_CLASS,
-        // The system, not another app, is what broadcasts APPWIDGET_UPDATE, and
-        // it can only reach an exported receiver. Nothing is trusted from the
-        // broadcast itself — every redraw re-reads the app's own preferences.
-        'android:exported': 'true',
-        'android:label': '@string/ridik_widget_label',
-      },
-      'intent-filter': [
-        {
-          action: [{ $: { 'android:name': 'android.appwidget.action.APPWIDGET_UPDATE' } }],
-        },
-      ],
-      'meta-data': [
-        {
-          $: {
-            'android:name': 'android.appwidget.provider',
-            'android:resource': `@xml/${INFO}`,
-          },
-        },
-      ],
-    });
-
-    application.receiver = receivers;
+    const names = new Set(ours.map((entry) => entry.$['android:name']));
+    // Filtered rather than appended, so a second prebuild over an existing
+    // `android/` does not leave two receivers for the same class.
+    application.receiver = [
+      ...(application.receiver ?? []).filter(
+        (existing) => !names.has(existing.$?.['android:name'])
+      ),
+      ...ours,
+    ];
     return config;
   });
 

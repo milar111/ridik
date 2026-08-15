@@ -45,11 +45,16 @@ const event = (id: string, title: string, startsAt: number, over: Record<string,
   ...over,
 });
 
-const task = (id: string): any => ({ id, title: id, isCompleted: false });
-const habit = (name: string, loggedToday: boolean): any => ({
+const task = (id: string, dueDate: number | null = null): any => ({
+  id,
+  title: id,
+  dueDate,
+  isCompleted: false,
+});
+const habit = (name: string, loggedToday: boolean, streak = 1): any => ({
   habit: { id: name, name },
   loggedToday,
-  streak: 1,
+  streak,
 });
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -72,7 +77,7 @@ describe('buildWidgetSnapshot', () => {
       now: NOON,
     });
 
-    expect(built).toEqual({
+    expect(built).toMatchObject({
       version: WIDGET_SNAPSHOT_VERSION,
       publishedAt: NOON,
       next: {
@@ -84,6 +89,82 @@ describe('buildWidgetSnapshot', () => {
       tasks: { dueToday: 2, overdue: 1 },
       habits: { done: 2, total: 3 },
     });
+  });
+
+  it('lists what is left of the day, and drops the travel buffer from it', () => {
+    // The buffer is a hint about when to leave — `next.leaveAt` already carries
+    // it. Drawn as its own agenda row it reads as a second appointment.
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot({
+        events: [
+          event('done', 'Standup', at('09:00')),
+          event('m', 'Project meeting', at('15:00'), { location: 'Maker lab' }),
+          event('b', 'Travel / prep', at('14:40'), {
+            kind: 'buffer',
+            bufferForId: 'm',
+            endsAt: at('15:00'),
+          }),
+        ],
+      }),
+      now: NOON,
+    });
+
+    expect(built.agenda).toEqual([
+      {
+        title: 'Project meeting',
+        startsAt: at('15:00'),
+        endsAt: at('16:00'),
+        kind: 'event',
+        location: 'Maker lab',
+      },
+    ]);
+  });
+
+  it('leads the task rows with what you are most behind on', () => {
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot({
+        dueTasks: [task('later', at('17:00')), task('sooner', at('13:00')), task('undated')],
+        overdueTasks: [task('yesterday', at('09:00'))],
+      }),
+      now: NOON,
+    });
+
+    expect(built.tasks.rows.map((row) => row.title)).toEqual([
+      'yesterday',
+      'sooner',
+      'later',
+      'undated',
+    ]);
+    expect(built.tasks.rows[0]).toEqual({ title: 'yesterday', dueAt: at('09:00'), overdue: true });
+  });
+
+  it('prompts with the habits still owed rather than the ones already done', () => {
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot({
+        habits: [habit('Gym', true, 9), habit('Reading', false, 2), habit('Study', false, 40)],
+      }),
+      now: NOON,
+    });
+
+    expect(built.habits.rows.map((row) => row.name)).toEqual(['Study', 'Reading', 'Gym']);
+    expect(built.habits).toMatchObject({ done: 1, total: 3 });
+  });
+
+  it('counts a list before capping it, so "of 12" stays true', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({ text: `Item ${i}`, done: i < 3 }));
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON,
+      list: { name: 'Hardware', rows },
+    });
+
+    expect(built.list?.open).toBe(9);
+    expect(built.list?.rows).toHaveLength(6);
+    expect(built.list?.rows.every((row) => !row.done)).toBe(true);
+  });
+
+  it('says there is no list rather than drawing an empty one', () => {
+    expect(buildWidgetSnapshot({ snapshot: snapshot(), now: NOON }).list).toBeNull();
   });
 
   it('leaves the time as an instant for the widget to count down to itself', () => {
@@ -131,6 +212,30 @@ describe('widgetSnapshotChanged', () => {
       snapshot: snapshot({ dueTasks: [task('a')] }),
       now: NOON,
     });
+
+    expect(widgetSnapshotChanged(before, after)).toBe(true);
+  });
+
+  /* Every section a face draws has to be in the comparison, or that widget
+     silently stops redrawing — and the counts alone would miss all of these. */
+  it('notices a row changing inside a section whose counts did not', () => {
+    const before = buildWidgetSnapshot({
+      snapshot: snapshot({ habits: [habit('Gym', false, 3)] }),
+      now: NOON,
+    });
+    const after = buildWidgetSnapshot({
+      snapshot: snapshot({ habits: [habit('Gym', false, 4)] }),
+      now: NOON,
+    });
+
+    expect(before.habits.done).toBe(after.habits.done);
+    expect(widgetSnapshotChanged(before, after)).toBe(true);
+  });
+
+  it('notices an item ticked off a list', () => {
+    const list = (done: boolean) => ({ name: 'Hardware', rows: [{ text: 'M4 bolts', done }] });
+    const before = buildWidgetSnapshot({ snapshot: snapshot(), now: NOON, list: list(false) });
+    const after = buildWidgetSnapshot({ snapshot: snapshot(), now: NOON, list: list(true) });
 
     expect(widgetSnapshotChanged(before, after)).toBe(true);
   });

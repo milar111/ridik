@@ -23,14 +23,64 @@ struct WidgetSnapshot: Decodable {
     var leaveDate: Date? { leaveAt.map(Date.init(epochMilliseconds:)) }
   }
 
+  struct AgendaRow: Decodable, Identifiable {
+    let title: String
+    let startsAt: Double
+    let endsAt: Double
+    /// "event" or "class"; the builder has already dropped travel buffers.
+    let kind: String
+    let location: String?
+
+    var startDate: Date { Date(epochMilliseconds: startsAt) }
+    var endDate: Date { Date(epochMilliseconds: endsAt) }
+    /// Stable within one face, which is all a `ForEach` over six rows needs.
+    var id: String { "\(startsAt)-\(title)" }
+  }
+
+  struct TaskRow: Decodable, Identifiable {
+    let title: String
+    /// Absent for a task that is due today with no time on it.
+    let dueAt: Double?
+    let overdue: Bool
+
+    var dueDate: Date? { dueAt.map(Date.init(epochMilliseconds:)) }
+    var id: String { "\(dueAt ?? 0)-\(title)" }
+  }
+
+  struct HabitRow: Decodable, Identifiable {
+    let name: String
+    let doneToday: Bool
+    let streak: Int
+
+    var id: String { name }
+  }
+
+  struct ListRow: Decodable, Identifiable {
+    let text: String
+    let done: Bool
+
+    var id: String { text }
+  }
+
   struct Tasks: Decodable {
     let dueToday: Int
     let overdue: Int
+    /// Overdue first, then by due time. Capped by the publisher, not here.
+    let rows: [TaskRow]
   }
 
   struct Habits: Decodable {
     let done: Int
     let total: Int
+    /// Not-yet-done first: the face is a prompt, not a scoreboard.
+    let rows: [HabitRow]
+  }
+
+  struct Checklist: Decodable {
+    let name: String
+    /// Counted before the rows were capped, so "of 12" stays true.
+    let open: Int
+    let rows: [ListRow]
   }
 
   let version: Int
@@ -38,6 +88,10 @@ struct WidgetSnapshot: Decodable {
   let next: Next?
   let tasks: Tasks
   let habits: Habits
+  /// What is left of today, in order. Empty once the day is behind you.
+  let agenda: [AgendaRow]
+  /// The list worth showing — the first with anything open on it.
+  let list: Checklist?
 
   var publishedDate: Date { Date(epochMilliseconds: publishedAt) }
 }
@@ -92,7 +146,7 @@ enum WidgetBlankReason {
 /// Reads what the app left in the shared container.
 enum SnapshotStore {
   /// Must match `WIDGET_SNAPSHOT_VERSION` in `src/services/widgets/snapshot.ts`.
-  static let supportedVersion = 1
+  static let supportedVersion = 2
 
   /// Twin of `RidikWidgetsModule.defaultsKey`.
   static let defaultsKey = "ridik.widget.snapshot"
@@ -139,19 +193,80 @@ enum SnapshotStore {
 }
 
 extension WidgetSnapshot {
-  /// The face the widget gallery and the placeholder show, before any real data exists.
+  /**
+   The face the widget gallery and the placeholder show, before any real data exists.
+
+   Every section is populated, because the gallery draws all five widgets side by
+   side and one empty tile among them reads as the broken one. The times are
+   relative to now so the sample never shows a morning that has already passed.
+   */
   static var sample: WidgetSnapshot {
-    WidgetSnapshot(
+    let now = Date()
+    func inMinutes(_ minutes: Double) -> Double {
+      now.addingTimeInterval(minutes * 60).epochMilliseconds
+    }
+
+    return WidgetSnapshot(
       version: SnapshotStore.supportedVersion,
-      publishedAt: Date().epochMilliseconds,
+      publishedAt: now.epochMilliseconds,
       next: Next(
         title: "Materials lab",
-        startsAt: Date().addingTimeInterval(45 * 60).epochMilliseconds,
-        leaveAt: Date().addingTimeInterval(25 * 60).epochMilliseconds,
+        startsAt: inMinutes(45),
+        leaveAt: inMinutes(25),
         location: "Workshop 2"
       ),
-      tasks: Tasks(dueToday: 4, overdue: 1),
-      habits: Habits(done: 2, total: 3)
+      tasks: Tasks(
+        dueToday: 4,
+        overdue: 1,
+        rows: [
+          TaskRow(title: "Send the deposit", dueAt: inMinutes(-180), overdue: true),
+          TaskRow(title: "Order M4 bolts", dueAt: inMinutes(120), overdue: false),
+          TaskRow(title: "Book the van", dueAt: inMinutes(300), overdue: false),
+          TaskRow(title: "Reply to Mira", dueAt: nil, overdue: false),
+        ]
+      ),
+      habits: Habits(
+        done: 2,
+        total: 3,
+        rows: [
+          HabitRow(name: "Read", doneToday: false, streak: 12),
+          HabitRow(name: "Walk", doneToday: true, streak: 31),
+          HabitRow(name: "Stretch", doneToday: true, streak: 4),
+        ]
+      ),
+      agenda: [
+        AgendaRow(
+          title: "Materials lab",
+          startsAt: inMinutes(45),
+          endsAt: inMinutes(150),
+          kind: "class",
+          location: "Workshop 2"
+        ),
+        AgendaRow(
+          title: "Call with Mira",
+          startsAt: inMinutes(210),
+          endsAt: inMinutes(240),
+          kind: "event",
+          location: nil
+        ),
+        AgendaRow(
+          title: "Studio clean-up",
+          startsAt: inMinutes(330),
+          endsAt: inMinutes(390),
+          kind: "event",
+          location: "Unit 4"
+        ),
+      ],
+      list: Checklist(
+        name: "Hardware",
+        open: 3,
+        rows: [
+          ListRow(text: "M4 bolts ×20", done: false),
+          ListRow(text: "Threadlock", done: false),
+          ListRow(text: "Sanding discs", done: false),
+          ListRow(text: "Masking tape", done: true),
+        ]
+      )
     )
   }
 }

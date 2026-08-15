@@ -38,9 +38,20 @@ struct RidikTimelineProvider: TimelineProvider {
 
     var moments: Set<Date> = [now]
 
-    if case .ready(let snapshot) = face, let next = snapshot.next {
-      if let leaveAt = next.leaveDate, leaveAt > now { moments.insert(leaveAt) }
-      if next.startDate > now { moments.insert(next.startDate) }
+    if case .ready(let snapshot) = face {
+      if let next = snapshot.next {
+        if let leaveAt = next.leaveDate, leaveAt > now { moments.insert(leaveAt) }
+        if next.startDate > now { moments.insert(next.startDate) }
+      }
+      // Every provider in the bundle shares this timeline, so the agenda's own
+      // moments belong here too: an agenda row changes from "later" to "now" at
+      // its start, and it is the only face that can say so.
+      for row in snapshot.agenda where row.startDate > now {
+        moments.insert(row.startDate)
+      }
+      // A task's due time is not in here on purpose. Nothing on the face
+      // changes when it passes — the row does not become overdue until the app
+      // recomputes the day and publishes again.
     }
 
     let tomorrow = Calendar.current.nextDay(after: now)

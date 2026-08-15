@@ -39,3 +39,8 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Gradle output from the local Expo module. `modules/ridik-widgets/android/` is
+# source, but Gradle writes its build tree inside it — 156 files of dex, caches
+# and jars that were committed once by an over-broad `git add -A`.
+modules/*/android/build/

@@ -25,7 +25,7 @@ class RidikWidgetsModule : Module() {
 
     AsyncFunction("setSnapshot") { json: String ->
       WidgetSnapshotStore.write(context, json)
-      RidikWidgetProvider.redrawAll(context)
+      RidikWidgets.redrawAll(context)
     }
   }
 }

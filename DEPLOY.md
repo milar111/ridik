@@ -249,6 +249,13 @@ silently.
 are append-only (`src/db/migrations.ts`) — never edit a shipped one, or an
 existing user's database will be left half-upgraded.
 
+**If you change what the widgets show:** bump `WIDGET_SNAPSHOT_VERSION` in
+`src/services/widgets/snapshot.ts` and the two constants that mirror it (see
+`AGENTS.md` → Widgets). A widget from the previous build then says "Ridik was
+updated" instead of drawing a half-decoded face, and rights itself the first
+time the user opens the app. Five widgets ship: Today, Agenda, Tasks, Habits
+and List, the same five on both platforms.
+
 **If the assistant breaks:** it fails soft. The app falls back to offline
 pattern matching, and every local feature keeps working. Check your backend
 first, then the provider's status page.
@@ -259,12 +266,9 @@ first, then the provider's status page.
 
 Honest list. See `AGENTS.md` for the full one.
 
-- **Home-screen widgets** are not built. The data layer is
-  (`src/services/widgets/`) and it is fed on every change, but the native
-  extensions — a WidgetKit target on iOS, an AppWidgetProvider on Android — do
-  not exist yet. Nothing else depends on them.
-- **iOS Live Activities** fall back to a notification. Needs the same WidgetKit
-  target.
+- **iOS Live Activities** fall back to a notification. The WidgetKit target now
+  exists (`targets/RidikWidget/`), so this is a Swift widget-extension view away
+  rather than a whole target away.
 - **Google Calendar sync has never run against the live API.** Every path is
   tested against a mocked transport; no request has reached Google.
 - **The LLM path has only run against the mock provider.** The client, its retry

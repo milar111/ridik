@@ -2,13 +2,22 @@ import SwiftUI
 import WidgetKit
 
 /// Where a tap lands — the same expo-router paths the app navigates to itself.
-private enum Route {
+enum Route {
   static let today = url("ridik:///today")
+  static let calendar = url("ridik:///calendar")
   static let tasks = url("ridik:///tasks")
   static let habits = url("ridik:///habits")
+  static let lists = url("ridik:///notes?pane=lists")
 
-  /// All three are literals that parse. The fallback is here so that a widget
-  /// can never be brought down by a URL, which is not worth crashing over.
+  /// A named list, so tapping the list widget opens the one it was showing.
+  static func list(named name: String) -> URL {
+    let encoded =
+      name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+    return encoded.isEmpty ? lists : url("ridik:///notes?pane=lists&list=\(encoded)")
+  }
+
+  /// Every one of these is a literal that parses. The fallback is here so that
+  /// a widget can never be brought down by a URL, which is not worth crashing over.
   private static func url(_ string: String) -> URL {
     URL(string: string) ?? URL(fileURLWithPath: "/")
   }
@@ -250,7 +259,7 @@ private struct MediumFace: View {
 
 // MARK: - Nothing to show
 
-private struct StaleFace: View {
+struct StaleFace: View {
   let publishedAt: Date
   let palette: RidikPalette
   let wide: Bool
@@ -275,7 +284,7 @@ private struct StaleFace: View {
   }
 }
 
-private struct BlankFace: View {
+struct BlankFace: View {
   let reason: WidgetBlankReason
   let palette: RidikPalette
   let wide: Bool
@@ -299,7 +308,7 @@ private struct BlankFace: View {
 // MARK: - Pieces
 
 /// The tracked engraving that names a region, from `typography.eyebrow`.
-private struct Eyebrow: View {
+struct Eyebrow: View {
   let text: String
   let palette: RidikPalette
 
@@ -312,7 +321,7 @@ private struct Eyebrow: View {
   }
 }
 
-private struct LeaveLine: View {
+struct LeaveLine: View {
   let leaveAt: Date
   let now: Date
   let palette: RidikPalette
