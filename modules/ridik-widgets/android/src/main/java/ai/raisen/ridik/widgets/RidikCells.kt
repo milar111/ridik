@@ -564,9 +564,12 @@ internal fun RemoteViews.plate(
     background(id, ids.heat(level, today))
     if (numerals) {
       setTextViewText(id, number.toString())
-      // Ink never sits on hot: it measures 3.2:1 there. This is the only ink
-      // over a cell anywhere in the family, and the only place it inverts.
-      setTextColor(id, if (today && allowHot) ids.onHeat else ids.ink)
+      // No `setTextColor` here, deliberately — the XML default is
+      // `@color/ridik_widget_ink`, which the *launcher* resolves against its own
+      // night mode. A runtime colour would be resolved in the app's process
+      // instead, and the two disagree (see `colour` above). Ink never sits on
+      // hot, and it does not have to: numerals are drawn only on large, where
+      // today keeps its own load level and its ring rather than going hot.
     }
   }
 
@@ -747,13 +750,7 @@ internal fun RemoteViews.rowList(ids: WidgetIds, rows: List<FaceRow>, slots: Int
     }
     setViewVisibility(row, View.VISIBLE)
     setTextViewText(ids.id("ridik_row_lead_$slot"), item.lead)
-    setTextViewText(
-      ids.id("ridik_row_text_$slot"),
-      if (item.spent) struck(item.text) else item.text,
-    )
-    // Both ways, because the row is reapplied onto whatever stood there
-    // before: a row dimmed once stayed dim under the next thing to occupy it.
-    setTextColor(ids.id("ridik_row_text_$slot"), if (item.spent) ids.inkSoft else ids.ink)
+    rowText(ids, slot, item.text, soft = item.spent)
     line(ids.id("ridik_row_trail_$slot"), item.trail)
     setContentDescription(row, item.spoken)
   }
@@ -777,11 +774,7 @@ internal fun RemoteViews.tickList(ids: WidgetIds, rows: List<ListRow>, slots: In
     }
     setViewVisibility(row, View.VISIBLE)
     background(ids.id("ridik_tick_$slot"), ids.heat(if (item.done) 2 else 0))
-    setTextViewText(
-      ids.id("ridik_row_text_$slot"),
-      if (item.done) struck(item.text) else item.text,
-    )
-    setTextColor(ids.id("ridik_row_text_$slot"), if (item.done) ids.inkSoft else ids.ink)
+    rowText(ids, slot, item.text, soft = item.done)
     setContentDescription(row, "${item.text}, ${if (item.done) "done" else "still open"}")
   }
 }
@@ -816,6 +809,30 @@ internal fun RemoteViews.coldTicks(ids: WidgetIds, slots: Int) {
   for (slot in slots until MAX_ROW_SLOTS) {
     setViewVisibility(ids.id("ridik_row_$slot"), View.GONE)
   }
+}
+
+/**
+ * Which of a row's two text views is showing.
+ *
+ * Two, rather than one whose colour is set at draw time, because a colour
+ * resolved here is resolved against the *app* process's configuration while the
+ * launcher draws the tile against its own. Flip the system to dark with the app
+ * last run in light and every runtime-coloured string is written in near-black
+ * onto a near-black tile — which is exactly what it did: the ember and the
+ * trailing text stayed correct, because those come from the layout's own
+ * `@color/` references, and only the titles vanished.
+ *
+ * `setColorStateList` would fix it in one line and is API 31; this app ships to
+ * 26. Two views in the layout costs six per face and is right everywhere.
+ */
+private fun RemoteViews.rowText(ids: WidgetIds, slot: Int, text: String, soft: Boolean) {
+  // Written to both, and only one shown. Setting only the visible one leaves
+  // the other holding whatever the previous draw put there, and a RemoteViews
+  // update is reapplied onto the view the widget last drew.
+  setTextViewText(ids.id("ridik_row_text_$slot"), text)
+  setTextViewText(ids.id("ridik_row_soft_$slot"), struck(text))
+  setViewVisibility(ids.id("ridik_row_text_$slot"), if (soft) View.GONE else View.VISIBLE)
+  setViewVisibility(ids.id("ridik_row_soft_$slot"), if (soft) View.VISIBLE else View.GONE)
 }
 
 /* ------------------------------------------------------------------ the timer */

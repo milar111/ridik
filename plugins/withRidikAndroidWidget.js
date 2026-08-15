@@ -89,6 +89,19 @@ const IDS = {
   row: (i) => `ridik_row_${i}`,
   rowLead: (i) => `ridik_row_lead_${i}`,
   rowText: (i) => `ridik_row_text_${i}`,
+  /**
+   * The same row text, pre-coloured for the done/spent state.
+   *
+   * Two views rather than one whose colour is set at draw time: a colour
+   * resolved in the app's process is resolved against *its* night mode, while
+   * the launcher draws the tile against its own. With the app last run in light
+   * and the system flipped to dark, every runtime-coloured string was written
+   * near-black onto a near-black tile — the ember and the trailing text stayed
+   * right, because those come from these `@color/` references, and only the
+   * titles vanished. `setColorStateList` fixes it in a line and is API 31; this
+   * ships to 26.
+   */
+  rowSoft: (i) => `ridik_row_soft_${i}`,
   rowTrail: (i) => `ridik_row_trail_${i}`,
   tick: (i) => `ridik_tick_${i}`,
 };
@@ -1086,6 +1099,19 @@ ${indent(depth + 8)}android:textColor="@color/ridik_widget_ink"
 ${indent(depth + 8)}android:textSize="13sp" />
 
 ${indent(depth + 4)}<TextView
+${indent(depth + 8)}android:id="@+id/${IDS.rowSoft(index)}"
+${indent(depth + 8)}android:layout_width="0dp"
+${indent(depth + 8)}android:layout_height="wrap_content"
+${indent(depth + 8)}android:layout_marginStart="6dp"
+${indent(depth + 8)}android:layout_weight="1"
+${indent(depth + 8)}android:ellipsize="end"
+${indent(depth + 8)}android:includeFontPadding="false"
+${indent(depth + 8)}android:maxLines="1"
+${indent(depth + 8)}android:textColor="@color/ridik_widget_ink_soft"
+${indent(depth + 8)}android:textSize="13sp"
+${indent(depth + 8)}android:visibility="gone" />
+
+${indent(depth + 4)}<TextView
 ${indent(depth + 8)}android:id="@+id/${IDS.rowTrail(index)}"
 ${indent(depth + 8)}android:layout_width="wrap_content"
 ${indent(depth + 8)}android:layout_height="wrap_content"
@@ -1151,8 +1177,20 @@ ${indent(depth + 8)}android:layout_weight="1"
 ${indent(depth + 8)}android:ellipsize="end"
 ${indent(depth + 8)}android:includeFontPadding="false"
 ${indent(depth + 8)}android:maxLines="1"${text(depth + 8, row ? row.text : null)}
-${indent(depth + 8)}android:textColor="@color/ridik_widget_${row && row.done ? 'ink_soft' : 'ink'}"
+${indent(depth + 8)}android:textColor="@color/ridik_widget_ink"
 ${indent(depth + 8)}android:textSize="13sp" />
+
+${indent(depth + 4)}<TextView
+${indent(depth + 8)}android:id="@+id/${IDS.rowSoft(index)}"
+${indent(depth + 8)}android:layout_width="0dp"
+${indent(depth + 8)}android:layout_height="wrap_content"
+${indent(depth + 8)}android:layout_weight="1"
+${indent(depth + 8)}android:ellipsize="end"
+${indent(depth + 8)}android:includeFontPadding="false"
+${indent(depth + 8)}android:maxLines="1"
+${indent(depth + 8)}android:textColor="@color/ridik_widget_ink_soft"
+${indent(depth + 8)}android:textSize="13sp"
+${indent(depth + 8)}android:visibility="gone" />
 ${indent(depth + 2)}</LinearLayout>`);
   }
 
