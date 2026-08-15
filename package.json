@@ -77,7 +77,8 @@
     "test:logic": "jest --selectProjects logic",
     "test:ui": "jest --selectProjects ui",
     "lint": "expo lint",
-    "seed": "jest --selectProjects scripts"
+    "seed": "jest --selectProjects scripts",
+    "release": "node scripts/release.mjs"
   },
   "private": true
 }

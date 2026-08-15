@@ -19,6 +19,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'ai.raisen.ridik',
+    // Every upload needs a build number higher than the last one App Store
+    // Connect accepted, even when `version` has not moved. `npm run release
+    // bump` advances this and `android.versionCode` together, so the two
+    // platforms never drift apart mid-release.
+    buildNumber: '1',
     // Live Activities + background execution.
     infoPlist: {
       NSSupportsLiveActivities: true,
@@ -53,6 +58,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: 'ai.raisen.ridik',
+    // Play's twin of ios.buildNumber, and it must be an integer that only ever
+    // goes up — Play permanently refuses a versionCode it has already seen.
+    versionCode: 1,
     predictiveBackGestureEnabled: false,
     adaptiveIcon: {
       backgroundColor: '#0B0B0F',
@@ -178,7 +186,23 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'expo-build-properties',
       {
         ios: { deploymentTarget: '16.4' },
-        android: { compileSdkVersion: 36, targetSdkVersion: 36, minSdkVersion: 26 },
+        android: {
+          compileSdkVersion: 36,
+          targetSdkVersion: 36,
+          minSdkVersion: 26,
+          // No x86. Those two ABIs exist for Intel emulators and no shipping
+          // phone, and carrying them put 51MB of unusable native code in the
+          // APK — more than a third of it. Apple Silicon emulators are arm64,
+          // so this costs nothing here; anyone on an Intel Mac can build one
+          // with `./gradlew <task> -PreactNativeArchitectures=x86_64`.
+          buildArchs: ['armeabi-v7a', 'arm64-v8a'],
+          // R8 off left 53MB of dex across five files. Resource shrinking needs
+          // it, and the widget resources are protected from it by the keep.xml
+          // that `withRidikAndroidWidget` writes — they are reached through
+          // `Resources.getIdentifier`, which R8 cannot see.
+          enableMinifyInReleaseBuilds: true,
+          enableShrinkResourcesInReleaseBuilds: true,
+        },
       },
     ],
     // The Android home-screen widget's manifest receiver and resources. Its
@@ -189,6 +213,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // create on its own, plus the App Group the app publishes snapshots into.
     // Its Swift lives in targets/RidikWidget/ and modules/ridik-widgets/ios/.
     './plugins/withRidikIosWidget',
+    // Signs release builds with credentials/android/upload.keystore instead of
+    // the template's debug key, which Play rejects. Does nothing until
+    // `npm run release keystore` has created one.
+    './plugins/withRidikAndroidSigning',
   ],
   experiments: {
     typedRoutes: true,

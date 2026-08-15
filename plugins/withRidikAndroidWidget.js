@@ -599,9 +599,41 @@ function rowsResources() {
   return files;
 }
 
+/**
+ * Stops resource shrinking from deleting the widget.
+ *
+ * `shrinkResources` keeps what it can *see* referenced, and every id here is
+ * reached through `Resources.getIdentifier(name, …)` — a string R8 cannot
+ * follow. Most of the tree survives by accident, because the manifest names the
+ * provider XML which names the layout which names its colours; but anything
+ * reached only from Kotlin is invisible, and `ridik_widget_danger` is exactly
+ * that on any build where no preview happens to use it.
+ *
+ * The failure would not break the build. It would ship a widget that renders
+ * blank, or with one colour resolved to 0 and drawn transparent.
+ */
+function keepRules() {
+  const names = [
+    '@layout/ridik_*',
+    '@xml/ridik_*',
+    '@color/ridik_widget_*',
+    '@drawable/ridik_widget_*',
+    '@string/ridik_widget_*',
+    '@string/ridik_rows_*',
+  ];
+  return `<?xml version="1.0" encoding="utf-8"?>
+<!-- ${GENERATED} -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="${names.join(',')}"
+    tools:shrinkMode="safe" />
+`;
+}
+
 function resourceFiles() {
   return {
     ...rowsResources(),
+
+    'raw/ridik_widget_keep.xml': keepRules(),
 
     [`layout/${LAYOUT}.xml`]: widgetLayout({ preview: false }),
     [`layout/${LAYOUT}_preview.xml`]: widgetLayout({ preview: true }),

@@ -190,24 +190,65 @@ Then check `app.config.ts`:
 
 ## 5. Building
 
+Start here, always:
+
 ```bash
-# Native projects, after any config or native dependency change
-npx expo prebuild --clean
-
-# iOS — needs Xcode
-npx expo run:ios --configuration Release
-
-# Android — needs JDK 21, not 25
-export JAVA_HOME="$HOME/.jdks/temurin-21/Contents/Home"
-npx expo run:android --variant release
+npm run release doctor
 ```
 
-For store builds, EAS is less painful than doing it by hand:
+It reports what is present, what is missing and what that blocks — the JDK
+version, the Android SDK, the upload key, and whether there is a code-signing
+identity in your keychain. Everything below assumes it came back clean.
+
+### The store artefacts
+
+```bash
+npm run release keystore      # once, ever — creates the Android upload key
+npm run release bump          # advance the build number on both platforms
+
+npm run release android:aab   # → dist/ridik-1.0.0-2.aab   (upload to Play)
+npm run release android:apk   # → dist/ridik-1.0.0-2.apk   (sideload, testers)
+npm run release ios:ipa       # → dist/ridik-1.0.0-2.ipa   (App Store Connect)
+
+npm run release all           # doctor, then everything this machine can build
+```
+
+Add `--verbose` to see the whole build log instead of the last thirty lines of
+a failure, and `--no-prebuild` to skip regenerating `ios/` and `android/` when
+you know nothing native changed.
+
+**The upload key is the one credential you cannot rotate.** `npm run release
+keystore` writes it to `credentials/android/`, which is gitignored. Play matches
+every future upload against the key that signed the first one; lose it and
+updating your own app becomes a support ticket. Back up both files somewhere
+that survives this machine.
+
+**Build numbers.** `ios.buildNumber` and `android.versionCode` live in
+`app.config.ts` and must increase with every upload, even when `version` has
+not changed. `npm run release bump` advances both to the same number, so
+"build 7" means the same thing in TestFlight and in Play.
+
+### If you would rather not build locally
+
+EAS builds on Apple's and Google's behalf and holds the credentials for you,
+which is the easier road if you have no Mac or no certificates:
 
 ```bash
 npx eas build --platform ios --profile production
 npx eas build --platform android --profile production
 npx eas submit --platform ios
+```
+
+### Debug builds, for the simulators
+
+Not uploadable — they load JavaScript from Metro. See `AGENTS.md` → Verifying a
+change for the full loop.
+
+```bash
+npx expo prebuild --clean
+npx expo run:ios
+export JAVA_HOME="$HOME/.jdks/temurin-21/Contents/Home"   # 25 fails the CMake step
+npx expo run:android
 ```
 
 ---

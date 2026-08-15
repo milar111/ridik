@@ -195,6 +195,13 @@ adb logcat -d -s ReactNativeJS -s AndroidRuntime
 
 A change is not verified until it has run on both.
 
+Those are debug builds and cannot be uploaded anywhere. The shippable artefacts
+come from `npm run release` — `doctor` first, which reports what is missing
+before a build spends twenty minutes discovering it. `credentials/` holds the
+Android upload key and is gitignored; it is the one credential that cannot be
+rotated, because Play matches every future upload against the key that signed
+the first one.
+
 ## Widgets
 
 One payload, five faces per platform. `src/services/widgets/snapshot.ts` builds it; everything
