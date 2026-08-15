@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../ThemeProvider';
+import { useFontsReady } from '../fonts';
 import { Txt } from './Text';
 import { MIC_CLEARANCE } from '../layout';
 
@@ -40,6 +41,7 @@ export function Screen({
   const { colors, spacing } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const fontsReady = useFontsReady();
 
   const header =
     title || right ? (
@@ -81,6 +83,10 @@ export function Screen({
       {children}
     </View>
   );
+
+  // Nothing is measured until the faces are loadable; see `useFontsReady`.
+  // This is invisible — the startup overlay is still covering the screen.
+  if (!fontsReady) return <View style={{ flex: 1, backgroundColor: colors.bg }} />;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>

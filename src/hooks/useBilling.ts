@@ -2,10 +2,12 @@ import { useMutation, useQuery, type UseMutationResult, type UseQueryResult } fr
 
 import {
   availablePlans,
+  planMarketing,
   currentEntitlement,
   purchasePlan,
   restorePurchases,
   type Entitlement,
+  type Marketing,
   type Plan,
   type PlanId,
 } from '@/services/billing/entitlement';
@@ -41,6 +43,15 @@ export function usePlans(): UseQueryResult<Plan[]> {
     queryKey: qk.billing.plans(),
     queryFn: () => availablePlans(),
     staleTime: 5 * 60_000,
+  });
+}
+
+/** Paywall copy from the store's dashboard, or null to use the app's own. */
+export function usePlanMarketing(): UseQueryResult<Marketing | null> {
+  return useQuery({
+    queryKey: qk.billing.marketing(),
+    queryFn: () => planMarketing(),
+    staleTime: 30 * 60_000,
   });
 }
 

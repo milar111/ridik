@@ -98,6 +98,14 @@ Two Android text traps, both of which cost a debugging session:
 - **A `Text` in a flex row is measured short and clipped, not wrapped.** With
   tracking on it, short by a whole character — "YOUR DATA" rendered as
   "YOUR DAT". Give it `flex: 1` rather than letting it size to its own content.
+- **Nothing may lay out text before the fonts resolve.** React Native caches
+  text measurements on Android, and the navigator has to mount on the first
+  render, so screens were measured with the fallback face and the cache kept
+  those numbers forever. A paragraph measured at two lines drew three, and the
+  third was covered by whatever came next — "…listens and understands." stopped
+  at "and", but only on the first screen opened after launch, which is why it
+  read as intermittent. `Screen` and `app/index.tsx` hold their content on
+  `useFontsReady()`; any new root-level screen must too.
 - **Glyph ink can reach past its advance width, and Android clips to the
   advance.** Bricolage's `t` and `e` do: "Export" lost its crossbar and became
   "Exporl", while "Allow" was fine. `Button`'s label carries 2pt of horizontal

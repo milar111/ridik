@@ -33,6 +33,7 @@ import { useVoiceStore } from '@/features/voice/store';
 import { useToday } from '@/hooks';
 import { HeatField, type HeatState } from '@/ui/HeatField';
 import { useTheme } from '@/ui/ThemeProvider';
+import { useFontsReady } from '@/ui/fonts';
 import { STAGGER_MS, tap } from '@/ui/motion';
 import { useNavigateOnce } from '@/ui/useNavigateOnce';
 
@@ -53,6 +54,7 @@ export default function HomeScreen() {
   const at = useNow();
   const reduced = useReducedMotion();
   const status = useVoiceStore((s) => s.status);
+  const fontsReady = useFontsReady();
 
 
 
@@ -79,6 +81,10 @@ export default function HomeScreen() {
   // animation is not the accommodation, no animation is.
   const arrive = (index: number) =>
     reduced ? undefined : FadeIn.duration(320).delay(index * STAGGER_MS);
+
+  // See `useFontsReady`: Android caches text measurements, so nothing may be
+  // laid out before the faces resolve.
+  if (!fontsReady) return <View style={[styles.root, { backgroundColor: colors.bg }]} />;
 
   return (
     <View style={styles.root}>

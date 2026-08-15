@@ -8,6 +8,7 @@
  * Registered under short keys rather than the packages' own long export names,
  * so `theme.fonts` reads as a design decision instead of an import path.
  */
+import { createContext, useContext, type ReactNode } from 'react';
 import { useFonts } from 'expo-font';
 import {
   BricolageGrotesque_400Regular,
@@ -41,4 +42,33 @@ export function useAppFonts(): boolean {
   // A font that will not load must not hold the app hostage — better the
   // system face than a splash screen forever.
   return loaded || error !== null;
+}
+
+/* ------------------------------------------------------------ readiness -- */
+
+/**
+ * Whether the faces are usable yet, for the one thing that must wait: laying
+ * out text.
+ *
+ * React Native caches text measurements on Android. The navigator has to mount
+ * on the very first render — expo-router matches the initial URL against
+ * whatever tree exists then — so screens were being measured while `useFonts`
+ * was still resolving, with the fallback face. Those measurements were cached
+ * and never recomputed, so a paragraph measured at two lines in the fallback
+ * would draw three in Bricolage and the third was covered by whatever came
+ * next. "A plan pays for the part that listens and understands." stopped at
+ * "and" — but only on a screen opened during the first few hundred
+ * milliseconds, which is why it looked intermittent.
+ *
+ * The navigator still mounts immediately. Only the *content* waits, and it
+ * waits behind the startup overlay, so nothing is visible either way.
+ */
+const FontsReadyContext = createContext(true);
+
+export function FontsReadyProvider({ ready, children }: { ready: boolean; children: ReactNode }) {
+  return <FontsReadyContext.Provider value={ready}>{children}</FontsReadyContext.Provider>;
+}
+
+export function useFontsReady(): boolean {
+  return useContext(FontsReadyContext);
 }

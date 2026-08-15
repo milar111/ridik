@@ -24,6 +24,20 @@ const log = createLogger('billing');
 
 export type PlanId = 'monthly' | 'yearly';
 
+/**
+ * What the paywall says, when the store is willing to say it.
+ *
+ * Prices are already the store's. This is the rest of the screen — the selling
+ * points and the "best value" flag — so the whole thing can be reworded from a
+ * dashboard without shipping a build. `null` means the store said nothing and
+ * the app's own copy stands.
+ */
+export type Marketing = {
+  benefits: string[];
+  /** Which plan gets the badge, if any. */
+  highlight: PlanId | null;
+};
+
 /** A thing that can be bought, priced by the store in the user's own currency. */
 export type Plan = {
   id: PlanId;
@@ -81,6 +95,8 @@ export type BillingProvider = {
   configure(): Promise<void>;
   /** What is for sale, priced by the store. */
   plans(): Promise<Plan[]>;
+  /** Editable copy, or null to use the app's own. */
+  marketing(): Promise<Marketing | null>;
   current(): Promise<Entitlement>;
   /** Opens the store's purchase sheet. Resolves to what the user ended on. */
   purchase(plan: PlanId): Promise<Entitlement>;
@@ -94,8 +110,48 @@ export type BillingProvider = {
 
 let provider: BillingProvider | null = null;
 
+/**
+ * Resolves once startup has chosen a provider.
+ *
+ * The navigator mounts on the first render, before bootstrap has run, so a
+ * screen deep-linked at cold start can ask what is for sale before there is
+ * anything to ask. That returned an empty list, and React Query cached it —
+ * the paywall then said "No plans available" for the rest of the session on a
+ * device that had plans all along. Every read waits for this instead.
+ */
+let announce: () => void = () => {};
+const ready: Promise<void> = new Promise((resolve) => {
+  announce = resolve;
+});
+
+/** How long a read will wait for startup before giving up on it. */
+const READY_TIMEOUT_MS = 5_000;
+
+/**
+ * Never rejects, and never waits forever.
+ *
+ * Already-registered is the common case and costs nothing. The timeout is the
+ * backstop for the one that would otherwise be unrecoverable: a bootstrap that
+ * threw before registering anything would leave every billing read pending for
+ * the life of the process, and the profile would sit on a skeleton rather than
+ * saying "Free".
+ */
+function whenReady(): Promise<void> {
+  if (provider) return Promise.resolve();
+  return Promise.race([
+    ready,
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, READY_TIMEOUT_MS);
+      // Node keeps the process alive for a pending timer; the tests would hang
+      // on teardown rather than on the read.
+      timer.unref?.();
+    }),
+  ]);
+}
+
 export function registerBillingProvider(impl: BillingProvider): void {
   provider = impl;
+  announce();
 }
 
 export function billingProviderName(): string | null {
@@ -111,6 +167,7 @@ export function billingProviderName(): string | null {
  * unknown rather than accusing them of not paying.
  */
 export async function currentEntitlement(): Promise<Entitlement> {
+  await whenReady();
   if (!provider) return FREE;
   try {
     return await provider.current();
@@ -121,12 +178,24 @@ export async function currentEntitlement(): Promise<Entitlement> {
 }
 
 export async function availablePlans(): Promise<Plan[]> {
+  await whenReady();
   if (!provider) return [];
   try {
     return await provider.plans();
   } catch (error) {
     log.warn('could not load the plans', { error });
     return [];
+  }
+}
+
+export async function planMarketing(): Promise<Marketing | null> {
+  await whenReady();
+  if (!provider) return null;
+  try {
+    return await provider.marketing();
+  } catch (error) {
+    log.warn('could not load the paywall copy; using the built-in text', { error });
+    return null;
   }
 }
 

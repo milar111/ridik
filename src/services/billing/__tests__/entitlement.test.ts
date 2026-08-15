@@ -27,6 +27,7 @@ const stub = (over: Partial<BillingProvider> = {}): BillingProvider => ({
   name: 'stub',
   configure: async () => {},
   plans: async () => [],
+  marketing: async () => null,
   current: async () => FREE,
   purchase: async () => FREE,
   restore: async () => FREE,

@@ -150,6 +150,26 @@ export function createRevenueCatProvider(): BillingProvider {
         .sort((a, b) => (a.id === 'monthly' ? -1 : b.id === 'monthly' ? 1 : 0));
     },
 
+    /**
+     * Read off the offering's `metadata` in the RevenueCat dashboard, so the
+     * selling points and the "best value" flag can be reworded without a
+     * release. Anything malformed is ignored rather than rendered — a paywall
+     * showing `[object Object]` is worse than one showing the built-in copy.
+     */
+    async marketing() {
+      const Purchases = load();
+      if (!Purchases) return null;
+      const offerings = await Purchases.getOfferings();
+      const meta = offerings?.current?.metadata as Record<string, unknown> | undefined;
+      if (!meta) return null;
+
+      const benefits = Array.isArray(meta.benefits)
+        ? meta.benefits.filter((line): line is string => typeof line === 'string' && line.trim() !== '')
+        : [];
+      const highlight = meta.highlight === 'monthly' || meta.highlight === 'yearly' ? meta.highlight : null;
+      return benefits.length === 0 && highlight === null ? null : { benefits, highlight };
+    },
+
     async current() {
       const Purchases = load();
       if (!Purchases) return FREE;

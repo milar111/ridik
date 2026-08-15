@@ -13,24 +13,37 @@
  * subscription it is billing, and an in-app "Cancel" that merely opened the
  * same link while looking like it did the work would be a lie.
  */
-import { View } from 'react-native';
-import { Linking } from 'react-native';
+import { Linking, Pressable, View } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
 import { now } from '@/core/clock';
 import { formatDayHeading } from '@/core/time';
-import { useEntitlement, usePlans, usePurchasePlan, useRestorePurchases } from '@/hooks/useBilling';
+import {
+  useEntitlement,
+  usePlanMarketing,
+  usePlans,
+  usePurchasePlan,
+  useRestorePurchases,
+} from '@/hooks/useBilling';
 import {
   describePlan,
   describeRenewal,
   manageSubscriptionUrl,
   FREE,
   type Entitlement,
+  type Plan,
 } from '@/services/billing/entitlement';
 import { useTheme } from '@/ui/ThemeProvider';
+import { tap } from '@/ui/motion';
+import { elevate } from '@/ui/shadow';
 import { Badge, Button, Card, Divider, Screen, Txt, useToast } from '@/ui/components';
 
-/** What the plan buys that the free app does not do. */
+/**
+ * The fallback selling points. The store's own offering metadata wins when it
+ * has any, so the pitch can be reworded from a dashboard rather than a release
+ * — but a paywall must never be blank because a network call failed.
+ */
 const WHAT_YOU_GET = [
   'Talk instead of tap — one sentence becomes an event, a task and a reminder',
   'It knows your timetable, so "homework for Friday" lands on the right day',
@@ -130,6 +143,78 @@ const RECEIPTS_IN: Record<NonNullable<Entitlement['store']>, string> = {
   sandbox: 'Nothing was charged — this plan only exists on this device.',
 };
 
+/**
+ * A plan, as a thing you choose rather than a button you press.
+ *
+ * The price is the largest type on the card and set in the mono face, because
+ * it is a figure you compare rather than a phrase you read — the same reason
+ * the time on the home screen is a readout. Yearly carries whatever saving the
+ * store's own numbers support; nothing here computes a discount, so a price
+ * change in App Store Connect cannot leave a stale "Save 30%" behind.
+ */
+function PlanCard({
+  plan,
+  recommended,
+  busy,
+  onPress,
+}: {
+  plan: Plan;
+  recommended: boolean;
+  busy: boolean;
+  onPress: () => void;
+}) {
+  const { colors, radius, spacing } = useTheme();
+  const press = useSharedValue(0);
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: 1 - press.value * 0.02 }] }));
+
+  return (
+    <Animated.View style={style}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Subscribe ${plan.title}, ${plan.price}`}
+        accessibilityState={{ busy }}
+        disabled={busy}
+        onPressIn={() => {
+          press.value = tap(1);
+        }}
+        onPressOut={() => {
+          press.value = tap(0);
+        }}
+        onPress={onPress}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.md,
+          padding: spacing.lg,
+          borderRadius: radius.lg,
+          backgroundColor: colors.surface,
+          // The recommended one is marked by a border in the accent rather than
+          // a filled block: two filled cards side by side read as two primary
+          // actions, which is the one thing a choice must not look like.
+          borderWidth: recommended ? 2 : 1,
+          borderColor: recommended ? colors.accent : colors.border,
+          opacity: busy ? 0.6 : 1,
+          ...elevate('card'),
+        }}
+      >
+        <View style={{ flex: 1, gap: 2 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+            <Txt variant="bodyStrong">{plan.title}</Txt>
+            {plan.note ? <Badge label={plan.note} tone="warning" /> : null}
+          </View>
+          <Txt variant="caption" tone="tertiary">
+            per {plan.period}, until you cancel
+          </Txt>
+        </View>
+        <Txt variant="readout" style={{ fontSize: 22, lineHeight: 26 }}>
+          {plan.price}
+        </Txt>
+        <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 function Fact({ label, value }: { label: string; value: string }) {
   const { spacing } = useTheme();
   return (
@@ -156,10 +241,13 @@ function Offer() {
   const { colors, spacing } = useTheme();
   const toast = useToast();
   const plans = usePlans();
+  const marketing = usePlanMarketing();
   const purchase = usePurchasePlan();
   const restore = useRestorePurchases();
 
   const available = plans.data ?? [];
+  const benefits = marketing.data?.benefits?.length ? marketing.data.benefits : WHAT_YOU_GET;
+  const highlight = marketing.data?.highlight ?? 'yearly';
 
   return (
     <>
@@ -169,7 +257,7 @@ function Offer() {
       </Txt>
 
       <Card style={{ gap: spacing.md }}>
-        {WHAT_YOU_GET.map((line) => (
+        {benefits.map((line) => (
           <View key={line} style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
             <Ionicons name="checkmark" size={17} color={colors.accent} />
             <Txt variant="body" style={{ flex: 1 }}>
@@ -196,11 +284,11 @@ function Offer() {
       ) : (
         <View style={{ gap: spacing.sm }}>
           {available.map((option) => (
-            <Button
+            <PlanCard
               key={option.id}
-              label={`${option.title} · ${option.price}`}
-              variant={option.id === 'monthly' ? 'primary' : 'secondary'}
-              loading={purchase.isPending}
+              plan={option}
+              recommended={option.id === highlight}
+              busy={purchase.isPending}
               onPress={() =>
                 purchase.mutate(option.id, {
                   onSuccess: (result) => {

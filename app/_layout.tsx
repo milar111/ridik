@@ -11,7 +11,7 @@ import { useColorScheme } from 'react-native';
 
 import { VoiceDock } from '@/features/voice/VoiceDock';
 import { useWidgetPublisher } from '@/hooks/useWidgetPublisher';
-import { useAppFonts } from '@/ui/fonts';
+import { FontsReadyProvider, useAppFonts } from '@/ui/fonts';
 import { ThemeProvider } from '@/ui/ThemeProvider';
 import { Spinner, ToastProvider } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
@@ -70,6 +70,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <SafeAreaProvider>
         <ThemeProvider>
+          <FontsReadyProvider ready={fontsReady}>
           <QueryClientProvider client={queryClient}>
             <ToastProvider>
               <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
@@ -86,8 +87,20 @@ export default function RootLayout() {
                   }}
                 >
                   <Stack.Screen name="index" />
-                  <Stack.Screen name="menu" options={{ presentation: 'modal' }} />
-                  <Stack.Screen name="briefing" options={{ presentation: 'modal' }} />
+                  {/* `presentation: 'modal'` is an iOS idea: a sheet that slides
+                      up with the screen behind it scaled back. Android has no
+                      equivalent and react-native-screens substitutes a plain
+                      full-screen push, so the same route arrived two different
+                      ways. A card with an explicit slide-from-bottom is the same
+                      animation on both. */}
+                  <Stack.Screen
+                    name="menu"
+                    options={{ presentation: 'card', animation: 'slide_from_bottom' }}
+                  />
+                  <Stack.Screen
+                    name="briefing"
+                    options={{ presentation: 'card', animation: 'slide_from_bottom' }}
+                  />
                 </Stack>
                 {/* Mounted above every route so a thought can be captured from
                     wherever you are. It draws its own floating mic everywhere
@@ -112,6 +125,7 @@ export default function RootLayout() {
               </ErrorBoundary>
             </ToastProvider>
           </QueryClientProvider>
+          </FontsReadyProvider>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

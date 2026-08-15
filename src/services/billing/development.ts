@@ -99,6 +99,11 @@ export function createDevelopmentProvider(): BillingProvider {
       return PLANS;
     },
 
+    async marketing() {
+      // No dashboard to read. The app's own copy stands.
+      return null;
+    },
+
     async current() {
       return toEntitlement(await read());
     },
