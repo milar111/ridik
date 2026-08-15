@@ -25,6 +25,47 @@ export type ColorScheme = 'light' | 'dark';
  */
 export type HeatRamp = { core: string; mid: string; edge: string; rim: string };
 
+/**
+ * The cell ramp — one ember at four opacities, resolved.
+ *
+ * Every graphic in the widget family and in the habit grid is built from a cell
+ * filled with one of these. Resolved rather than composited at draw time because
+ * the same four values have to exist identically in Swift and in Android XML,
+ * and "the same alpha over the same ground" is a promise three languages would
+ * each have to keep. These are the arithmetic done once.
+ *
+ * `hot` is spent sparingly on purpose: exactly one cell per drawing, always the
+ * single most urgent thing. That cap is what keeps saturated orange to a percent
+ * or two of any surface — the structural answer to a hue somebody dislikes, and
+ * a better one than picking a duller colour.
+ *
+ * Ink sits on `cold`, `low` and `mid`; on `hot` it inverts to `onHeat`. Both
+ * sides clear 4.5:1 in both schemes. Ink on `hot` measures 3.2:1 and must never
+ * be used.
+ */
+export type CellRamp = { cold: string; low: string; mid: string; hot: string; onHeat: string };
+
+export const cells: Record<ColorScheme, CellRamp> = {
+  // #C7360F over #FFE8D4 at 14% / 40% / 70% / 100%.
+  light: {
+    cold: '#F7CFB8',
+    low: '#E9A185',
+    mid: '#D86B4A',
+    hot: '#C7360F',
+    onHeat: '#FFF7F0',
+  },
+  // #FF5A36 over #1C0E06 at the same four. The direction of travel inverts —
+  // heat brightens away from the ground instead of darkening toward it — which
+  // is why dark reads as an emitting instrument rather than a printed one.
+  dark: {
+    cold: '#3C190D',
+    low: '#772C19',
+    mid: '#BB4328',
+    hot: '#FF5A36',
+    onHeat: '#1C0E06',
+  },
+};
+
 export const heat: Record<ColorScheme, HeatRamp> = {
   light: { core: '#FF5A36', mid: '#FF8A52', edge: '#FFB57E', rim: '#FFE3CB' },
   // The same fire seen in a dark room: the core holds, everything behind it
@@ -172,6 +213,8 @@ export type Theme = {
   scheme: ColorScheme;
   colors: Colors;
   heat: HeatRamp;
+  /** The four-step cell ramp every grid and widget is built from. */
+  cells: CellRamp;
   spacing: typeof spacing;
   radius: typeof radius;
   typography: typeof typography;
@@ -181,6 +224,7 @@ export function makeTheme(scheme: ColorScheme): Theme {
   return {
     scheme,
     colors: scheme === 'dark' ? darkColors : lightColors,
+    cells: cells[scheme],
     heat: scheme === 'dark' ? heat.dark : heat.light,
     spacing,
     radius,

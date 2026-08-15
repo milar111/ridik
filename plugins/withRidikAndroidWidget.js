@@ -677,6 +677,14 @@ function resourceFiles() {
       ember: '#C7360F',
       danger: '#BE2A18',
       wash: '#1FC7360F',
+      // #C7360F over #FFE8D4 at 14 / 40 / 70 / 100 percent.
+      heat: {
+        cold: '#F7CFB8',
+        low: '#E9A185',
+        mid: '#D86B4A',
+        hot: '#C7360F',
+        onHeat: '#FFF7F0',
+      },
     }),
 
     // The launcher can be in dark mode while the app is not, so the widget
@@ -688,6 +696,20 @@ function resourceFiles() {
       ember: '#FF8253',
       danger: '#FF6F5C',
       wash: '#29FF8253',
+      // #FF5A36 over #1C0E06 at the same four. Note the hot value is the vivid
+      // core, not `ember` — the accent is the text-safe darkened one.
+      heat: {
+        cold: '#3C190D',
+        low: '#772C19',
+        mid: '#BB4328',
+        hot: '#FF5A36',
+        onHeat: '#1C0E06',
+        // Dark only: a hairline inside the hot cell so emission reads as glow,
+        // and a tile border, because a near-black tile on a dark photo
+        // wallpaper otherwise dissolves into it.
+        rim: '#FFB57E',
+        edge: '#1FFFD6B8',
+      },
     }),
 
     'values/ridik_widget_strings.xml': `<?xml version="1.0" encoding="utf-8"?>
@@ -706,6 +728,8 @@ function resourceFiles() {
       '@android:dimen/system_app_widget_background_radius',
     ),
 
+    ...cellDrawables(),
+
     'drawable/ridik_widget_chip.xml': `<?xml version="1.0" encoding="utf-8"?>
 <!-- ${GENERATED} -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
@@ -717,7 +741,30 @@ function resourceFiles() {
   };
 }
 
-function colors({ ground, ink, inkSoft, ember, danger, wash }) {
+/**
+ * The cell ramp, resolved, plus the two dark-only tokens.
+ *
+ * The same four values live in `src/ui/theme.ts` and `RidikPalette.swift`, and
+ * `widget-tokens.test.ts` asserts all three agree — a ramp that drifted would
+ * put the app's habit grid and the widget beside it in different palettes, on
+ * the same screen, with nothing failing.
+ */
+function heatColors({ cold, low, mid, hot, onHeat, rim, edge }) {
+  const optional = [
+    rim ? `  <color name="ridik_widget_rim">${rim}</color>` : null,
+    edge ? `  <color name="ridik_widget_edge">${edge}</color>` : null,
+  ].filter(Boolean);
+  return [
+    `  <color name="ridik_widget_heat_0">${cold}</color>`,
+    `  <color name="ridik_widget_heat_1">${low}</color>`,
+    `  <color name="ridik_widget_heat_2">${mid}</color>`,
+    `  <color name="ridik_widget_heat_3">${hot}</color>`,
+    `  <color name="ridik_widget_on_heat">${onHeat}</color>`,
+    ...optional,
+  ].join('\n');
+}
+
+function colors({ ground, ink, inkSoft, ember, danger, wash, heat }) {
   return `<?xml version="1.0" encoding="utf-8"?>
 <!-- ${GENERATED} -->
 <resources>
@@ -727,7 +774,43 @@ function colors({ ground, ink, inkSoft, ember, danger, wash }) {
   <color name="ridik_widget_ember">${ember}</color>
   <color name="ridik_widget_danger">${danger}</color>
   <color name="ridik_widget_wash">${wash}</color>
+${heatColors(heat)}
 </resources>
+`;
+}
+
+/**
+ * One drawable per heat level, and a second set for the cell that is today.
+ *
+ * A plain `View` with one of these as its background is the entire drawing
+ * primitive — no bitmaps anywhere in this widget family. Quantising heat into
+ * four fixed levels is what makes that possible: a continuous ramp would have
+ * forced a `Canvas` bitmap, and with it the ~1MB Binder ceiling and a night-mode
+ * seam where the bitmap resolves the *app* process's configuration while the
+ * layout's `@color/` references resolve the *launcher's*.
+ */
+function cellDrawables() {
+  const files = {};
+  for (let level = 0; level < 4; level++) {
+    files[`drawable/ridik_heat_${level}.xml`] = cell(level, false);
+    files[`drawable/ridik_heat_${level}_today.xml`] = cell(level, true);
+  }
+  return files;
+}
+
+function cell(level, today) {
+  // The ring goes *outside* the fill on the plate's today cell, so the day it
+  // marks is not made smaller than the ones around it.
+  const stroke = today
+    ? '\n  <stroke android:width="1.5dp" android:color="@color/ridik_widget_ember" />'
+    : '';
+  return `<?xml version="1.0" encoding="utf-8"?>
+<!-- ${GENERATED} -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+  <solid android:color="@color/ridik_widget_heat_${level}" />
+  <corners android:radius="2dp" />${stroke}
+</shape>
 `;
 }
 

@@ -296,7 +296,7 @@ function ContributionGrid({
   pending: boolean;
   loading: boolean;
 }) {
-  const { colors } = useTheme();
+  const { colors, cells } = useTheme();
   const hits = days.filter((day) => logged.has(day) || (pending && day === today)).length;
 
   return (
@@ -325,11 +325,17 @@ function ContributionGrid({
                 style={[
                   styles.cell,
                   {
-                    backgroundColor: done
-                      ? colors.success
-                      : future
-                        ? 'transparent'
-                        : colors.surfaceSunken,
+                    // The same four-step ramp the widget rails use, so the grid
+                    // and the tile on the home screen are the same drawing.
+                    // `colors.success` was green — a semantic colour spent as
+                    // data, on a palette where nothing else is green at all.
+                    backgroundColor: future
+                      ? 'transparent'
+                      : done
+                        ? isToday
+                          ? cells.hot
+                          : cells.mid
+                        : cells.cold,
                     borderColor: isToday ? colors.accent : colors.border,
                     borderWidth: isToday ? 1.5 : StyleSheet.hairlineWidth,
                   },

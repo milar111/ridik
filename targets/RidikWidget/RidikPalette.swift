@@ -23,12 +23,42 @@ struct RidikPalette {
   let accent: Color
   let danger: Color
 
+  /**
+   The cell ramp — one ember at four opacities, already resolved.
+
+   Every graphic in the family is built from a cell filled with one of these.
+   Resolved rather than composited here because the identical four values have
+   to exist in `src/ui/theme.ts` and in the Android plugin's colour XML, and
+   "the same alpha over the same ground" is a promise three languages would each
+   have to keep separately. `widget-tokens.test.ts` asserts all three agree.
+
+   `hot` is spent once per drawing, always on the single most urgent thing. That
+   cap is what keeps saturated orange to a percent or two of any tile.
+   */
+  let heatCold: Color
+  let heatLow: Color
+  let heatMid: Color
+  let heatHot: Color
+  /// The ink that goes *on* `heatHot`, where `text` measures 3.2:1 and must not.
+  let onHeat: Color
+  /// Dark only: a hairline inside the hot cell, so emission reads as glow.
+  let rim: Color?
+  /// Dark only: a tile border. A near-black tile on a dark wallpaper dissolves.
+  let edge: Color?
+
   static let light = RidikPalette(
     ground: Color(rgb: 0xFFE8D4),
     raised: Color(rgb: 0xFFF7F0),
     text: Color(rgb: 0x2E1508),
     accent: Color(rgb: 0xC7360F),
-    danger: Color(rgb: 0xBE2A18)
+    danger: Color(rgb: 0xBE2A18),
+    heatCold: Color(rgb: 0xF7CFB8),
+    heatLow: Color(rgb: 0xE9A185),
+    heatMid: Color(rgb: 0xD86B4A),
+    heatHot: Color(rgb: 0xC7360F),
+    onHeat: Color(rgb: 0xFFF7F0),
+    rim: nil,
+    edge: nil
   )
 
   static let dark = RidikPalette(
@@ -36,7 +66,16 @@ struct RidikPalette {
     raised: Color(rgb: 0x361F15),
     text: Color(rgb: 0xFFEEDF),
     accent: Color(rgb: 0xFF8253),
-    danger: Color(rgb: 0xFF6F5C)
+    danger: Color(rgb: 0xFF6F5C),
+    heatCold: Color(rgb: 0x3C190D),
+    heatLow: Color(rgb: 0x772C19),
+    heatMid: Color(rgb: 0xBB4328),
+    // Note: `heat.core`, not `accent`. The accent is the text-safe darkened
+    // one; this is the vivid core, and it only ever appears as a fill.
+    heatHot: Color(rgb: 0xFF5A36),
+    onHeat: Color(rgb: 0x1C0E06),
+    rim: Color(rgb: 0xFFB57E),
+    edge: Color(white: 1).opacity(0.12)
   )
 
   static func of(_ scheme: ColorScheme) -> RidikPalette {
@@ -46,8 +85,23 @@ struct RidikPalette {
   /// Heavier than it would be on white; this ground is a mid-tone.
   var secondaryText: Color { text.opacity(0.74) }
   var tertiaryText: Color { text.opacity(0.56) }
-  /// The unfilled part of the habit ring and the hairline between the columns.
+  /// The hairline between columns. There is no ring left to unfill.
   var hairline: Color { text.opacity(0.14) }
+
+  /// A heat character from the payload — `'0'` … `'3'` — as a fill.
+  func heat(_ level: Character) -> Color {
+    switch level {
+    case "1": return heatLow
+    case "2": return heatMid
+    case "3": return heatHot
+    default: return heatCold
+    }
+  }
+
+  /// Ink that stays legible on a given level. Inverts on `hot`, and only there.
+  func ink(on level: Character) -> Color {
+    level == "3" ? onHeat : text
+  }
 }
 
 extension Color {
