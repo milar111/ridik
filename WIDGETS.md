@@ -16,6 +16,12 @@ that is the *why it breaks*.
 Every graphic in the family is **one cell**: a rounded rectangle, corner radius
 2pt, filled with the single ember colour at one of four opacities.
 
+The ember is **chosen by the user** — Profile → Colour, defaulting to `ember`,
+which is the ramp below. The other options live in `src/ui/theme.ts` → `embers`
+and every one of them is held to the rules in this section by
+`src/ui/__tests__/widget-tokens.test.ts`. Adding a fourth means adding it there,
+and the test is what stops one being added that nobody can read.
+
 | Level | Char | Light | Dark | Means |
 | --- | --- | --- | --- | --- |
 | cold | `0` | `#F7CFB8` | `#3C190D` | nothing here |
@@ -326,6 +332,52 @@ ever placed*. Previews ship populated, with the same fake data on both
 platforms.
 
 ---
+
+## 4b. Choosing the ember
+
+Three options ship: `ember` (default), `kiln`, `rust`. Each carries a full light
+and dark `CellRamp` and one more field that is not decoration.
+
+### `platePeak`, and why a darker ember costs something
+
+**No darker ember is possible at any ramp on the sand ground.** This was solved
+for, not guessed: Oxide, Kiln, Madder and Rust all fail the family's own rules
+at every combination of alphas, and so does the default ember if you move one of
+them.
+
+The month plate is the only place in the family where text sits *on* a filled
+cell. That pins the ramp from both ends at once — `mid` has to stay light enough
+for a near-black numeral, and `hot` has to stay dark enough for linen — and a
+darker ember cannot do both. A paler ground does not rescue it (the constraint
+is the ember, not the ground), and inverting the numeral on `mid` fails too:
+linen on a mid cell is weaker than ink is.
+
+So `platePeak` names the hottest level the plate may use **in light mode**:
+`mid` for `ember`, `low` for the darker two. Under those, a busy day and a very
+busy day read alike in light and stay distinct in dark, where the constraint
+does not exist. It is a real loss and it is the only one on offer — which is why
+`ember` is the default rather than merely the first in the list.
+
+### How the choice reaches each surface
+
+| Surface | How |
+| --- | --- |
+| The app | `ThemeProvider` resolves `cells` / `accent` / `heat` from the stored choice |
+| The payload | `ember: EmberName` — the **name**, never colours, so the widget still owns its own palette and resolves light/dark itself |
+| iOS | `RidikPalette.of(scheme:ember:)`; one seam, every face already asks the palette |
+| Android | a **resource dimension** — see below |
+
+**Android cannot resolve the ember at draw time.** A colour from
+`resources.getColor()` is resolved against the *app* process's configuration
+while the launcher draws against its own; that mismatch is what made every row
+title vanish in dark mode once already. So the ember is baked into resources:
+24 heat drawables and 53 layouts, selected by name through the same
+`Resources.getIdentifier` path that already picks size and clock variants, with
+light and dark still resolved by the launcher.
+
+**`ember` must stay in `digest()`.** Without it the payload is byte-identical
+whenever nothing else moved, so picking a new colour would leave every tile on
+the old one until the day happened to turn.
 
 ## 5. The two identities
 

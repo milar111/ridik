@@ -223,6 +223,17 @@ Four numbers have to agree across four files, and nothing fails loudly when they
 payload draws "Ridik was updated" rather than a half-decoded face — that is the whole point of
 the field, and skipping the bump is how a widget silently renders a lie.
 
+**A colour resolved at draw time is resolved in the wrong process.**
+`resources.getColor()` inside a provider answers against the *app's*
+configuration; the launcher draws the tile against its own. Flip the system to
+dark with the app last run in light and every runtime-coloured string is written
+near-black onto a near-black tile — which is exactly what happened, and only the
+strings were affected, because everything else came from the layout's own
+`@color/` references. `setColorStateList` fixes it in a line and is API 31; this
+app ships to 26. So widget colour lives in XML, and anything that varies —
+done/not-done, or the user's chosen ember — is a *second pre-coloured view* or a
+*second generated resource*, never a computed int.
+
 **Android resolves every resource id by name** (`Resources.getIdentifier`), because the layouts
 are injected into the *app* module by `plugins/withRidikAndroidWidget.js` and a library cannot
 see the app's `R`. Rename an id in the plugin without changing `RidikRowsFace.kt` and the build
