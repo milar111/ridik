@@ -15,8 +15,15 @@ export {
   DEFAULT_GEMINI_BASE_URL,
   DEFAULT_GEMINI_MODEL,
   RESPONSE_SCHEMA,
+  type GeminiProvider,
   type GeminiProviderOptions,
 } from './gemini';
+
+export {
+  strictResponseSchema,
+  toGeminiSchema,
+  type GeminiSchema,
+} from './geminiSchema';
 
 export {
   createMockProvider,

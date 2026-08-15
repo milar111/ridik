@@ -1,0 +1,9 @@
+{
+  "platforms": ["ios", "android"],
+  "ios": {
+    "modules": ["RidikWidgetsModule"]
+  },
+  "android": {
+    "modules": ["ai.raisen.ridik.widgets.RidikWidgetsModule"]
+  }
+}

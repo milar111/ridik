@@ -6,6 +6,7 @@
  */
 import { now } from '@/core/clock';
 import { TOOL_NAMES } from '@/llm/contract';
+import { strictResponseSchema } from './geminiSchema';
 import {
   LlmProviderError,
   llmErrorFromHttpStatus,
@@ -29,15 +30,25 @@ export type GeminiProviderOptions = {
   fetchImpl?: typeof fetch;
   /** 0 disables the client-side timeout. */
   timeoutMs?: number;
-  /** Applied when a request carries no schema of its own; null disables it. */
+  /**
+   * Pins the schema instead of letting the provider pick one. `null` disables
+   * structured output entirely; anything else is sent verbatim. Leaving it
+   * unset — the normal case — hands the provider the ladder below.
+   */
   responseSchema?: unknown;
 };
 
+/** Exposes which rung of the schema ladder is in force, for tests and diagnostics. */
+export type GeminiProvider = LlmProvider & { readonly schemaRung: number };
+
 /**
- * Gemini's structured-output dialect: a subset of OpenAPI with uppercase type
- * names and no `oneOf`, `$ref` or `additionalProperties`. Our action list is a
- * discriminated union, which that subset cannot express, so `parameters` is a
- * free-form object here and Zod does the real validation on the way in.
+ * The fallback rung: the envelope only, with `parameters` left free-form.
+ *
+ * This was the whole schema until the contract learned to generate its own
+ * (see `./geminiSchema`), and it stays because it is the one shape this app has
+ * ever had accepted by the API. It constrains the parts that matter most for a
+ * turn to be usable at all — valid JSON, a real tool name, an actions array —
+ * without a single keyword beyond the oldest, safest corner of the subset.
  */
 export const RESPONSE_SCHEMA = {
   type: 'OBJECT',
@@ -99,11 +110,41 @@ const FINISH_MESSAGES: Record<string, string> = {
   MALFORMED_FUNCTION_CALL: 'Gemini produced an unusable tool call.',
 };
 
-export function createGeminiProvider(options: GeminiProviderOptions): LlmProvider {
+/**
+ * A 400 that mentions the schema is the API telling us this shape is more than
+ * it will decode against — too complex, or a keyword this model does not know.
+ * Every other 400 is about the request itself and must not be retried.
+ */
+function rejectsOurSchema(status: number, detail: string): boolean {
+  return status === 400 && /schema/i.test(detail);
+}
+
+export function createGeminiProvider(options: GeminiProviderOptions): GeminiProvider {
   const model = options.model ?? DEFAULT_GEMINI_MODEL;
   const baseUrl = (options.baseUrl ?? DEFAULT_GEMINI_BASE_URL).replace(/\/+$/, '');
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const defaultSchema = options.responseSchema === undefined ? RESPONSE_SCHEMA : options.responseSchema;
+
+  /**
+   * Strongest first. The strict schema is the point of the exercise, but it is
+   * also the largest thing this app has ever sent Google and no request has yet
+   * been made with a real key — so a rejection steps down a rung and retries
+   * instead of ending the turn. Losing the schema costs precision the repair
+   * loop can recover; a hard 400 costs the user the utterance.
+   *
+   * Built lazily, and defensively: a zod release that emits a keyword the
+   * translator has not been taught throws, and the ladder simply starts one
+   * rung lower rather than taking the assistant down with it.
+   */
+  const ladder = (): readonly unknown[] => {
+    try {
+      return [strictResponseSchema(), RESPONSE_SCHEMA, null];
+    } catch {
+      return [RESPONSE_SCHEMA, null];
+    }
+  };
+
+  const rungs = options.responseSchema === undefined ? ladder() : null;
+  let rung = 0;
 
   const readKey = (): string => {
     const raw = typeof options.apiKey === 'function' ? options.apiKey() : options.apiKey;
@@ -115,6 +156,10 @@ export function createGeminiProvider(options: GeminiProviderOptions): LlmProvide
   return {
     name: 'gemini',
     model,
+
+    get schemaRung() {
+      return rung;
+    },
 
     isConfigured: () => readKey().length > 0,
 
@@ -128,43 +173,55 @@ export function createGeminiProvider(options: GeminiProviderOptions): LlmProvide
 
       // `null` is the caller saying "no schema at all"; only `undefined` means
       // "you decide". `??` would have collapsed the two and re-armed the default.
-      const schema = req.responseSchema === undefined ? defaultSchema : req.responseSchema;
-      const body = {
-        systemInstruction: { parts: [{ text: req.system }] },
-        contents: req.messages.map((m) => ({ role: m.role, parts: [{ text: m.content }] })),
-        generationConfig: {
-          temperature: req.temperature ?? DEFAULT_TEMPERATURE,
-          ...(req.maxOutputTokens === undefined ? {} : { maxOutputTokens: req.maxOutputTokens }),
-          ...(schema ? { responseMimeType: 'application/json', responseSchema: schema } : {}),
-        },
-      };
+      const pinned = req.responseSchema !== undefined ? req.responseSchema : options.responseSchema;
+      const onLadder = rungs !== null && req.responseSchema === undefined;
 
       const startedAt = now();
-      const response = await send(
-        // The key travels in a header: query strings end up in proxy logs and
-        // crash reports, and this one unlocks the user's whole quota.
-        `${baseUrl}/models/${encodeURIComponent(model)}:generateContent`,
-        apiKey,
-        body,
-        req.signal,
-      );
+      for (;;) {
+        const schema = onLadder ? rungs[rung] : pinned;
+        const body = {
+          systemInstruction: { parts: [{ text: req.system }] },
+          contents: req.messages.map((m) => ({ role: m.role, parts: [{ text: m.content }] })),
+          generationConfig: {
+            temperature: req.temperature ?? DEFAULT_TEMPERATURE,
+            ...(req.maxOutputTokens === undefined ? {} : { maxOutputTokens: req.maxOutputTokens }),
+            ...(schema ? { responseMimeType: 'application/json', responseSchema: schema } : {}),
+          },
+        };
 
-      if (!response.ok) {
-        throw llmErrorFromHttpStatus(response.status, await describeHttpError(response));
+        const response = await send(
+          // The key travels in a header: query strings end up in proxy logs and
+          // crash reports, and this one unlocks the user's whole quota.
+          `${baseUrl}/models/${encodeURIComponent(model)}:generateContent`,
+          apiKey,
+          body,
+          req.signal,
+        );
+
+        if (!response.ok) {
+          const detail = await describeHttpError(response);
+          if (onLadder && rung < rungs.length - 1 && rejectsOurSchema(response.status, detail)) {
+            // Remembered for the life of the provider: the next turn must not
+            // pay for the same rejection again.
+            rung += 1;
+            continue;
+          }
+          throw llmErrorFromHttpStatus(response.status, detail);
+        }
+
+        const payload = await readPayload(response);
+        const text = extractText(payload);
+
+        return {
+          text,
+          model,
+          latencyMs: now() - startedAt,
+          usage: {
+            input: payload.usageMetadata?.promptTokenCount,
+            output: payload.usageMetadata?.candidatesTokenCount,
+          },
+        };
       }
-
-      const payload = await readPayload(response);
-      const text = extractText(payload);
-
-      return {
-        text,
-        model,
-        latencyMs: now() - startedAt,
-        usage: {
-          input: payload.usageMetadata?.promptTokenCount,
-          output: payload.usageMetadata?.candidatesTokenCount,
-        },
-      };
     },
   };
 

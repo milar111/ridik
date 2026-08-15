@@ -39,6 +39,12 @@ describe('the prompt says what is not the job', () => {
     expect(prompt).toMatch(/empty actions array/i);
     expect(prompt).toMatch(/never invent a tool name/i);
   });
+
+  /* Says out loud what the parameter objects now enforce. The contract is the
+     wall either way; this only stops the model walking into it. */
+  it('tells the model the parameter list is closed', () => {
+    expect(promptFor()).toMatch(/Send only the parameters listed for the tool/);
+  });
 });
 
 describe('the contract refuses what a persuaded model could emit', () => {
@@ -54,21 +60,36 @@ describe('the contract refuses what a persuaded model could emit', () => {
     expect(parsed.ok).toBe(false);
   });
 
-  /* A parameter the tool does not define is dropped, not passed along. The
-     guarantee is not that the reply is rejected — Zod strips unknown keys — it
-     is that whatever the model was talked into adding cannot reach a repository,
-     because the executor only ever sees the fields the schema declares. */
-  it('strips a parameter the tool does not define rather than passing it on', () => {
+  /* This used to assert the opposite — that an undeclared parameter was
+     silently stripped and the turn allowed to succeed. Stripping is safe for
+     the parameter an attacker would add, which is inert either way; it is not
+     safe for the one a *confused* model adds, because a plausible key that gets
+     dropped turns a misunderstanding into a confident write of the wrong row.
+     The union cannot tell those two apart, so both are now rejected and the
+     repair loop is told which key it was. */
+  it('rejects a parameter the tool does not define rather than dropping it in silence', () => {
     const parsed = parseLlmResponse({
       actions: [{ tool_name: 'task_add', parameters: { title: 'x', sql: 'DROP TABLE tasks' } }],
       requires_user_input: false,
       conversational_feedback: 'Done.',
     });
 
+    expect(parsed.ok).toBe(false);
+    // Named, so the retry prompt can say exactly what to remove.
+    expect(parsed.ok ? [] : parsed.issues.join('\n')).toContain('sql');
+  });
+
+  /* The action envelope is strict for the same reason; the response envelope
+     around it is not. A model narrating itself in a top-level field costs the
+     user nothing, and failing the turn over it would be pure pedantry. */
+  it('ignores a stray field beside actions instead of failing the turn', () => {
+    const parsed = parseLlmResponse({
+      actions: [],
+      requires_user_input: false,
+      conversational_feedback: 'Nothing to do.',
+      reasoning: 'The user was talking to someone else.',
+    });
     expect(parsed.ok).toBe(true);
-    const params = parsed.ok ? (parsed.value.actions[0]?.parameters as Record<string, unknown>) : {};
-    expect(params.title).toBe('x');
-    expect(params).not.toHaveProperty('sql');
   });
 
   /* Rule 6 tells the model never to invent an id. This is why it cannot: there

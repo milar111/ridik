@@ -1,0 +1,12 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<!--
+3  Empty on purpose. The widget's <receiver> is written into the app's manifest
+4  by plugins/withRidikAndroidWidget.js, next to the layout and provider XML it
+5  points at, so the whole declaration reads as one thing.
+6-->
+7<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+8    package="ai.raisen.ridik.widgets" >
+9
+10    <uses-sdk android:minSdkVersion="26" />
+11
+12</manifest>

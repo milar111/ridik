@@ -1,0 +1,14 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /Users/danielyordanov/Documents/GitHub/ridik/modules/ridik-widgets/android/src/main/AndroidManifest.xml:6:1-7:12
+INJECTED from /Users/danielyordanov/Documents/GitHub/ridik/modules/ridik-widgets/android/src/main/AndroidManifest.xml:6:1-7:12
+	package
+		INJECTED from /Users/danielyordanov/Documents/GitHub/ridik/modules/ridik-widgets/android/src/main/AndroidManifest.xml
+uses-sdk
+INJECTED from /Users/danielyordanov/Documents/GitHub/ridik/modules/ridik-widgets/android/src/main/AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from /Users/danielyordanov/Documents/GitHub/ridik/modules/ridik-widgets/android/src/main/AndroidManifest.xml
+INJECTED from /Users/danielyordanov/Documents/GitHub/ridik/modules/ridik-widgets/android/src/main/AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from /Users/danielyordanov/Documents/GitHub/ridik/modules/ridik-widgets/android/src/main/AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from /Users/danielyordanov/Documents/GitHub/ridik/modules/ridik-widgets/android/src/main/AndroidManifest.xml

@@ -206,6 +206,27 @@ describe('interpret — schema retries', () => {
     expect(retry.messages[2]!.content).toContain('the reply was not a JSON object');
   });
 
+  /* A reply can be perfectly typed and still impossible. Those rejections have
+     to reach the model the same way a missing field does, or the sanity rules
+     are just a more elaborate way to lose a turn. */
+  it('repairs a well-typed reply whose values contradict each other', async () => {
+    const backwards = JSON.stringify({
+      actions: [
+        {
+          tool_name: 'calendar_add',
+          parameters: { title: 'Dentist', start: '2026-03-05T15:00', end: '2026-03-05T14:00' },
+        },
+      ],
+    });
+    const { client, provider } = harness({ responses: [backwards, VALID] });
+    const result = await client.interpret({ transcript: 'dentist tomorrow at 3', context });
+
+    expect(result.ok).toBe(true);
+    const retry = provider.requests[1]!.messages[2]!.content;
+    expect(retry).toContain('actions.0.parameters.end');
+    expect(retry).toContain('after the start');
+  });
+
   it('feeds the exact Zod issues back to the model', async () => {
     const wrongShape = JSON.stringify({
       actions: [{ tool_name: 'note_create', parameters: { title_summary: 'x' } }],
@@ -217,10 +238,43 @@ describe('interpret — schema retries', () => {
     expect(provider.requests[1]!.messages[2]!.content).toContain('actions.0.parameters.category_tag');
   });
 
-  it('gives up on the third malformed reply with a plain error', async () => {
-    const { client, provider } = harness({
-      responses: ['nope', 'still nope', '{"actions": "not an array"}'],
-    });
+  /* Three replies the validator will not take mean the model cannot answer this
+     utterance. A fourth ask would spend another request to be told the same
+     thing, so the turn degrades to the offline engine — the user keeps what
+     they said, and the reply says out loud that it came from the fallback. */
+  it('answers offline rather than losing the utterance after the third malformed reply', async () => {
+    const restore = freezeClock(NOW);
+    try {
+      const { client, provider } = harness({
+        responses: ['nope', 'still nope', '{"actions": "not an array"}'],
+      });
+      const result = await client.interpret({
+        transcript: 'spent 12 leva on lunch',
+        context,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(provider.calls).toBe(3);
+      expect(result.value.degraded).toBe(true);
+      expect(result.value.issues?.length).toBeGreaterThan(0);
+      // The raw reply is what the model really sent, not what we substituted.
+      expect(result.value.raw).toBe('{"actions": "not an array"}');
+      expect(result.value.model).toBe('mock-1');
+      const action = result.value.response.actions[0]!;
+      expect(action.tool_name).toBe('ledger_add');
+      if (action.tool_name !== 'ledger_add') return;
+      expect(action.parameters.amount).toBe(12);
+    } finally {
+      restore();
+    }
+  });
+
+  it('still reports a plain error when the fallback is switched off', async () => {
+    const { client, provider } = harness(
+      { responses: ['nope', 'still nope', '{"actions": "not an array"}'] },
+      { offlineFallback: false },
+    );
     const result = await client.interpret({ transcript: 'x', context });
 
     expect(result.ok).toBe(false);
@@ -231,6 +285,24 @@ describe('interpret — schema retries', () => {
       "I couldn't make sense of the assistant's reply. Please try saying that again.",
     );
     expect((result.error.details as { issues: string[] }).issues.length).toBeGreaterThan(0);
+  });
+
+  /* The two ladders multiply: five transport attempts inside each of three
+     schema attempts is fifteen requests for one sentence nobody asked to pay
+     for. The flat ceiling is what makes the worst case knowable. */
+  it('never spends more than the per-turn ceiling on both ladders at once', async () => {
+    const restore = freezeClock(NOW);
+    try {
+      const { client, provider, sleeps } = harness({ failTimes: 3, responses: () => 'not json' });
+      const result = await client.interpret({ transcript: 'x', context });
+
+      expect(result.ok).toBe(true);
+      expect(provider.calls).toBe(6);
+      expect(sleeps).toHaveLength(3);
+      expect(result.ok && result.value.attempts).toBe(6);
+    } finally {
+      restore();
+    }
   });
 
   it('accepts the nulls a structured-output model fills its optional fields with', async () => {
@@ -290,7 +362,10 @@ describe('interpret — schema retries', () => {
   });
 
   it('honours a smaller schema retry budget', async () => {
-    const { client, provider } = harness({ responses: ['nope', VALID] }, { maxSchemaRetries: 0 });
+    const { client, provider } = harness(
+      { responses: ['nope', VALID] },
+      { maxSchemaRetries: 0, offlineFallback: false },
+    );
     const result = await client.interpret({ transcript: 'x', context });
 
     expect(result.ok).toBe(false);

@@ -199,7 +199,14 @@ A change is not verified until it has run on both.
 
 Honest list. Everything else in the brief is built, tested and has been run on both simulators.
 
-- **Home-screen widgets have a producer but no transport.** `src/services/widgets/`
+- ~~Home-screen widgets~~ — built and verified on both home screens. `modules/ridik-widgets`
+  is the bridge; the widget runs in its own process and can only read what the app published,
+  so `src/services/widgets/snapshot.ts` owns the payload shape and both faces decode it.
+  Android resolves its resource ids by name (`Resources.getIdentifier`) because the layout is
+  injected into the *app* by `plugins/withRidikAndroidWidget.js` and a library cannot see the
+  app's `R` — rename an id in the plugin without changing `RidikWidgetFace.kt` and the build
+  stays green while the widget renders blank.
+- **The old note, kept because the transport half is what mattered:** `src/services/widgets/`
   builds and diffs the payload — tested, and fed on every data change — but a widget reads a
   shared App Group (iOS) or SharedPreferences (Android), and JavaScript can reach neither.
   `publish.ts` is a capability-detected adapter looking for a `RidikWidgets` native module and

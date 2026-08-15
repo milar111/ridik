@@ -465,7 +465,12 @@ export function buildSystemPrompt(context: LlmContext): string {
     blocks.push(`CONTEXT — the user's existing data. Reuse these exact names.\n\n${contextBlocks.join('\n\n')}`);
   }
 
-  blocks.push(`TOOLS (* = required)\n${TOOLS.map((t) => `${t.name}(${t.params})`).join('\n')}`);
+  // The closing line is not decoration. Parameter objects are strict, so a
+  // field that is not on this list fails the whole turn — cheap to say here,
+  // expensive to discover through the repair loop.
+  blocks.push(
+    `TOOLS (* = required)\n${TOOLS.map((t) => `${t.name}(${t.params})`).join('\n')}\nSend only the parameters listed for the tool. There are no others, and an unlisted one is rejected.`,
+  );
 
   blocks.push(
     [

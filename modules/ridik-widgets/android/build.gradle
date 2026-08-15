@@ -1,0 +1,22 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'ai.raisen.ridik'
+version = '1.0.0'
+
+android {
+  namespace "ai.raisen.ridik.widgets"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+expoModule {
+  // A local module is compiled straight into the app; there is no artifact for
+  // anyone to depend on, and the publish tasks would only ask for coordinates
+  // that mean nothing.
+  canBePublished = false
+}

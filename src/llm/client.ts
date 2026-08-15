@@ -10,12 +10,21 @@
  * `interpret` never throws. A voice turn that fails must still be able to say
  * something to the user, so every path returns a Result carrying a sentence
  * that is safe to speak.
+ *
+ * Two ceilings sit over both budgets. The retry ladders multiply — a transport
+ * ladder inside every schema attempt — so a turn that hiccups in both ways at
+ * once used to be able to spend fifteen provider calls without anyone asking
+ * for it. `maxCallsPerTurn` is the flat number nobody can exceed. And when the
+ * schema budget really is spent, the turn degrades to the offline engine rather
+ * than being thrown away: three malformed replies mean the model cannot answer
+ * this utterance, and a note the user can edit beats losing what they said.
  */
 import type { Logger } from '@/core/logger';
 import { AppError, err, fail, ok, toAppError, type AppErrorCode, type Result } from '@/core/result';
 import { extractJson, parseLlmResponse, type LlmResponse } from '@/llm/contract';
 import { buildRetryPrompt, buildSystemPrompt, type LlmContext } from '@/llm/prompt';
 import {
+  fallbackInterpret,
   LlmProviderError,
   type LlmCompletion,
   type LlmMessage,
@@ -25,6 +34,16 @@ import {
 
 export const DEFAULT_BASE_DELAY_MS = 500;
 export const DEFAULT_MAX_DELAY_MS = 8_000;
+
+/**
+ * Every provider call a single turn may make, across both retry ladders.
+ *
+ * Six is the transport ladder (five calls) plus one repair — enough that a
+ * flaky connection and one confused reply can both be survived in the same
+ * turn, and few enough that nothing the user says can quietly cost fifteen
+ * requests of someone's quota.
+ */
+export const DEFAULT_MAX_CALLS_PER_TURN = 6;
 
 export type BackoffOptions = {
   baseMs?: number;
@@ -53,6 +72,13 @@ export type LlmClientOptions = {
   maxSchemaRetries?: number;
   /** Retries after a retryable transport error. 4 means up to 5 calls per attempt. */
   maxTransportRetries?: number;
+  /** Hard ceiling over both ladders combined. */
+  maxCallsPerTurn?: number;
+  /**
+   * Whether an exhausted schema budget degrades to the offline engine. On by
+   * default; a caller that would rather hear the failure can turn it off.
+   */
+  offlineFallback?: boolean;
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
   baseDelayMs?: number;
@@ -80,9 +106,24 @@ export type Interpretation = {
   attempts: number;
   /** Token counts the provider reported, when it reported any. */
   usage?: { input?: number | undefined; output?: number | undefined };
+  /**
+   * Set when the model never produced a valid reply and the offline engine
+   * answered instead. The response is real and safe to apply; it is just much
+   * less clever than the one the user was expecting, and the audit trail has to
+   * say so or this is invisible for ever.
+   */
+  degraded?: true;
+  /** Why we gave up, for the audit trail. Present only when `degraded`. */
+  issues?: string[];
 };
 
-type CallState = { attempts: number; latencyMs: number };
+type CallState = {
+  attempts: number;
+  latencyMs: number;
+  /** The last provider that actually answered; null until one does. */
+  model: string | null;
+  usage: LlmCompletion['usage'];
+};
 
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
@@ -93,6 +134,8 @@ export function createLlmClient(options: LlmClientOptions) {
   const { provider, logger } = options;
   const maxSchemaRetries = options.maxSchemaRetries ?? 2;
   const maxTransportRetries = options.maxTransportRetries ?? 4;
+  const maxCallsPerTurn = options.maxCallsPerTurn ?? DEFAULT_MAX_CALLS_PER_TURN;
+  const offlineFallback = options.offlineFallback ?? true;
   const sleep = options.sleep ?? defaultSleep;
   const backoff: BackoffOptions = {
     baseMs: options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS,
@@ -106,10 +149,12 @@ export function createLlmClient(options: LlmClientOptions) {
       try {
         const completion = await provider.complete(req);
         state.latencyMs += completion.latencyMs;
+        state.model = completion.model;
+        state.usage = completion.usage;
         return ok(completion);
       } catch (error) {
         const providerError = asProviderError(error);
-        const exhausted = attempt >= maxTransportRetries;
+        const exhausted = attempt >= maxTransportRetries || state.attempts >= maxCallsPerTurn;
         if (!providerError.retryable || exhausted || req.signal?.aborted) {
           logger?.error('llm call failed', {
             code: providerError.code,
@@ -146,9 +191,14 @@ export function createLlmClient(options: LlmClientOptions) {
         ...(input.history ?? []),
         { role: 'user', content: input.transcript },
       ];
-      const state: CallState = { attempts: 0, latencyMs: 0 };
+      const state: CallState = { attempts: 0, latencyMs: 0, model: null, usage: undefined };
 
       for (let schemaAttempt = 0; ; schemaAttempt++) {
+        // The transport ladder may have eaten the budget on its own.
+        if (state.attempts >= maxCallsPerTurn) {
+          return giveUp(input, state, ['(root): out of provider calls for this turn'], null);
+        }
+
         const call = await callProvider(
           {
             system,
@@ -186,11 +236,7 @@ export function createLlmClient(options: LlmClientOptions) {
         });
 
         if (schemaAttempt >= maxSchemaRetries) {
-          return fail(
-            'upstream',
-            "I couldn't make sense of the assistant's reply. Please try saying that again.",
-            { details: { issues: parsed.issues, raw } },
-          );
+          return giveUp(input, state, parsed.issues, raw);
         }
 
         messages.push(
@@ -204,12 +250,61 @@ export function createLlmClient(options: LlmClientOptions) {
     }
   }
 
+  /**
+   * The end of the repair loop.
+   *
+   * Three replies the validator would not take mean the model cannot answer
+   * *this* utterance; a fourth ask would spend another second and another
+   * request to be told the same thing. What the user said is still worth
+   * keeping, so the offline engine takes the turn — the same rule engine a
+   * device with no API key runs on, which captures far less but loses nothing
+   * and says out loud that it is the one answering.
+   *
+   * The raw reply that failed is carried through unchanged: the audit trail has
+   * to show what the model actually said, not what we did about it.
+   */
+  function giveUp(
+    input: InterpretInput,
+    state: CallState,
+    issues: string[],
+    raw: string | null,
+  ): Result<Interpretation> {
+    const details = { details: { issues, raw } };
+    if (!offlineFallback) {
+      return fail('upstream', SCHEMA_GIVE_UP_MESSAGE, details);
+    }
+    try {
+      const response = fallbackInterpret(input.transcript);
+      logger?.warn('llm reply unusable; answering offline', { issues: issues.slice(0, 5) });
+      return ok({
+        response,
+        raw: raw ?? '',
+        // The calls were real and their tokens were spent, so the meter and the
+        // audit row still name the model that failed to produce a reply.
+        model: state.model ?? provider.model,
+        latencyMs: state.latencyMs,
+        attempts: state.attempts,
+        degraded: true,
+        issues,
+        ...(state.usage ? { usage: state.usage } : {}),
+      });
+    } catch (error) {
+      // `fallbackInterpret` parses its own output, and a device whose clock is
+      // decades out can fail that. Nothing left to try; say so.
+      logger?.error('offline fallback failed too', { error });
+      return fail('upstream', SCHEMA_GIVE_UP_MESSAGE, details);
+    }
+  }
+
   return {
     provider,
     isConfigured: () => provider.isConfigured(),
     interpret,
   };
 }
+
+export const SCHEMA_GIVE_UP_MESSAGE =
+  "I couldn't make sense of the assistant's reply. Please try saying that again.";
 
 export type LlmClient = ReturnType<typeof createLlmClient>;
 

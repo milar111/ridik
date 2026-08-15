@@ -44,6 +44,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     entitlements: {
       'com.apple.developer.usernotifications.time-sensitive': true,
+      // The App Group the home-screen widget reads through is deliberately not
+      // listed here. `withRidikIosWidget` adds it to this file *and* to the
+      // extension's entitlements from one constant, because the two must be
+      // byte-identical and a mismatch fails silently — each process gets its
+      // own empty container and the widget shows nothing.
     },
   },
   android: {
@@ -176,6 +181,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         android: { compileSdkVersion: 36, targetSdkVersion: 36, minSdkVersion: 26 },
       },
     ],
+    // The Android home-screen widget's manifest receiver and resources. Its
+    // Kotlin lives in modules/ridik-widgets/; only the app-module half needs
+    // rewriting after a prebuild.
+    './plugins/withRidikAndroidWidget',
+    // The iOS WidgetKit extension: a second Xcode target that prebuild does not
+    // create on its own, plus the App Group the app publishes snapshots into.
+    // Its Swift lives in targets/RidikWidget/ and modules/ridik-widgets/ios/.
+    './plugins/withRidikIosWidget',
   ],
   experiments: {
     typedRoutes: true,

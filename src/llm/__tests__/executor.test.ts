@@ -334,9 +334,13 @@ describe('executor', () => {
     });
 
     it('turns an unparseable wall clock into an invalid_input result rather than throwing', async () => {
-      const result = await executor.execute(
-        act('calendar_add', { title: 'Nowhen', start: '2026-13-01T10:00' }),
-      );
+      // The contract now refuses a month 13 before the executor ever sees it,
+      // so this has to be built by hand. The guard stays: the executor is also
+      // reached by a replayed pending action and by the offline engine.
+      const result = await executor.execute({
+        tool_name: 'calendar_add',
+        parameters: { title: 'Nowhen', start: '2026-13-01T10:00', kind: 'event' },
+      } as LlmAction);
 
       expect(result.ok).toBe(false);
       expect(result.error?.code).toBe('invalid_input');

@@ -396,7 +396,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
       return { transcript, feedback, items: [] };
     }
 
-    const { response, raw, model, usage } = interpretation.value;
+    const { response, raw, model, usage, degraded } = interpretation.value;
     const executor = executorFor(startedAt);
     const results =
       response.actions.length > 0 ? await executor.executeAll(response.actions) : [];
@@ -434,7 +434,13 @@ export function createOrchestrator(options: OrchestratorOptions) {
       results: pairs,
       feedback,
       status: clarification ? 'clarify' : statusOf(results),
-      error: null,
+      // A degraded turn succeeds, so nothing else in the row would ever show
+      // that the model failed three times and the offline engine answered.
+      // Without this, "why did my dentist appointment become a note?" has no
+      // answer anywhere in the app.
+      error: degraded
+        ? `degraded to offline: ${(interpretation.value.issues ?? []).slice(0, 3).join('; ')}`
+        : null,
       latencyMs: elapsed(startedAt),
       model,
     });

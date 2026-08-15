@@ -494,6 +494,33 @@ describe('orchestrator', () => {
     expect(outcome.feedback).toBe('Done: 2 things.');
   });
 
+  /* A degraded turn succeeds, so nothing else in the row would ever show that
+     the model failed three times and the offline engine answered. Without this
+     line in the audit trail, "why did my expense become a note?" has no answer
+     anywhere in the app. */
+  it('records that a turn was answered offline after the model gave up', async () => {
+    const { provider, orchestrator } = harness({
+      responses: ['not json', 'still not json', '{"actions": "not an array"}'],
+    });
+    const outcome = await orchestrator.interpretAndExecute({
+      transcript: 'spent 12 leva on lunch',
+      confidence: 0.9,
+    });
+
+    expect(provider.calls).toBe(3);
+    // The utterance was captured rather than thrown away.
+    expect(outcome.items).toHaveLength(1);
+    expect(outcome.items[0]!.toolName).toBe('ledger_add');
+    expect(outcome.feedback).toContain('offline');
+
+    const rows = await auditRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe('ok');
+    expect(rows[0]!.error).toContain('degraded to offline');
+    // The raw reply kept is the model's own, not the one we substituted for it.
+    expect(rows[0]!.rawResponse).toBe('{"actions": "not an array"}');
+  });
+
   it('still speaks and still audits when a turn throws where it should not', async () => {
     const orchestrator = createOrchestrator({
       repos,

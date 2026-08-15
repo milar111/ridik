@@ -1,0 +1,7 @@
+<!--
+  Empty on purpose. The widget's <receiver> is written into the app's manifest
+  by plugins/withRidikAndroidWidget.js, next to the layout and provider XML it
+  points at, so the whole declaration reads as one thing.
+-->
+<manifest>
+</manifest>

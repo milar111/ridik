@@ -4,6 +4,8 @@ import {
   DEFAULT_GEMINI_MODEL,
   isLlmProviderError,
   RESPONSE_SCHEMA,
+  strictResponseSchema,
+  toGeminiSchema,
   type LlmRequest,
 } from '@/llm/provider';
 
@@ -52,13 +54,86 @@ describe('RESPONSE_SCHEMA', () => {
     ]);
   });
 
-  it('stays inside Gemini\'s OpenAPI subset', () => {
+  it('stays inside the oldest corner of the subset, since it is the fallback rung', () => {
     const serialised = JSON.stringify(RESPONSE_SCHEMA);
     for (const unsupported of ['oneOf', 'anyOf', 'allOf', '$ref', 'additionalProperties']) {
       expect(serialised).not.toContain(unsupported);
     }
-    // The discriminated union cannot be expressed, so parameters stays open.
+    // This rung deliberately leaves parameters open; the strict one below is
+    // where the union is expressed.
     expect(RESPONSE_SCHEMA.properties.actions.items.properties.parameters.type).toBe('OBJECT');
+  });
+});
+
+describe('the schema derived from the contract', () => {
+  const schema = strictResponseSchema() as {
+    type: string;
+    required: string[];
+    properties: Record<string, { type?: string; items?: { anyOf?: unknown[] } }>;
+  };
+  const serialised = JSON.stringify(schema);
+  const branches = (schema.properties.actions?.items?.anyOf ?? []) as {
+    properties: {
+      tool_name: { enum: string[] };
+      parameters: { type: string; properties?: Record<string, unknown>; required?: string[] };
+    };
+  }[];
+
+  it('gives every tool its own branch, in contract order', () => {
+    expect(branches.map((b) => b.properties.tool_name.enum[0])).toEqual([...TOOL_NAMES]);
+  });
+
+  /* The whole point: a tool's parameters are typed at the decoder, not just at
+     the validator. A model constrained by this cannot emit `duration_minutes`
+     as a string or invent a field, because neither is generatable. */
+  it('types each tool\'s parameters instead of leaving the object open', () => {
+    const calendarAdd = branches[0]!.properties.parameters;
+    expect(calendarAdd.type).toBe('OBJECT');
+    expect(calendarAdd.required).toEqual(['title', 'start']);
+    expect(calendarAdd.properties).toMatchObject({
+      duration_minutes: { type: 'INTEGER', minimum: 1, maximum: 1440 },
+      kind: { type: 'STRING', enum: ['event', 'exam', 'class', 'reminder'] },
+      // The wall-clock dialect, enforced while the tokens are being chosen.
+      start: { type: 'STRING', pattern: expect.stringContaining('\\d{4}-\\d{2}-\\d{2}') },
+    });
+  });
+
+  it('demands an actions array even though the validator would default one', () => {
+    expect(schema.required).toContain('actions');
+  });
+
+  it('speaks only the dialect Google documents for responseSchema', () => {
+    for (const unsupported of ['oneOf', 'allOf', '$ref', '$defs', 'additionalProperties', 'const', 'exclusiveMinimum']) {
+      expect(serialised).not.toContain(`"${unsupported}"`);
+    }
+    for (const lowercase of ['"string"', '"integer"', '"boolean"', '"object"', '"array"', '"number"']) {
+      expect(serialised).not.toContain(`"type":${lowercase}`);
+    }
+  });
+
+  it('refuses to guess at a keyword it has not been taught', () => {
+    // A zod upgrade that starts emitting something new fails here rather than
+    // shipping a schema Gemini will 400 on.
+    expect(() => toGeminiSchema({ type: 'string', patternProperties: {} })).toThrow(
+      /patternProperties/,
+    );
+    expect(() => toGeminiSchema({ type: 'unknown-thing' })).toThrow(/Unsupported/);
+  });
+
+  it('translates a union, a literal and an exclusive bound', () => {
+    expect(
+      toGeminiSchema({
+        oneOf: [
+          { type: 'string', const: 'a' },
+          { type: 'number', exclusiveMinimum: 0, default: 3 },
+        ],
+      }),
+    ).toEqual({
+      anyOf: [
+        { type: 'STRING', enum: ['a'] },
+        { type: 'NUMBER', minimum: 0 },
+      ],
+    });
   });
 });
 
@@ -82,7 +157,7 @@ describe('gemini provider', () => {
     expect((call.init.headers as Record<string, string>)['x-goog-api-key']).toBe('secret-key');
   });
 
-  it('asks for JSON against the response schema at a low temperature', async () => {
+  it('asks for JSON against the strict schema at a low temperature', async () => {
     const { impl, calls } = stubFetch(() => jsonResponse(okBody));
     await createGeminiProvider({ apiKey: 'k', fetchImpl: impl }).complete(request);
 
@@ -93,7 +168,77 @@ describe('gemini provider', () => {
     ]);
     expect(body.generationConfig.temperature).toBe(0.1);
     expect(body.generationConfig.responseMimeType).toBe('application/json');
-    expect(body.generationConfig.responseSchema).toEqual(JSON.parse(JSON.stringify(RESPONSE_SCHEMA)));
+    expect(body.generationConfig.responseSchema).toEqual(
+      JSON.parse(JSON.stringify(strictResponseSchema())),
+    );
+  });
+
+  /* No request has ever been made with a real key, and the strict schema is by
+     far the largest thing we send. If Google will not decode against it, the
+     turn must degrade, not die: one step down the ladder, one retry, and the
+     step is remembered so the next turn does not pay for it again. */
+  it('steps down to the simple schema when Gemini rejects the strict one', async () => {
+    let rejected = 0;
+    const { impl, calls } = stubFetch(({ init }) => {
+      const body = JSON.parse(String(init.body));
+      if (JSON.stringify(body.generationConfig.responseSchema).includes('anyOf')) {
+        rejected += 1;
+        return jsonResponse(
+          { error: { message: 'Invalid value at generation_config.response_schema: too complex' } },
+          400,
+        );
+      }
+      return jsonResponse(okBody);
+    });
+
+    const provider = createGeminiProvider({ apiKey: 'k', fetchImpl: impl });
+    await expect(provider.complete(request)).resolves.toMatchObject({ text: '{"actions":[]}' });
+    expect(rejected).toBe(1);
+    expect(calls).toHaveLength(2);
+    expect(JSON.parse(String(calls[1]!.init.body)).generationConfig.responseSchema).toEqual(
+      JSON.parse(JSON.stringify(RESPONSE_SCHEMA)),
+    );
+    expect(provider.schemaRung).toBe(1);
+
+    await provider.complete(request);
+    expect(calls).toHaveLength(3);
+    expect(rejected).toBe(1);
+  });
+
+  it('drops the schema entirely rather than losing the turn', async () => {
+    const { impl, calls } = stubFetch(({ init }) => {
+      const body = JSON.parse(String(init.body));
+      return body.generationConfig.responseSchema
+        ? jsonResponse({ error: { message: 'response_schema is not supported by this model' } }, 400)
+        : jsonResponse(okBody);
+    });
+
+    const provider = createGeminiProvider({ apiKey: 'k', fetchImpl: impl });
+    await expect(provider.complete(request)).resolves.toMatchObject({ text: '{"actions":[]}' });
+    expect(calls).toHaveLength(3);
+    expect(provider.schemaRung).toBe(2);
+  });
+
+  it('does not read an unrelated 400 as a schema complaint', async () => {
+    const { impl, calls } = stubFetch(() =>
+      jsonResponse({ error: { message: 'contents is not specified' } }, 400),
+    );
+    const provider = createGeminiProvider({ apiKey: 'k', fetchImpl: impl });
+
+    await expect(provider.complete(request)).rejects.toMatchObject({ code: 'bad_request' });
+    expect(calls).toHaveLength(1);
+    expect(provider.schemaRung).toBe(0);
+  });
+
+  it('never ladders away from a schema the caller pinned', async () => {
+    const { impl, calls } = stubFetch(() =>
+      jsonResponse({ error: { message: 'bad response_schema' } }, 400),
+    );
+    const custom = { type: 'OBJECT', properties: { ok: { type: 'BOOLEAN' } } };
+    const provider = createGeminiProvider({ apiKey: 'k', fetchImpl: impl, responseSchema: custom });
+
+    await expect(provider.complete(request)).rejects.toMatchObject({ code: 'bad_request' });
+    expect(calls).toHaveLength(1);
   });
 
   it('omits the schema when it is explicitly disabled', async () => {
