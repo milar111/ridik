@@ -1936,7 +1936,9 @@ function cellShape(ember, level, fill, { today, scheme }) {
   const stroke = today
     ? `\n  <stroke android:width="1.5dp" android:color="@color/${accentColour(ember)}" />`
     : level === 3
-      ? `\n  <stroke android:width="1dp" android:color="@color/ridik_widget_${scheme === 'dark' ? 'rim' : 'ground'}" />`
+      ? `\n  <stroke android:width="1dp" android:color="@color/ridik_widget_${
+          scheme === 'dark' ? 'rim' : 'ground'
+        }" />`
       : '';
   return `<?xml version="1.0" encoding="utf-8"?>
 <!-- ${GENERATED} -->

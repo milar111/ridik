@@ -25,7 +25,7 @@ struct RidikCalendarView: View {
   let entry: RidikEntry
 
   var body: some View {
-    let palette = RidikPalette.of(scheme: colorScheme, ember: entry.face.snapshot?.ember)
+    let palette = RidikPalette.of(scheme: colorScheme, ember: entry.face.ember)
 
     content(palette)
       .padding(legacyMargin)

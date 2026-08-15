@@ -400,6 +400,21 @@ extension Date {
  last month's plate from it quite legitimately while refusing to draw yesterday's
  agenda as today's.
  */
+/**
+ Just enough of a payload to colour a tile that cannot be drawn.
+
+ A `.blank` face has no snapshot, so the notice pane had nothing to read the
+ chosen ember from and painted the default — a rust user's "Ridik was updated."
+ came up orange, on the one tile whose whole job is to look like the app.
+
+ The ember survives a decode failure because it is one string in a shape that
+ does not change: `version` is what decides whether a payload is *drawable*, and
+ an unreadable payload can still say which colour it was written in.
+ */
+private struct EmberProbe: Decodable {
+  let ember: String?
+}
+
 enum WidgetFace {
   case ready(WidgetSnapshot)
   /// Real data about a day that has ended. Its counts are about that day.
@@ -411,6 +426,21 @@ enum WidgetFace {
     switch self {
     case .ready(let snapshot), .stale(let snapshot): return snapshot
     case .blank: return nil
+    }
+  }
+
+  /**
+   The ember to draw this face in, whether or not it has a payload.
+
+   `.blank(.empty)` genuinely has nothing to go on and gets the default, which
+   is right: nothing has ever been published, so there is no choice to honour.
+   The other two blanks *do* have bytes, and the ember is readable in them even
+   when the rest is not.
+   */
+  var ember: String? {
+    switch self {
+    case .ready(let snapshot), .stale(let snapshot): return snapshot.ember
+    case .blank: return SnapshotStore.lastKnownEmber()
     }
   }
 
@@ -466,6 +496,24 @@ enum SnapshotStore {
 
   /// Written into this extension's Info.plist by `plugins/withRidikIosWidget.js`.
   private static let appGroupInfoPlistKey = "RidikAppGroup"
+
+  /**
+   The ember named by whatever is in the container, however unreadable the rest.
+
+   Decoded separately and leniently: this runs only on a face that has already
+   failed, and a second failure here just means the default.
+   */
+  static func lastKnownEmber() -> String? {
+    guard let group = Bundle.main.object(forInfoDictionaryKey: appGroupInfoPlistKey) as? String,
+      let defaults = UserDefaults(suiteName: group),
+      let json = defaults.string(forKey: defaultsKey),
+      let data = json.data(using: .utf8),
+      let probe = try? JSONDecoder().decode(EmberProbe.self, from: data)
+    else {
+      return nil
+    }
+    return probe.ember
+  }
 
   static func face(at date: Date) -> WidgetFace {
     guard let group = Bundle.main.object(forInfoDictionaryKey: appGroupInfoPlistKey) as? String,

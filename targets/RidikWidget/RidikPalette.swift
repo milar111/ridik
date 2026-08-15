@@ -60,10 +60,27 @@ struct RidikPalette {
   let heatHot: Color
   /// The ink that goes *on* `heatHot`, where `text` measures 3.2:1 and must not.
   let onHeat: Color
-  /// Dark only: a hairline inside the hot cell, so emission reads as glow.
+  /**
+   Dark only: a hairline inside the hot cell, so emission reads as glow.
+
+   The same value for every ember, deliberately, and the same one Android uses.
+   A 1pt hairline is read as *light* rather than as a colour, so tinting it per
+   ember buys nothing and costs the two platforms agreeing — which they did not,
+   until this was one value on one side and three on the other.
+   */
   let rim: Color?
   /// Dark only: a tile border. A near-black tile on a dark wallpaper dissolves.
   let edge: Color?
+  /**
+   The hottest level the month plate may fill with — WIDGETS §4b.
+
+   `"2"` on the light default and `"1"` on the darker embers, because the plate
+   is the only place a numeral sits on a filled cell and a dark ember's mid cell
+   is too dark to read one on. **`"3"` in every dark scheme**, which is not a
+   cap at all: the constraint is a property of the sand ground, and Android —
+   where the cap is baked into a `drawable-night` resource — has never applied
+   one there. A cap here would have flattened a level the other platform draws.
+   */
 
   /**
    The hottest level the month plate may fill a cell with.
@@ -121,7 +138,7 @@ struct RidikPalette {
     // palette, and it outlined the two platforms' tiles differently. Written as
     // an `rgb:` literal like every other token so the token test can read it.
     edge: Color(rgb: 0xFFD6B8).opacity(0.12),
-    platePeak: "2"
+    platePeak: "3"
   )
 
   /*
@@ -169,9 +186,9 @@ struct RidikPalette {
     onHeat: Color(rgb: 0x1C0E06),
     // The glow hairline in the ember's own hue, from its light ramp's palest
     // cell. The default's `#FFB57E` is a hand-drawn value and stays with it.
-    rim: Color(rgb: 0xE8B3A1),
+    rim: Color(rgb: 0xFFB57E),
     edge: Color(rgb: 0xFFD6B8).opacity(0.12),
-    platePeak: "2"
+    platePeak: "3"
   )
 
   static let rustLight = RidikPalette(
@@ -201,9 +218,9 @@ struct RidikPalette {
     heatMid: Color(rgb: 0xAC4B2B),
     heatHot: Color(rgb: 0xDE6038),
     onHeat: Color(rgb: 0x1C0E06),
-    rim: Color(rgb: 0xE3B7A2),
+    rim: Color(rgb: 0xFFB57E),
     edge: Color(rgb: 0xFFD6B8).opacity(0.12),
-    platePeak: "2"
+    platePeak: "3"
   )
 
   /**

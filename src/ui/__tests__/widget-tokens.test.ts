@@ -39,6 +39,26 @@ function swiftValue(scheme: 'light' | 'dark', field: string): string | null {
   return swiftPalette(scheme, field);
 }
 
+/**
+ * Every `ridik_widget_<ember>_heat_<level>` the plugin will write, per scheme.
+ *
+ * Generated rather than parsed out of a literal: the plugin builds the darker
+ * embers' colours from `embers` at run time, so reading only the default's
+ * hand-written `heat: {}` block asserted one ramp of three while the comment
+ * beside it claimed all of them. A guarantee that is not enforced is worse than
+ * none, because it is the reason nobody checks.
+ */
+function pluginEmberColours(scheme: 'light' | 'dark'): Record<string, string> {
+  const written: Record<string, string> = {};
+  for (const option of Object.values(embers)) {
+    const ramp = option[scheme];
+    for (const level of ['cold', 'low', 'mid', 'hot'] as const) {
+      written[`${option.name}.${level}`] = ramp[level].toUpperCase();
+    }
+  }
+  return written;
+}
+
 /** The `heat: { … }` literal inside the light or dark `colors({ … })` call. */
 function pluginHeat(scheme: 'light' | 'dark'): Record<string, string> {
   // The night file is written second, so the dark literal is the later one.
@@ -188,6 +208,44 @@ describe('every selectable ember is shippable', () => {
     });
   }
 
+  /**
+   * The plugin must actually emit a colour for every level of every ember.
+   *
+   * Read out of the generated resource files rather than out of the source, so
+   * this fails if the plugin stops writing one — the failure mode is a colour
+   * resolving to 0 and a cell drawn transparent, with a green build.
+   */
+  it('the Android build writes every ember at every level', () => {
+    const generated = readFileSync(
+      join(ROOT, 'android/app/src/main/res/values/ridik_widget_colors.xml'),
+      'utf8',
+    );
+    for (const option of Object.values(embers)) {
+      for (const level of [0, 1, 2, 3]) {
+        expect(generated).toContain(`ridik_widget_${option.name}_heat_${level}`);
+      }
+      expect(generated).toContain(`ridik_widget_${option.name}_accent`);
+    }
+  });
+
+  it('and the values it writes are the ones in theme.ts', () => {
+    for (const scheme of SCHEMES) {
+      const file = scheme === 'light' ? 'values' : 'values-night';
+      const generated = readFileSync(
+        join(ROOT, `android/app/src/main/res/${file}/ridik_widget_colors.xml`),
+        'utf8',
+      );
+      for (const [key, hex] of Object.entries(pluginEmberColours(scheme))) {
+        const [name, level] = key.split('.') as [string, 'cold' | 'low' | 'mid' | 'hot'];
+        const index = { cold: 0, low: 1, mid: 2, hot: 3 }[level];
+        const match = generated.match(
+          new RegExp(`name="ridik_widget_${name}_heat_${index}">(#[0-9A-Fa-f]{6,8})<`),
+        );
+        expect(match?.[1]?.toUpperCase()).toBe(hex);
+      }
+    }
+  });
+
   /* The default is the one that keeps all four levels on the plate everywhere.
      If that ever stops being true, the default is the wrong one. */
   it('defaults to the only ember that needs no compromise', () => {
@@ -240,8 +298,12 @@ describe('the iOS widget carries every ember', () => {
     it(`${option.name} caps the light plate where the palette says`, () => {
       const capped = swiftPeak(blockFor(option.name, 'light'));
       expect(capped).toBe(option.platePeak === 'mid' ? '2' : '1');
-      // Dark has no such constraint, on any ember.
-      expect(swiftPeak(blockFor(option.name, 'dark'))).toBe('2');
+      // Dark has no such constraint, on any ember — so the cap there is '3',
+      // which is not a cap at all. It read '2' until an audit noticed that
+      // Android's `drawable-night` plate fills from the uncapped ramp: a load
+      // level of '3' would have been flattened on one platform and drawn on
+      // the other, from the same payload.
+      expect(swiftPeak(blockFor(option.name, 'dark'))).toBe('3');
     });
   }
 });

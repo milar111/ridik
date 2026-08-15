@@ -10,6 +10,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Platform, useColorScheme } from 'react-native';
 
 import { VoiceDock } from '@/features/voice/VoiceDock';
+import { useEmberChoice } from '@/hooks/useEmber';
 import { useWidgetPublisher } from '@/hooks/useWidgetPublisher';
 import { FontsReadyProvider, useAppFonts } from '@/ui/fonts';
 import { ThemeProvider } from '@/ui/ThemeProvider';
@@ -90,11 +91,17 @@ export default function RootLayout() {
     if (boot && fontsReady) void SplashScreen.hideAsync().catch(() => {});
   }, [boot, fontsReady]);
 
-  useEffect(() => {
-    void SystemUI.setBackgroundColorAsync(makeTheme(scheme).colors.bg).catch(() => {});
-  }, [scheme]);
+  // The chosen ember, not the default. This overlay is drawn *above*
+  // `ThemeProvider`, so it does not inherit — and it is the first thing anyone
+  // sees on a cold start, which made it the one surface that ignored the
+  // setting while every other one honoured it.
+  const ember = useEmberChoice();
 
-  const theme = makeTheme(scheme);
+  useEffect(() => {
+    void SystemUI.setBackgroundColorAsync(makeTheme(scheme, ember).colors.bg).catch(() => {});
+  }, [scheme, ember]);
+
+  const theme = makeTheme(scheme, ember);
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.colors.bg }}>
