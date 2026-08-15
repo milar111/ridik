@@ -105,6 +105,7 @@ describe('useWidgetPublisher', () => {
     expect(published().list).toEqual({
       name: 'Hardware',
       open: 1,
+      total: 2,
       rows: [
         { text: 'M4 bolts', done: false },
         { text: 'Threadlock', done: true },

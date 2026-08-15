@@ -1,28 +1,15 @@
 import SwiftUI
 import WidgetKit
 
-/// Where a tap lands — the same expo-router paths the app navigates to itself.
-enum Route {
-  static let today = url("ridik:///today")
-  static let calendar = url("ridik:///calendar")
-  static let tasks = url("ridik:///tasks")
-  static let habits = url("ridik:///habits")
-  static let lists = url("ridik:///notes?pane=lists")
+/**
+ Today — the element, the ruler, and the next thing on it (WIDGETS §3.1).
 
-  /// A named list, so tapping the list widget opens the one it was showing.
-  static func list(named name: String) -> URL {
-    let encoded =
-      name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
-    return encoded.isEmpty ? lists : url("ridik:///notes?pane=lists&list=\(encoded)")
-  }
-
-  /// Every one of these is a literal that parses. The fallback is here so that
-  /// a widget can never be brought down by a URL, which is not worth crashing over.
-  private static func url(_ string: String) -> URL {
-    URL(string: string) ?? URL(fileURLWithPath: "/")
-  }
-}
-
+ The strip is the face. Everything else on the tile is a caption for it: the
+ header names the day and spends its one number on whatever is most behind, and
+ the two lines underneath say what the hot cell is. That order is deliberate —
+ the shape of the day is legible from across a room, and the words are for once
+ you have already looked.
+ */
 struct RidikWidgetView: View {
   @Environment(\.widgetFamily) private var family
   @Environment(\.colorScheme) private var colorScheme
@@ -35,10 +22,9 @@ struct RidikWidgetView: View {
     content(palette)
       .padding(legacyMargin)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-      .ridikGround(palette.ground)
-      // A small widget has exactly one tap target, so this is the whole face
-      // there. On medium the two `Link`s on the right win inside their own
-      // frames and this catches everything else.
+      .ridikGround(palette)
+      // A widget gets one tap target per tile and nothing finer, so this is the
+      // whole face at both sizes.
       .widgetURL(Route.today)
   }
 
@@ -56,293 +42,210 @@ struct RidikWidgetView: View {
 
   @ViewBuilder
   private func content(_ palette: RidikPalette) -> some View {
+    let small = family == .systemSmall
+
     switch entry.face {
     case .ready(let snapshot):
-      if family == .systemMedium {
-        MediumFace(snapshot: snapshot, now: entry.date, palette: palette)
-      } else {
-        SmallFace(snapshot: snapshot, now: entry.date, palette: palette)
-      }
+      TodayFace(snapshot: snapshot, now: entry.date, palette: palette, small: small, stale: false)
     case .stale(let snapshot):
-      StaleFace(publishedAt: snapshot.publishedDate, palette: palette, wide: family == .systemMedium)
+      TodayFace(snapshot: snapshot, now: entry.date, palette: palette, small: small, stale: true)
     case .blank(let reason):
-      BlankFace(reason: reason, palette: palette, wide: family == .systemMedium)
+      TodayBlank(reason: reason, palette: palette, small: small)
     }
   }
 }
 
-// MARK: - Small
+// MARK: - The face
 
-private struct SmallFace: View {
+private struct TodayFace: View {
   let snapshot: WidgetSnapshot
   let now: Date
   let palette: RidikPalette
+  let small: Bool
+  /// The strip is a day that has ended: every cell of it is behind you.
+  let stale: Bool
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 3) {
-      Eyebrow(text: headline.eyebrow, palette: palette)
+    VStack(alignment: .leading, spacing: 0) {
+      TileHeader(
+        eyebrow: "TODAY",
+        detail: small ? nil : RidikFormat.dayLabel(snapshot.dayNoon, snapshot.timeZone),
+        // Suppressed on a stale face: every one of those counts is a claim
+        // about a day that has already ended.
+        trailing: stale ? nil : snapshot.headlineCount,
+        palette: palette
+      )
 
-      if let next = snapshot.next {
-        Text(next.startDate, style: .time)
-          .font(.system(size: 26, weight: .medium, design: .monospaced))
-          .foregroundStyle(palette.text)
-          .lineLimit(1)
-          .minimumScaleFactor(0.7)
-      }
+      DayElement(
+        day: snapshot.day,
+        nowCell: nowCell,
+        palette: palette,
+        bucket: small ? 4 : 1
+      )
+      .frame(height: small ? 26 : 34)
+      .padding(.top, 6)
 
-      Text(headline.title)
-        .font(.system(size: 13, weight: .semibold, design: .rounded))
-        .foregroundStyle(palette.text)
-        .lineLimit(2)
-        .minimumScaleFactor(0.85)
-        .layoutPriority(1)
+      // The same bucket the element was drawn with: the ruler lays its labels
+      // out on the element's cells, so a mismatch would point them at nothing.
+      DayAxis(day: snapshot.day, palette: palette, bucket: small ? 4 : 1)
+        .padding(.top, 3)
 
-      if let leaveAt = leaveAt {
-        LeaveLine(leaveAt: leaveAt, now: now, palette: palette, size: 11)
-      }
+      Spacer(minLength: 4)
 
-      Spacer(minLength: 2)
-
-      HStack(spacing: 6) {
-        Text("\(snapshot.tasks.dueToday) due")
-          .foregroundStyle(palette.secondaryText)
-        if snapshot.tasks.overdue > 0 {
-          Text("\(snapshot.tasks.overdue) late")
-            .foregroundStyle(palette.danger)
-        }
-        Spacer(minLength: 0)
-        if snapshot.habits.total > 0 {
-          Text("\(snapshot.habits.done)/\(snapshot.habits.total)")
-            .foregroundStyle(palette.secondaryText)
-        }
-      }
-      .font(.system(size: 11, weight: .semibold, design: .rounded))
-      .lineLimit(1)
+      readout
     }
   }
 
-  private var headline: (eyebrow: String, title: String) {
-    guard let next = snapshot.next else { return ("TODAY", "Nothing left today") }
-    return (next.startDate <= now ? "NOW" : "NEXT", next.title)
-  }
-
-  /// Suppressed once the thing has started: there is nothing left to leave for.
-  private var leaveAt: Date? {
-    guard let next = snapshot.next, next.startDate > now else { return nil }
-    return next.leaveDate
-  }
-}
-
-// MARK: - Medium
-
-private struct MediumFace: View {
-  let snapshot: WidgetSnapshot
-  let now: Date
-  let palette: RidikPalette
-
-  var body: some View {
-    HStack(alignment: .top, spacing: 12) {
-      nextColumn
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-
-      Rectangle()
-        .fill(palette.hairline)
-        .frame(width: 1)
-
-      VStack(alignment: .leading, spacing: 10) {
-        Link(destination: Route.tasks) { tasksBlock }
-        Link(destination: Route.habits) { habitsBlock }
-        Spacer(minLength: 0)
-      }
-      .frame(width: 116, alignment: .leading)
-    }
+  /// A day that has ended has burned down completely; that is the whole message.
+  private var nowCell: Int {
+    stale ? snapshot.day.cells.count : snapshot.cellIndex(at: now)
   }
 
   @ViewBuilder
-  private var nextColumn: some View {
-    VStack(alignment: .leading, spacing: 3) {
-      // No live countdown beside this. `Text(_:style: .relative)` renders down
-      // to the second — "44 min, 59 secs" — which is both noisier than the
-      // absolute time below it and a different answer from the one the app's
-      // own home screen gives.
-      Eyebrow(text: eyebrow, palette: palette)
-
-      if let next = snapshot.next {
-        Text(next.startDate, style: .time)
-          .font(.system(size: 30, weight: .medium, design: .monospaced))
-          .foregroundStyle(palette.text)
-          .lineLimit(1)
-          .minimumScaleFactor(0.7)
-
-        Text(next.title)
-          .font(.system(size: 15, weight: .semibold, design: .rounded))
-          .foregroundStyle(palette.text)
-          .lineLimit(2)
-          // Without this the stack offers the title and the spacer below it
-          // half the slack each, and a two-line title is truncated to one with
-          // a third of the column left empty underneath it.
-          .layoutPriority(1)
-
-        if let location = next.location, !location.isEmpty {
-          Text(location)
-            .font(.system(size: 11, weight: .regular, design: .rounded))
-            .foregroundStyle(palette.tertiaryText)
-            .lineLimit(1)
-        }
-      } else {
-        Text("Nothing left today")
-          .font(.system(size: 15, weight: .semibold, design: .rounded))
-          .foregroundStyle(palette.text)
-          .lineLimit(2)
-      }
-
-      Spacer(minLength: 2)
-
-      if let next = snapshot.next, next.startDate > now, let leaveAt = next.leaveDate {
-        LeaveLine(leaveAt: leaveAt, now: now, palette: palette, size: 12)
-      }
-    }
-  }
-
-  private var eyebrow: String {
-    guard let next = snapshot.next else { return "TODAY" }
-    return next.startDate <= now ? "NOW" : "NEXT"
-  }
-
-  @ViewBuilder
-  private var tasksBlock: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Eyebrow(text: "TASKS", palette: palette)
-      HStack(alignment: .firstTextBaseline, spacing: 4) {
-        Text("\(snapshot.tasks.dueToday)")
-          .font(.system(size: 22, weight: .semibold, design: .rounded))
-          .foregroundStyle(palette.text)
-        Text("due today")
-          .font(.system(size: 11, weight: .medium, design: .rounded))
-          .foregroundStyle(palette.secondaryText)
-      }
-      .lineLimit(1)
-
-      // Absent rather than "0 overdue": nothing overdue is not a number worth
-      // spending a line on, and the red only means something if it is rare.
-      if snapshot.tasks.overdue > 0 {
-        Text("\(snapshot.tasks.overdue) overdue")
-          .font(.system(size: 11, weight: .semibold, design: .rounded))
-          .foregroundStyle(palette.danger)
-          .lineLimit(1)
-      }
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-  }
-
-  @ViewBuilder
-  private var habitsBlock: some View {
-    VStack(alignment: .leading, spacing: 3) {
-      Eyebrow(text: "HABITS", palette: palette)
-      if snapshot.habits.total > 0 {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-          Text("\(snapshot.habits.done)/\(snapshot.habits.total)")
-            .font(.system(size: 20, weight: .semibold, design: .monospaced))
+  private var readout: some View {
+    if stale {
+      EmptyNote(
+        headline: "Yesterday's plan.",
+        sub: "Open Ridik to bring today's in.",
+        palette: palette,
+        compact: small
+      )
+    } else if let note = note {
+      EmptyNote(headline: note.headline, sub: note.sub, palette: palette, compact: small)
+    } else if let next = snapshot.next {
+      VStack(alignment: .leading, spacing: 1) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          // Formatted in the payload's zone. `style: .time` renders in the
+          // device's, which would put "08:00" above a strip whose hot cell is
+          // at the 15:00 mark for anyone reading this abroad.
+          Text(RidikFormat.clockTime(next.startDate, snapshot.timeZone))
+            .font(.system(size: small ? 30 : 26, weight: .medium, design: .monospaced))
             .foregroundStyle(palette.text)
-          Text(snapshot.habits.done == snapshot.habits.total ? "all logged" : "logged")
-            .font(.system(size: 11, weight: .medium, design: .rounded))
-            .foregroundStyle(palette.secondaryText)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+
+          if !small {
+            Text(next.title)
+              .font(.system(size: 15, weight: .semibold, design: .rounded))
+              .foregroundStyle(palette.text)
+              .lineLimit(1)
+          }
+        }
+
+        if small {
+          Text(next.title)
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .foregroundStyle(palette.text)
             .lineLimit(1)
         }
-      } else {
-        Text("None tracked")
-          .font(.system(size: 11, weight: .medium, design: .rounded))
+
+        subline(next)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func subline(_ next: WidgetSnapshot.Next) -> some View {
+    let leave = next.startDate > now ? next.leaveDate : nil
+    let location = next.location?.nilIfEmpty
+
+    HStack(spacing: 4) {
+      if let leave {
+        if leave <= now {
+          Text("leave now")
+            .foregroundStyle(palette.accent)
+        } else {
+          // The only genuinely live element WidgetKit gives for zero wakeups:
+          // it counts itself down with the extension not running at all.
+          Text("leave in")
+            .foregroundStyle(palette.accent)
+          Text(leave, style: .timer)
+            .foregroundStyle(palette.accent)
+            .monospacedDigit()
+            .fixedSize()
+        }
+      }
+      if let location {
+        if leave != nil {
+          Text("·").foregroundStyle(palette.tertiaryText)
+        }
+        Text(location)
           .foregroundStyle(palette.tertiaryText)
           .lineLimit(1)
       }
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
+    .font(.system(size: small ? 11 : 12, weight: .medium, design: .rounded))
+    .lineLimit(1)
   }
-}
 
-// MARK: - Nothing to show
+  /**
+   What the face says when there is nothing next (WIDGETS §4).
 
-struct StaleFace: View {
-  let publishedAt: Date
-  let palette: RidikPalette
-  let wide: Bool
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Eyebrow(text: "OUT OF DATE", palette: palette)
-      Text("Today's numbers are from an earlier day.")
-        .font(.system(size: wide ? 15 : 13, weight: .semibold, design: .rounded))
-        .foregroundStyle(palette.text)
-        .lineLimit(3)
-      Spacer(minLength: 2)
-      HStack(spacing: 4) {
-        Text("Last updated")
-        Text(publishedAt, format: .dateTime.weekday(.abbreviated).hour().minute())
-      }
-      .font(.system(size: 11, weight: .medium, design: .rounded))
-      .foregroundStyle(palette.tertiaryText)
-      .lineLimit(1)
-      .minimumScaleFactor(0.8)
+   `configured` is what separates "you have done everything" from "you have
+   never set this up". Without it those two render identically, which is most of
+   the reason an untouched install looks broken rather than empty.
+   */
+  private var note: (headline: String, sub: String?)? {
+    let configured = snapshot.configured
+    if !configured.calendar, !configured.tasks, !configured.habits {
+      return ("Nothing in here yet.", "Hold the mic and say what's on today.")
     }
+    guard snapshot.next == nil else { return nil }
+
+    // Not `day.freeMinutes`: that is the whole window, and would still be
+    // offering fifteen hours at nine in the evening.
+    //
+    // Dropped entirely at zero rather than printed. Past the end of the window
+    // there is no cold cell left to count, and "Winding down. / 0m left." is a
+    // tile arguing with itself — the headline already says the day is over.
+    let minutes = snapshot.unclaimedMinutes(at: now)
+    let unclaimed = minutes > 0 ? RidikFormat.duration(minutes) : nil
+    if snapshot.minuteOfDay(now) < 17 * 60 {
+      return ("The day is yours.", unclaimed.map { "\($0) unclaimed." })
+    }
+    return ("Winding down.", unclaimed.map { "\($0) left." })
   }
 }
 
-struct BlankFace: View {
+// MARK: - Nothing published
+
+/**
+ Still a drawing.
+
+ Every empty state draws the graphic — cold cells, all slots present. A tile
+ that answers "nothing yet" with a bare sentence on a flat rectangle is the one
+ that gets removed from the home screen, and the cold strip is also the only
+ honest picture of a day nobody has told Ridik about.
+ */
+private struct TodayBlank: View {
   let reason: WidgetBlankReason
   let palette: RidikPalette
-  let wide: Bool
+  let small: Bool
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Eyebrow(text: "RIDIK", palette: palette)
-      Text(reason.headline)
-        .font(.system(size: wide ? 17 : 15, weight: .semibold, design: .rounded))
-        .foregroundStyle(palette.text)
-        .lineLimit(1)
-      Text(reason.detail)
-        .font(.system(size: 11, weight: .medium, design: .rounded))
-        .foregroundStyle(palette.secondaryText)
-        .lineLimit(wide ? 2 : 4)
-      Spacer(minLength: 0)
+    VStack(alignment: .leading, spacing: 0) {
+      TileHeader(eyebrow: "TODAY", palette: palette)
+
+      DayElement(
+        day: .cold,
+        nowCell: -1,
+        palette: palette,
+        bucket: small ? 4 : 1
+      )
+      .frame(height: small ? 26 : 34)
+      .padding(.top, 6)
+
+      DayAxis(day: .cold, palette: palette, bucket: small ? 4 : 1)
+        .padding(.top, 3)
+
+      Spacer(minLength: 4)
+
+      EmptyNote(
+        headline: reason.headline,
+        sub: reason.detail,
+        palette: palette,
+        compact: small
+      )
     }
   }
 }
-
-// MARK: - Pieces
-
-/// The tracked engraving that names a region, from `typography.eyebrow`.
-struct Eyebrow: View {
-  let text: String
-  let palette: RidikPalette
-
-  var body: some View {
-    Text(text)
-      .font(.system(size: 9, weight: .medium, design: .monospaced))
-      .tracking(1.2)
-      .foregroundStyle(palette.accent)
-      .lineLimit(1)
-  }
-}
-
-struct LeaveLine: View {
-  let leaveAt: Date
-  let now: Date
-  let palette: RidikPalette
-  let size: CGFloat
-
-  var body: some View {
-    HStack(spacing: 4) {
-      if leaveAt <= now {
-        Text("Leave now")
-      } else {
-        Text("Leave")
-        Text(leaveAt, style: .time)
-      }
-    }
-    .font(.system(size: size, weight: .semibold, design: .rounded))
-    .foregroundStyle(palette.accent)
-    .lineLimit(1)
-    .minimumScaleFactor(0.8)
-  }
-}
-

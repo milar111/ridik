@@ -181,6 +181,8 @@ describe('buildWidgetSnapshot', () => {
     });
 
     expect(built.list?.open).toBe(9);
+    // Both counts survive the cap, or the tile says "4 of 6" about a list of 12.
+    expect(built.list?.total).toBe(12);
     expect(built.list?.rows).toHaveLength(6);
     expect(built.list?.rows.every((row) => !row.done)).toBe(true);
   });
@@ -556,3 +558,35 @@ describe('every section reaches the change check', () => {
 });
 
 type WidgetSnapshotLike = ReturnType<typeof buildWidgetSnapshot>;
+
+/* The plate's question is "is the 19th free", and a timetabled Monday is not
+   free. Counting only calendar rows drew an empty week for anyone whose week
+   is lessons — which is this app's central user, and the face they asked for. */
+describe('the month plate counts classes as well as events', () => {
+  const onDay = (day: number, fromHour: number, hours: number) => ({
+    startsAt: DateTime.fromISO(`2026-08-${String(day).padStart(2, '0')}T${String(fromHour).padStart(2, '0')}:00`, { zone: ZONE }).toMillis(),
+    endsAt: DateTime.fromISO(`2026-08-${String(day).padStart(2, '0')}T${String(fromHour).padStart(2, '0')}:00`, { zone: ZONE }).toMillis() + hours * 3_600_000,
+    allDay: false,
+  });
+
+  it('shades a day whose only commitment is a class', () => {
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON,
+      monthEvents: [onDay(17, 9, 1)],
+    }).month;
+
+    expect(built.load[16]).not.toBe('0');
+  });
+
+  it('adds a class to an event on the same day rather than replacing it', () => {
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON,
+      // One hour of lesson plus one hour of meeting is two hours: "busy".
+      monthEvents: [onDay(17, 9, 1), onDay(17, 14, 1.5)],
+    }).month;
+
+    expect(built.load[16]).toBe('2');
+  });
+});

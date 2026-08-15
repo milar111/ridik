@@ -30,9 +30,12 @@ three agree and that the ramp keeps its own rules.
 
 **Three invariants. Breaking any of them breaks the family.**
 
-1. **`hot` appears exactly once per tile** — today's cell on the plate, the next
-   thing on the element, today on a habit rail, the oldest debt on Tasks. This
-   is what caps saturated orange at one to three percent of any tile.
+1. **`hot` marks today, and only today.** One cell on the plate, the next thing
+   on the element, the oldest debt on Tasks — one per tile. The habit rails are
+   the single exemption: their hot cells are the *last column*, one per habit
+   kept today, and a column is one thing however many rails it crosses. Six of
+   them is still under two percent of the tile. What the rule actually forbids
+   is hot appearing in two *places*, which is what leaves a tile with no focus.
 2. **Ink sits on `0`–`2`; on `3` it inverts to `onHeat`.** Ink on hot measures
    3.2:1. Never draw it.
 3. **Past cells burn down** — same level, **38% height, bottom-aligned**. The
@@ -132,12 +135,28 @@ length, and the shape of the month is what is being read.
 **Medium — the day, listed.** The element, the axis, then up to 3 agenda rows
 (`HH:mm  title` with the location right-aligned when it fits).
 
-**Large — both**, plate with numerals (cells 41×26, gap 3, numeral 13pt inside
+**Large — both**, plate with numerals (cells 41×25, gap 3, numeral 13pt inside
 the cell), then whitespace, then the element, axis and rows. **No rule between
-them.**
+them.** 25 and not 26: the extra point clipped the last agenda row on the
+shortest large tile, and a row cut through the middle reads as a rendering
+fault rather than as a full tile.
+
+**Row capacity drops by one when there is an all-day line**, on both medium and
+large. The line costs about 18pt and the arithmetic has to know.
 
 - Plate load uses `0`/`1`/`2` only; `3` is today and today only. The builder
   already guarantees this.
+- **On large, the element takes the hot cell and the plate does not.** Both
+  faces have a candidate and only one may win: the element's is the next thing,
+  which is actionable, and the plate's is today, which the reader already knows.
+  Today on the large plate keeps its ring and draws at its own load level. On
+  small there is no element, so today is hot *and* ringed. Note that a hot plate
+  cell would also swallow its own ring in light mode — the ring colour and the
+  hot fill are both `#C7360F`.
+- **The day-of-month is recomputed on the device**, in `snapshot.zone`. Only
+  `month.load` is inherited from the payload. `month.today` is a publish-time
+  number and goes stale the moment the day turns; trusting it hot-fills the 5th
+  on the 13th, on the one face that is supposed to survive a week untouched.
 - `month.today` is the day-of-month, or `0` when the plate is not the current
   month.
 - Out-of-month cells are **`INVISIBLE`, never `GONE`** on Android — a `GONE`
@@ -246,6 +265,7 @@ rectangle, and never a row of zeros.
 | any — no snapshot | `Nothing published yet.` | `Open Ridik once and today lands here.` |
 | any — version mismatch | `Ridik was updated.` | `Open it once to refresh this widget.` |
 | day faces — not today | `Yesterday's plan.` | `Open Ridik to bring today's in.` |
+| Calendar plate — not this month | `Last month's plate.` | `Open Ridik to bring this one in.` |
 
 Two rules behind that table:
 
@@ -255,6 +275,13 @@ Two rules behind that table:
 - **`configured` is what separates "you did everything" from "you have never set
   this up".** Without it those two render identically, which is most of the
   reason an untouched install looks broken rather than empty.
+- **A stale day face is not a notice.** "Yesterday's plan." goes *under* the
+  drawing, with the strip fully burned down, the rails' last column unlit, the
+  counts suppressed. The whole-tile notice pane is only for "nothing published"
+  and "wrong version" — the two states where there is genuinely nothing to draw.
+  Android redraws at most every thirty minutes, so from midnight until the app
+  is next opened this is what every tile on the home screen looks like; routing
+  it through the notice pane blanks five widgets every morning.
 
 The gallery preview is where "the widgets look blank" is judged *before one is
 ever placed*. Previews ship populated, with the same fake data on both

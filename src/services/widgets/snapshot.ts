@@ -24,7 +24,6 @@
  * it against the launcher's light/dark setting, and would otherwise be handed a
  * light-mode colour by an app that was in light mode when it published.
  */
-import type { CalendarEvent } from '@/db/schema';
 import type { TodaySnapshot } from '@/hooks/useToday';
 import type { LocalDate } from '@/core/time';
 import { DateTime, localDateOf, monthRange } from '@/core/time';
@@ -207,8 +206,23 @@ export type WidgetSnapshot = {
   agenda: WidgetAgendaRow[];
   /** All-day event titles. Dropped entirely before v3, which lost whole days. */
   allDay: string[];
-  /** The list the user still has something open on, or null when there are none. */
-  list: { name: string; open: number; rows: WidgetListRow[] } | null;
+  /**
+   * The list the user still has something open on, or null when there are none.
+   *
+   * `open` and `total` are both counted *before* the rows are capped, so the
+   * header can say "4 of 12" about a list of twelve. Without `total` the widget
+   * can only count the rows it was handed, and both platforms independently had
+   * to degrade to "4 open" and "All six done." about a list of twelve — a quiet
+   * lie in the one place the tile is asked to be a tally.
+   */
+  list: { name: string; open: number; total: number; rows: WidgetListRow[] } | null;
+};
+
+/** Anything that takes up part of a day. A `CalendarEvent` already is one. */
+export type MonthInterval = {
+  startsAt: number;
+  endsAt: number;
+  allDay?: boolean | null;
 };
 
 export type BuildWidgetSnapshotInput = {
@@ -216,8 +230,15 @@ export type BuildWidgetSnapshotInput = {
   now: number;
   /** The most recently touched checklist, when there is one. */
   list?: { name: string; rows: WidgetListRow[] } | null;
-  /** Every event in the current calendar month, for the plate. */
-  monthEvents?: readonly CalendarEvent[];
+  /**
+   * Everything that occupies time in the current month, for the plate.
+   *
+   * Events *and* class occurrences. The plate counted only calendar rows at
+   * first, which on a timetabled week is most of the month missing: a student
+   * whose Monday is five lessons saw an empty Monday, on the one face whose
+   * whole job is "visualise when there is something to do".
+   */
+  monthEvents?: readonly MonthInterval[];
   /** Habit id to the local dates it was logged on, for the rails. */
   habitHistory?: Readonly<Record<string, readonly LocalDate[]>>;
   /** Existence counts — cheap, and the only thing `configured` needs. */
@@ -316,8 +337,9 @@ export function buildWidgetSnapshot({
     list: list
       ? {
           name: list.name,
-          // Counted before the cap, so "4 of 12" stays true on a long list.
+          // Both counted before the cap, so "4 of 12" stays true on a long list.
           open: list.rows.filter((row) => !row.done).length,
+          total: list.rows.length,
           // Open items first: a shopping list widget is for what is left.
           rows: [...list.rows]
             .sort((a, b) => Number(a.done) - Number(b.done))
@@ -407,7 +429,7 @@ function buildMonth({
   now,
 }: {
   snapshot: TodaySnapshot;
-  monthEvents: readonly CalendarEvent[];
+  monthEvents: readonly MonthInterval[];
   now: number;
 }): WidgetMonth {
   const zone = snapshot.zone;

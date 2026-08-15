@@ -75,7 +75,11 @@ struct RidikPalette {
     heatHot: Color(rgb: 0xFF5A36),
     onHeat: Color(rgb: 0x1C0E06),
     rim: Color(rgb: 0xFFB57E),
-    edge: Color(white: 1).opacity(0.12)
+    // `#1FFFD6B8` — the same warm hairline the Android plugin writes, alpha and
+    // all. A neutral white at the same opacity reads as a bug next to this
+    // palette, and it outlined the two platforms' tiles differently. Written as
+    // an `rgb:` literal like every other token so the token test can read it.
+    edge: Color(rgb: 0xFFD6B8).opacity(0.12)
   )
 
   static func of(_ scheme: ColorScheme) -> RidikPalette {
@@ -117,6 +121,28 @@ extension Color {
   }
 }
 
+/**
+ The ground, and the one border that only exists in dark.
+
+ A near-black tile on a dark photo wallpaper dissolves into it, so dark draws a
+ 1pt edge and light draws none. `ContainerRelativeShape` is what makes that a
+ hairline along the tile's own rounded corners rather than a rectangle inside
+ it: the extension is not told the corner radius, and the launcher's is not a
+ constant.
+ */
+private struct RidikTileGround: View {
+  let palette: RidikPalette
+
+  var body: some View {
+    ZStack {
+      palette.ground
+      if let edge = palette.edge {
+        ContainerRelativeShape().strokeBorder(edge, lineWidth: 1)
+      }
+    }
+  }
+}
+
 extension View {
   /**
    The widget's ground.
@@ -127,11 +153,11 @@ extension View {
    both correct and all that is available.
    */
   @ViewBuilder
-  func ridikGround(_ color: Color) -> some View {
+  func ridikGround(_ palette: RidikPalette) -> some View {
     if #available(iOS 17.0, *) {
-      containerBackground(color, for: .widget)
+      containerBackground(for: .widget) { RidikTileGround(palette: palette) }
     } else {
-      background(color)
+      background(RidikTileGround(palette: palette))
     }
   }
 }

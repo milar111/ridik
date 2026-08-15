@@ -14,14 +14,14 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { localDateOf, monthRange } from '@/core/time';
-import type { CalendarEvent } from '@/db/schema';
+import type { MonthInterval } from '@/services/widgets/snapshot';
 import type { LocalDate } from '@/core/time';
 import { getRepositories } from '@/repositories';
 import { HABIT_HISTORY_DAYS } from '@/services/widgets/snapshot';
 import { qk } from './keys';
 
 export type WidgetSources = {
-  monthEvents: CalendarEvent[];
+  monthEvents: MonthInterval[];
   habitHistory: Record<string, LocalDate[]>;
   counts: { events: number; tasks: number; habits: number; lists: number } | undefined;
   /**
@@ -51,10 +51,31 @@ export function useWidgetSources({ date, zone, habitIds }: UseWidgetSourcesInput
     return monthRange(Date.parse(`${date}T12:00:00Z`), zone);
   }, [date, zone]);
 
+  /**
+   * Everything that occupies time this month — events *and* classes.
+   *
+   * Both, because the plate's question is "is the 19th free" and a timetabled
+   * Monday is not free. Counting only calendar rows drew an empty week for
+   * anyone whose week is lessons, which is this app's central user.
+   *
+   * Filed under the calendar's own key so an event write already invalidates
+   * it; a timetable edit is rare enough that the next publish catching it is
+   * soon enough.
+   */
   const events = useQuery({
-    // The calendar's own key, so any event write already invalidates this.
     queryKey: qk.calendar.range(month?.start ?? 0, month?.end ?? 0),
-    queryFn: () => getRepositories().calendar.listBetween(month!.start, month!.end),
+    queryFn: async (): Promise<MonthInterval[]> => {
+      const repos = getRepositories();
+      const days = Math.round((month!.end - month!.start) / 86_400_000);
+      const [rows, classes] = await Promise.all([
+        repos.calendar.listBetween(month!.start, month!.end),
+        repos.curriculum.upcomingOccurrences({ from: month!.start, days, zone }),
+      ]);
+      return [
+        ...rows.map((row) => ({ startsAt: row.startsAt, endsAt: row.endsAt, allDay: row.allDay })),
+        ...classes.map((c) => ({ startsAt: c.startsAt, endsAt: c.endsAt, allDay: false })),
+      ];
+    },
     enabled: enabled && month != null,
   });
 
