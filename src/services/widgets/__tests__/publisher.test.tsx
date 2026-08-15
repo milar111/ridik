@@ -9,11 +9,13 @@ jest.mock('@/hooks/useChecklists', () => ({
   useChecklistItems: jest.fn(),
 }));
 jest.mock('@/services/widgets/publish', () => ({ publishWidgetSnapshot: jest.fn() }));
+jest.mock('@/hooks/useWidgetSources', () => ({ useWidgetSources: jest.fn() }));
 
 const { useToday } = jest.requireMock('@/hooks/useToday');
 const { useNow } = jest.requireMock('@/features/today/useNow');
 const checklists = jest.requireMock('@/hooks/useChecklists');
 const { publishWidgetSnapshot } = jest.requireMock('@/services/widgets/publish');
+const { useWidgetSources } = jest.requireMock('@/hooks/useWidgetSources');
 
 const NOW = 1_786_575_000_000;
 
@@ -48,14 +50,22 @@ const failed = () => ({ data: undefined, isPending: false });
 function setup({
   names,
   items,
+  sourcesSettled = true,
 }: {
   names: { data: unknown; isPending: boolean };
   items: { data: unknown; isPending: boolean };
+  sourcesSettled?: boolean;
 }) {
   useToday.mockReturnValue({ data: TODAY });
   useNow.mockReturnValue(NOW);
   checklists.useChecklistNames.mockReturnValue(names);
   checklists.useChecklistItems.mockReturnValue(items);
+  useWidgetSources.mockReturnValue({
+    monthEvents: [],
+    habitHistory: {},
+    counts: { events: 0, tasks: 0, habits: 0, lists: 0 },
+    settled: sourcesSettled,
+  });
 }
 
 const published = () => publishWidgetSnapshot.mock.calls.at(-1)?.[0];
@@ -120,6 +130,17 @@ describe('useWidgetPublisher', () => {
 
     expect(published().list).toBeNull();
     expect(published().version).toBeGreaterThan(0);
+  });
+
+  /* The month and the habit rails are the first widget data that is not already
+     in TodaySnapshot. Publishing before they answer draws a blank August over a
+     month that has events in it. */
+  it('waits for the month and the rails as well as the lists', async () => {
+    setup({ names: settled([]), items: pending(), sourcesSettled: false });
+
+    await render(<Probe />);
+
+    expect(publishWidgetSnapshot).not.toHaveBeenCalled();
   });
 
   it('shows the list with something still open on it, not merely the first', async () => {

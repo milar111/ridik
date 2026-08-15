@@ -85,6 +85,8 @@ struct WidgetSnapshot: Decodable {
 
   let version: Int
   let publishedAt: Double
+  /// The IANA zone the day was computed in. A widget must never guess this.
+  let zone: String
   let next: Next?
   let tasks: Tasks
   let habits: Habits
@@ -146,7 +148,7 @@ enum WidgetBlankReason {
 /// Reads what the app left in the shared container.
 enum SnapshotStore {
   /// Must match `WIDGET_SNAPSHOT_VERSION` in `src/services/widgets/snapshot.ts`.
-  static let supportedVersion = 2
+  static let supportedVersion = 3
 
   /// Twin of `RidikWidgetsModule.defaultsKey`.
   static let defaultsKey = "ridik.widget.snapshot"
@@ -209,6 +211,7 @@ extension WidgetSnapshot {
     return WidgetSnapshot(
       version: SnapshotStore.supportedVersion,
       publishedAt: now.epochMilliseconds,
+      zone: TimeZone.current.identifier,
       next: Next(
         title: "Materials lab",
         startsAt: inMinutes(45),

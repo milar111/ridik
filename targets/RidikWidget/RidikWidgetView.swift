@@ -112,7 +112,8 @@ private struct SmallFace: View {
         }
         Spacer(minLength: 0)
         if snapshot.habits.total > 0 {
-          HabitRing(habits: snapshot.habits, palette: palette, diameter: 24, fontSize: 9)
+          Text("\(snapshot.habits.done)/\(snapshot.habits.total)")
+            .foregroundStyle(palette.secondaryText)
         }
       }
       .font(.system(size: 11, weight: .semibold, design: .rounded))
@@ -239,8 +240,10 @@ private struct MediumFace: View {
     VStack(alignment: .leading, spacing: 3) {
       Eyebrow(text: "HABITS", palette: palette)
       if snapshot.habits.total > 0 {
-        HStack(spacing: 7) {
-          HabitRing(habits: snapshot.habits, palette: palette, diameter: 30, fontSize: 11)
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+          Text("\(snapshot.habits.done)/\(snapshot.habits.total)")
+            .font(.system(size: 20, weight: .semibold, design: .monospaced))
+            .foregroundStyle(palette.text)
           Text(snapshot.habits.done == snapshot.habits.total ? "all logged" : "logged")
             .font(.system(size: 11, weight: .medium, design: .rounded))
             .foregroundStyle(palette.secondaryText)
@@ -343,34 +346,3 @@ struct LeaveLine: View {
   }
 }
 
-/// "2/3" — the count, with the fraction drawn round it so it reads at a glance.
-private struct HabitRing: View {
-  let habits: WidgetSnapshot.Habits
-  let palette: RidikPalette
-  let diameter: CGFloat
-  let fontSize: CGFloat
-
-  var body: some View {
-    let stroke = max(2, diameter * 0.11)
-
-    ZStack {
-      Circle()
-        .stroke(palette.hairline, lineWidth: stroke)
-      Circle()
-        .trim(from: 0, to: progress)
-        .stroke(palette.accent, style: StrokeStyle(lineWidth: stroke, lineCap: .round))
-        .rotationEffect(.degrees(-90))
-      Text("\(habits.done)/\(habits.total)")
-        .font(.system(size: fontSize, weight: .semibold, design: .monospaced))
-        .foregroundStyle(palette.text)
-        .lineLimit(1)
-        .minimumScaleFactor(0.6)
-    }
-    .frame(width: diameter, height: diameter)
-  }
-
-  private var progress: CGFloat {
-    guard habits.total > 0 else { return 0 }
-    return min(1, CGFloat(habits.done) / CGFloat(habits.total))
-  }
-}

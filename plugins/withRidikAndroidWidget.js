@@ -110,7 +110,7 @@ const ROW_WIDGETS = [
         { lead: '14:00', text: 'Order M4 bolts', trail: null },
         { lead: '16:45', text: 'Reply to the landlord', trail: null },
         { lead: '18:30', text: 'Book the van', trail: null },
-        { lead: '·', text: 'Chase the invoice', trail: null },
+        { lead: '5d', text: 'Chase the invoice', trail: null, leadColor: 'ridik_widget_danger' },
       ],
     },
   },

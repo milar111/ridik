@@ -48,6 +48,8 @@ internal data class Checklist(val name: String, val open: Int, val rows: List<Li
 internal data class WidgetSnapshot(
   val version: Int,
   val publishedAt: Long,
+  /** The IANA zone the day was computed in. Never guess this — see `describesToday`. */
+  val zone: String,
   val next: NextUp?,
   val dueToday: Int,
   val overdue: Int,
@@ -60,7 +62,7 @@ internal data class WidgetSnapshot(
 ) {
   companion object {
     /** Must track `WIDGET_SNAPSHOT_VERSION`. Anything else is not readable here. */
-    const val SUPPORTED_VERSION = 2
+    const val SUPPORTED_VERSION = 3
 
     /** Null for anything this cannot make sense of — the face says so rather than guessing. */
     fun parse(json: String): WidgetSnapshot? = try {
@@ -70,6 +72,7 @@ internal data class WidgetSnapshot(
       WidgetSnapshot(
         version = root.optInt("version", 0),
         publishedAt = root.optLong("publishedAt", 0L),
+        zone = root.string("zone") ?: "",
         next = root.optJSONObject("next")?.let { parseNext(it) },
         dueToday = tasks?.optInt("dueToday", 0) ?: 0,
         overdue = tasks?.optInt("overdue", 0) ?: 0,

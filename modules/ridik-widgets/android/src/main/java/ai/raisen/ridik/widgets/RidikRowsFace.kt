@@ -49,11 +49,20 @@ internal object RidikRowsFace {
     LIST("ridik:///notes?pane=lists", false),
   }
 
-  private fun layoutFor(context: Context, kind: Kind): String = when {
+  /**
+   * `widthDp` is not decoration: the 12-hour lead reserves 66dp, and on a tile
+   * two cells wide that is most of the row. Under `NARROW_DP` the times are
+   * dropped to the tight column rather than squeezing every title to nothing.
+   */
+  private fun layoutFor(context: Context, kind: Kind, widthDp: Int): String = when {
     !kind.timed -> "ridik_rows_tight"
+    widthDp in 1 until NARROW_DP -> "ridik_rows"
     DateFormat.is24HourFormat(context) -> "ridik_rows"
     else -> "ridik_rows_ampm"
   }
+
+  /** Two launcher cells on a phone. Below this the wide lead costs more than it says. */
+  private const val NARROW_DP = 180
 
   /** One row as the face draws it, whichever section it came from. */
   private data class Row(
@@ -75,8 +84,8 @@ internal object RidikRowsFace {
    * widget — the same face is 2 rows tall in one corner of the home screen and 6
    * in another, and drawing 6 into the short one clips the last of them in half.
    */
-  fun build(context: Context, kind: Kind, capacity: Int): RemoteViews? {
-    val ids = RowIds(context, layoutFor(context, kind))
+  fun build(context: Context, kind: Kind, widthDp: Int, heightDp: Int): RemoteViews? {
+    val ids = RowIds(context, layoutFor(context, kind, widthDp))
     if (ids.layout == 0) return null
 
     val views = RemoteViews(context.packageName, ids.layout)
@@ -100,7 +109,7 @@ internal object RidikRowsFace {
         "Yesterday's plan",
         "Open Ridik to bring today's in.",
       )
-      else -> views.rows(context, ids, kind, snapshot, capacity)
+      else -> views.rows(context, ids, kind, snapshot, capacityFor(heightDp))
     }
     return views
   }
@@ -128,7 +137,10 @@ internal object RidikRowsFace {
    */
   private fun describesToday(snapshot: WidgetSnapshot): Boolean {
     if (snapshot.publishedAt <= 0L) return false
-    val zone = ZoneId.systemDefault()
+    // The payload's own zone, never the device's. They agree at home and differ
+    // by hours the moment the user travels — and a day face that is wrong by
+    // hours looks entirely plausible, which is what makes it worth carrying.
+    val zone = runCatching { ZoneId.of(snapshot.zone) }.getOrElse { ZoneId.systemDefault() }
     val published = Instant.ofEpochMilli(snapshot.publishedAt).atZone(zone).toLocalDate()
     return published == LocalDate.now(zone)
   }
@@ -244,21 +256,15 @@ internal object RidikRowsFace {
       // reader to work out how late it is. The word says it in one glance.
       Kind.TASKS -> snapshot.taskRows.map { task ->
         Row(
-          lead = when {
-            task.overdue -> "late"
-            task.dueAt != null -> clock(context, task.dueAt)
-            else -> "·"
-          },
+          // Days late, not the word. The payload has carried the real due date
+          // all along and both faces threw it away for the literal "late".
+          lead = if (task.overdue) daysLate(task.dueAt) else clock(context, task.dueAt ?: 0L),
           text = task.title,
           trail = null,
           alert = task.overdue,
           spoken = listOfNotNull(
             task.title,
-            when {
-              task.overdue -> "overdue"
-              task.dueAt != null -> "due ${clock(context, task.dueAt)}"
-              else -> null
-            },
+            if (task.overdue) "overdue" else "due ${clock(context, task.dueAt ?: 0L)}",
           ).joinToString(", "),
         )
       }
@@ -286,6 +292,13 @@ internal object RidikRowsFace {
         )
       }
     }
+
+  /** "9d", "2d" — how far behind, which is the thing the reader wants. */
+  private fun daysLate(dueAt: Long?): String {
+    if (dueAt == null) return "late"
+    val days = ((System.currentTimeMillis() - dueAt) / 86_400_000L).toInt()
+    return if (days < 1) "late" else "${days}d"
+  }
 
   private fun struck(text: String): CharSequence {
     val span = SpannableString(text)

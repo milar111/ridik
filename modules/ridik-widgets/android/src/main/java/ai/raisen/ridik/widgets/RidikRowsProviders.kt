@@ -82,11 +82,15 @@ internal fun drawRows(
   kind: RidikRowsFace.Kind,
 ) {
   for (id in ids) {
-    val height = manager
-      .getAppWidgetOptions(id)
-      ?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
-      ?: 0
-    val views = RidikRowsFace.build(context, kind, RidikRowsFace.capacityFor(height)) ?: return
+    val options = manager.getAppWidgetOptions(id)
+    val height = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0) ?: 0
+    // Width as well as height: the face picks its layout from both, and a
+    // three-cell-wide tile is a different drawing from a five-cell one.
+    val width = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0) ?: 0
+    // `continue`, never `return`. One widget whose layout failed to resolve
+    // must not skip every remaining id — that is one broken tile turning into
+    // a home screen of stale ones.
+    val views = RidikRowsFace.build(context, kind, width, height) ?: continue
     manager.updateAppWidget(id, views)
   }
 }

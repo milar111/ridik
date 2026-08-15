@@ -286,3 +286,80 @@ describe('habits repository', () => {
     expect((await repo.listHabits({})).map((h) => h.name)).toContain('Workout');
   });
 });
+
+describe('dailyHabitCounts', () => {
+  let t: TestDatabase;
+  let repo: HabitsRepository;
+
+  beforeEach(() => {
+    setZoneOverride(ZONE);
+    t = createTestDatabase();
+    repo = createHabitsRepository(t.db);
+    travelTo('2026-03-10');
+  });
+
+  afterEach(() => {
+    resetClock();
+    setZoneOverride(null);
+    t.close();
+  });
+
+  it('counts how many habits were kept on each day', async () => {
+    await repo.logHabit({ habitName: 'Read', onDate: '2026-03-08' });
+    await repo.logHabit({ habitName: 'Walk', onDate: '2026-03-08' });
+    await repo.logHabit({ habitName: 'Read', onDate: '2026-03-10' });
+
+    expect(await repo.dailyHabitCounts({ from: '2026-03-01', to: '2026-03-31' })).toEqual([
+      { date: '2026-03-08', count: 2 },
+      { date: '2026-03-10', count: 1 },
+    ]);
+  });
+
+  /* The grid asks "how much of the day did you keep". Logging the same habit
+     twice is enthusiasm, not progress, and counting it twice would darken a
+     cell that should be half-lit. */
+  it('counts a habit logged twice in a day once', async () => {
+    await repo.logHabit({ habitName: 'Water', onDate: '2026-03-09' });
+    await repo.logHabit({ habitName: 'Water', onDate: '2026-03-09' });
+
+    expect(await repo.dailyHabitCounts({ from: '2026-03-09', to: '2026-03-09' })).toEqual([
+      { date: '2026-03-09', count: 1 },
+    ]);
+  });
+
+  /* Absent, not zero: the caller knows the range it asked for and can fill the
+     gaps, and sending 90 zeroes would triple a payload that crosses a process
+     boundary on every publish. */
+  it('leaves days with nothing logged out of the result', async () => {
+    await repo.logHabit({ habitName: 'Read', onDate: '2026-03-10' });
+
+    const counts = await repo.dailyHabitCounts({ from: '2026-03-01', to: '2026-03-31' });
+
+    expect(counts).toHaveLength(1);
+    expect(counts[0]!.date).toBe('2026-03-10');
+  });
+
+  it('does not reach outside the range it was given', async () => {
+    await repo.logHabit({ habitName: 'Read', onDate: '2026-02-27' });
+    await repo.logHabit({ habitName: 'Read', onDate: '2026-03-10' });
+
+    expect(await repo.dailyHabitCounts({ from: '2026-03-01', to: '2026-03-31' })).toEqual([
+      { date: '2026-03-10', count: 1 },
+    ]);
+  });
+
+  /* Activity entries can exist with no habit attached — a plain "spent an hour
+     on the bench" is one. Those are not habits kept and must not light a cell. */
+  it('ignores activity that is not a habit log', async () => {
+    await t.db.insert(activityFeed).values({
+      id: 'plain',
+      habitId: null,
+      description: 'Tidied the bench',
+      loggedAt: localToEpoch('2026-03-09T18:00', ZONE),
+      localDate: '2026-03-09',
+      source: 'voice',
+    });
+
+    expect(await repo.dailyHabitCounts({ from: '2026-03-01', to: '2026-03-31' })).toEqual([]);
+  });
+});

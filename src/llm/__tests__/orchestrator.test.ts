@@ -29,6 +29,7 @@ import { createProjectsRepository } from '@/repositories/projects';
 import { createSettingsRepository } from '@/repositories/settings';
 import { createSyncQueueRepository } from '@/repositories/syncQueue';
 import { createTasksRepository } from '@/repositories/tasks';
+import { createUsageRepository } from '@/repositories/usage';
 
 const ZONE = 'Europe/Sofia';
 /** Monday 09 March 2026. */
@@ -57,6 +58,7 @@ function buildRepositories(db: RidikDatabase): Repositories {
     settings: createSettingsRepository(db),
     syncQueue: createSyncQueueRepository(db),
     tasks: createTasksRepository(db),
+    usage: createUsageRepository(db),
     db,
   };
 }

@@ -51,8 +51,9 @@ const task = (id: string, dueDate: number | null = null): any => ({
   dueDate,
   isCompleted: false,
 });
-const habit = (name: string, loggedToday: boolean, streak = 1): any => ({
-  habit: { id: name, name },
+let born = 0;
+const habit = (name: string, loggedToday: boolean, streak = 1, createdAt?: number): any => ({
+  habit: { id: name, name, createdAt: createdAt ?? ++born, longestStreak: streak },
   loggedToday,
   streak,
 });
@@ -138,7 +139,29 @@ describe('buildWidgetSnapshot', () => {
     expect(built.tasks.rows[0]).toEqual({ title: 'yesterday', dueAt: at('09:00'), overdue: true });
   });
 
-  it('prompts with the habits still owed rather than the ones already done', () => {
+  /* A rail is read down its columns — "everything dies on a Sunday" — and that
+     read needs the same habit on the same row today as it was yesterday.
+     Ordering by whether it is done yet reshuffled the whole board every time
+     the user logged anything. */
+  it('keeps the habits in the order they were created, whatever is logged', () => {
+    const rows = (over: boolean[]) =>
+      buildWidgetSnapshot({
+        snapshot: snapshot({
+          habits: [
+            habit('Gym', over[0]!, 9, 100),
+            habit('Reading', over[1]!, 2, 200),
+            habit('Study', over[2]!, 40, 300),
+          ],
+        }),
+        now: NOON,
+      }).habits.rows.map((row) => row.name);
+
+    expect(rows([false, false, false])).toEqual(['Gym', 'Reading', 'Study']);
+    expect(rows([true, false, true])).toEqual(['Gym', 'Reading', 'Study']);
+    expect(rows([true, true, true])).toEqual(['Gym', 'Reading', 'Study']);
+  });
+
+  it('counts what is done without reordering it', () => {
     const built = buildWidgetSnapshot({
       snapshot: snapshot({
         habits: [habit('Gym', true, 9), habit('Reading', false, 2), habit('Study', false, 40)],
@@ -146,7 +169,6 @@ describe('buildWidgetSnapshot', () => {
       now: NOON,
     });
 
-    expect(built.habits.rows.map((row) => row.name)).toEqual(['Study', 'Reading', 'Gym']);
     expect(built.habits).toMatchObject({ done: 1, total: 3 });
   });
 
@@ -250,3 +272,287 @@ describe('widgetSnapshotChanged', () => {
     expect(widgetSnapshotChanged(before, after)).toBe(true);
   });
 });
+
+describe('the day element', () => {
+  const day = (over: Partial<TodaySnapshot> = {}, now = NOON) =>
+    buildWidgetSnapshot({ snapshot: snapshot(over), now }).day;
+
+  /* An empty day is still a drawing: 32 cold cells with a shape and a scale.
+     This is the whole answer to "the widgets are blank and boring". */
+  it('draws a full strip of cold cells on a day with nothing in it', () => {
+    const built = day();
+
+    expect(built.load).toHaveLength(32);
+    expect(built.load).toBe('0'.repeat(32));
+    expect(built.startMinute).toBe(7 * 60);
+    expect(built.cellMinutes).toBe(30);
+    expect(built.freeMinutes).toBe(16 * 60);
+    expect(built.nextCell).toBe(-1);
+  });
+
+  it('claims the cells an event covers and marks where the next one starts', () => {
+    const built = day({ events: [event('m', 'Lab', at('15:00'), { endsAt: at('16:00') })] });
+
+    // 07:00 is cell 0, so 15:00 is cell 16 and 15:30 is cell 17.
+    expect(built.load[16]).toBe('3');
+    expect(built.load[17]).toBe('2');
+    expect(built.load[18]).toBe('0');
+    expect(built.nextCell).toBe(16);
+    expect(built.freeMinutes).toBe(16 * 60 - 60);
+  });
+
+  /* An event ending exactly on a boundary does not own the cell it ends on —
+     a 15:00-16:00 meeting leaves you free at 16:00. */
+  it('does not claim the cell an event ends on', () => {
+    const built = day(
+      { events: [event('m', 'Lab', at('15:00'), { endsAt: at('16:00') })] },
+      at('20:00'),
+    );
+
+    expect(built.load[18]).toBe('0');
+  });
+
+  /* Two back-to-back meetings are four adjacent claimed cells, and without a
+     boundary they read as one long block — a different and wrong answer to
+     "how is my afternoon". */
+  it('marks the start of each booking so back-to-back meetings stay separate', () => {
+    const built = day(
+      {
+        events: [
+          event('a', 'First', at('15:00'), { endsAt: at('16:00') }),
+          event('b', 'Second', at('16:00'), { endsAt: at('17:00') }),
+        ],
+      },
+      at('20:00'),
+    );
+
+    expect(built.load.slice(16, 20)).toBe('2222');
+    expect(built.breaks.slice(16, 20)).toBe('1010');
+  });
+
+  /* Clamping is right — a 06:00 meeting should darken the first cell rather
+     than vanish — but drawing a boundary there would claim the day starts with
+     something it does not. */
+  it('clamps an event that starts before the window without inventing a break', () => {
+    const built = day(
+      { events: [event('early', 'Gym', at('05:30'), { endsAt: at('08:00') })] },
+      at('20:00'),
+    );
+
+    expect(built.load[0]).toBe('2');
+    expect(built.breaks[0]).toBe('0');
+  });
+
+  /* The travel buffer is a hint about when to leave, carried by next.leaveAt.
+     Drawn as claimed time it would book the twenty minutes before everything. */
+  it('leaves the travel buffer out of the load', () => {
+    const built = day(
+      {
+        events: [
+          event('m', 'Lab', at('15:00'), { endsAt: at('16:00') }),
+          event('b', 'Travel', at('14:30'), { kind: 'buffer', bufferForId: 'm', endsAt: at('15:00') }),
+        ],
+      },
+      at('20:00'),
+    );
+
+    expect(built.load[15]).toBe('0');
+  });
+});
+
+describe('the month plate', () => {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const onDay = (day: number, hours: number, over: Record<string, unknown> = {}): any =>
+    event(`d${day}`, `Day ${day}`, DateTime.fromISO(`2026-08-${String(day).padStart(2, '0')}T09:00`, { zone: ZONE }).toMillis(), {
+      endsAt: DateTime.fromISO(`2026-08-${String(day).padStart(2, '0')}T09:00`, { zone: ZONE }).toMillis() + hours * 3_600_000,
+      ...over,
+    });
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+
+  it('draws a cold cell for every day of the month, and marks today', () => {
+    const built = buildWidgetSnapshot({ snapshot: snapshot(), now: NOON }).month;
+
+    expect(built.load).toHaveLength(31);
+    expect(built.load).toBe('0'.repeat(31));
+    expect(built.month).toBe('2026-08');
+    expect(built.today).toBe(11);
+    expect(built.weekStartsOn).toBe(1);
+  });
+
+  it('separates a busy day from one with a single meeting on it', () => {
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON,
+      monthEvents: [onDay(3, 1), onDay(19, 4)],
+    }).month;
+
+    expect(built.load[2]).toBe('1');
+    expect(built.load[18]).toBe('2');
+    expect(built.load[0]).toBe('0');
+  });
+
+  /* Today is the only hot cell on any tile in the family. A month with a hot
+     cell on the 3rd and another on the 19th has no focus at all. */
+  it('never draws a day hotter than "busy", however full it is', () => {
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON,
+      monthEvents: [onDay(19, 10)],
+    }).month;
+
+    expect(built.load).not.toContain('3');
+  });
+
+  it('reads an all-day event as busy rather than as twenty-four hours', () => {
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON,
+      monthEvents: [onDay(7, 0, { allDay: true })],
+    }).month;
+
+    expect(built.load[6]).toBe('1');
+  });
+});
+
+describe('the empty-state distinctions', () => {
+  /* "You have done all your habits" and "you have never added a habit" render
+     identically without this, and that is most of why an untouched app's
+     widgets look broken. */
+  it('separates never-set-up from nothing-today', () => {
+    const untouched = buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON,
+      counts: { events: 0, tasks: 0, habits: 0, lists: 0 },
+    });
+    const quiet = buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON,
+      counts: { events: 12, tasks: 4, habits: 6, lists: 2 },
+    });
+
+    expect(untouched.configured).toEqual({
+      calendar: false,
+      tasks: false,
+      habits: false,
+      lists: false,
+    });
+    expect(quiet.configured).toEqual({
+      calendar: true,
+      tasks: true,
+      habits: true,
+      lists: true,
+    });
+  });
+
+  it('falls back to what today holds when no counts are supplied', () => {
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot({ habits: [habit('Gym', false)] }),
+      now: NOON,
+    });
+
+    expect(built.configured.habits).toBe(true);
+    expect(built.configured.tasks).toBe(false);
+  });
+});
+
+describe('task ages and all-day events', () => {
+  it('publishes how many days late each task is, oldest first', () => {
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot({
+        overdueTasks: [task('a', at('09:00') - 2 * 86_400_000), task('b', at('09:00') - 9 * 86_400_000)],
+        dueTasks: [task('c', at('17:00'))],
+      }),
+      now: NOON,
+    });
+
+    expect(built.tasks.ages).toEqual([9, 2, 0]);
+  });
+
+  /* Dropped entirely before v3, which lost whole days: "flying to Berlin" is
+     exactly what a glance at a calendar widget should say. */
+  it('carries all-day events rather than losing them', () => {
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot({
+        events: [event('trip', 'Flying to Berlin', at('00:00'), { allDay: true, endsAt: at('23:59') })],
+      }),
+      now: NOON,
+    });
+
+    expect(built.allDay).toEqual(['Flying to Berlin']);
+  });
+});
+
+describe('habit history', () => {
+  it('ends the strip on the day the snapshot describes', () => {
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot({ habits: [habit('Gym', true)] }),
+      now: NOON,
+      habitHistory: { Gym: ['2026-08-11', '2026-08-10', '2026-08-08'] },
+    });
+
+    const history = built.habits.rows[0]!.history;
+    expect(history).toHaveLength(35);
+    expect(history.at(-1)).toBe('1');
+    expect(history.at(-2)).toBe('1');
+    expect(history.at(-3)).toBe('0');
+    expect(history.at(-4)).toBe('1');
+  });
+
+  it('draws a cold strip for a habit with no history at all', () => {
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot({ habits: [habit('New', false)] }),
+      now: NOON,
+    });
+
+    expect(built.habits.rows[0]!.history).toBe('0'.repeat(35));
+  });
+});
+
+/* A section missing from digest() publishes once and then never redraws, with
+   nothing failing anywhere. This is the one thing in the file that can ship
+   broken in silence, so it is checked section by section. */
+describe('every section reaches the change check', () => {
+  const base = buildWidgetSnapshot({ snapshot: snapshot(), now: NOON });
+
+  const mutations: [string, () => WidgetSnapshotLike][] = [
+    ['day.load', () => buildWidgetSnapshot({
+      snapshot: snapshot({ events: [event('m', 'Lab', at('15:00'))] }),
+      now: NOON,
+    })],
+    ['month.load', () => buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON,
+      monthEvents: [event('m', 'Lab', at('15:00'))],
+    })],
+    ['configured', () => buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON,
+      counts: { events: 3, tasks: 0, habits: 0, lists: 0 },
+    })],
+    ['tasks.ages', () => buildWidgetSnapshot({
+      snapshot: snapshot({ overdueTasks: [task('a', at('09:00') - 86_400_000)] }),
+      now: NOON,
+    })],
+    ['allDay', () => buildWidgetSnapshot({
+      snapshot: snapshot({
+        events: [event('t', 'Berlin', at('00:00'), { allDay: true, endsAt: at('23:59') })],
+      }),
+      now: NOON,
+    })],
+    ['habits.rows', () => buildWidgetSnapshot({
+      snapshot: snapshot({ habits: [habit('Gym', false)] }),
+      now: NOON,
+    })],
+    ['list', () => buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON,
+      list: { name: 'Hardware', rows: [{ text: 'Bolts', done: false }] },
+    })],
+  ];
+
+  it.each(mutations)('notices a change in %s', (_section, build) => {
+    expect(widgetSnapshotChanged(base, build())).toBe(true);
+  });
+});
+
+type WidgetSnapshotLike = ReturnType<typeof buildWidgetSnapshot>;

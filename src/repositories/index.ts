@@ -23,6 +23,7 @@ import { createProjectsRepository } from './projects';
 import { createSettingsRepository } from './settings';
 import { createSyncQueueRepository } from './syncQueue';
 import { createTasksRepository } from './tasks';
+import { createUsageRepository } from './usage';
 
 export type Repositories = {
   activity: ReturnType<typeof createActivityRepository>;
@@ -40,6 +41,8 @@ export type Repositories = {
   settings: ReturnType<typeof createSettingsRepository>;
   syncQueue: ReturnType<typeof createSyncQueueRepository>;
   tasks: ReturnType<typeof createTasksRepository>;
+  /** Has each part of the app ever been used — see `usage.ts`. */
+  usage: ReturnType<typeof createUsageRepository>;
   db: RidikDatabase;
 };
 
@@ -60,6 +63,7 @@ export function createRepositories(db: RidikDatabase): Repositories {
     settings: createSettingsRepository(db, { logger: createLogger('settings') }),
     syncQueue: createSyncQueueRepository(db),
     tasks: createTasksRepository(db),
+    usage: createUsageRepository(db),
     db,
   };
 }

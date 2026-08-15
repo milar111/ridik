@@ -256,6 +256,44 @@ export function createHabitsRepository(db: RidikDatabase) {
     return loggedDates(habitId, range);
   }
 
+  /**
+   * How many distinct habits were logged on each day in a range.
+   *
+   * One grouped query rather than `habitHistory` per habit, because the caller
+   * is drawing a grid of days and does not care which habit filled a cell — and
+   * because the home-screen widget publisher runs this on every data change,
+   * where N queries for N habits is N round trips to answer one question.
+   *
+   * Days with nothing logged are absent rather than zero. The caller knows the
+   * range it asked for and can fill the gaps; sending them would triple the
+   * payload of a widget that has to cross a process boundary.
+   *
+   * Distinct on the habit, so logging the same habit twice in a day is one, not
+   * two — the grid is asking "how much of today did you keep", and a double log
+   * is enthusiasm, not progress.
+   */
+  async function dailyHabitCounts(
+    range: { from: LocalDate; to: LocalDate },
+  ): Promise<{ date: LocalDate; count: number }[]> {
+    const rows = await db
+      .select({
+        date: activityFeed.localDate,
+        count: sql<number>`count(distinct ${activityFeed.habitId})`,
+      })
+      .from(activityFeed)
+      .where(
+        and(
+          sql`${activityFeed.habitId} is not null`,
+          gte(activityFeed.localDate, range.from),
+          lte(activityFeed.localDate, range.to),
+        ),
+      )
+      .groupBy(activityFeed.localDate)
+      .orderBy(asc(activityFeed.localDate));
+
+    return rows.map((row) => ({ date: row.date as LocalDate, count: Number(row.count) }));
+  }
+
   async function resolveHabit(query: string): Promise<Result<Habit>> {
     const trimmed = query.trim();
     if (!trimmed) throw new AppError('invalid_input', 'No habit was named.');
@@ -291,6 +329,7 @@ export function createHabitsRepository(db: RidikDatabase) {
     archiveHabit,
     deleteHabit,
     habitHistory,
+    dailyHabitCounts,
     resolveHabit,
   };
 }

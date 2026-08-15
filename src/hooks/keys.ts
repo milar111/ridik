@@ -111,6 +111,21 @@ export const qk = {
     detail: (id: string) => [ROOT, 'habits', 'detail', id] as const,
     history: (id: string, from: LocalDate | null, to: LocalDate | null) =>
       [ROOT, 'habits', 'history', id, from, to] as const,
+    /**
+     * Every habit's history in one entry, for the widget rails.
+     *
+     * Filed under `habits` on purpose: logging a habit invalidates
+     * `qk.habits.all`, and a rail that did not sit under that prefix would keep
+     * drawing yesterday's board until the app was restarted.
+     */
+    historyAll: (ids: readonly string[], from: LocalDate, to: LocalDate) =>
+      [ROOT, 'habits', 'history-all', [...ids].sort().join(','), from, to] as const,
+  },
+
+  /** What the home-screen widgets need and no screen does. */
+  widgets: {
+    all: [ROOT, 'widgets'] as const,
+    usage: () => [ROOT, 'widgets', 'usage'] as const,
   },
 
   /** Logging a habit writes here too, which is why the two invalidate together. */

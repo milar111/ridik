@@ -1,13 +1,14 @@
 import { useEffect, useMemo } from 'react';
 
 import { useNow } from '@/features/today/useNow';
-import { useChecklistItems, useChecklistNames } from './useChecklists';
 import { buildWidgetSnapshot } from '@/services/widgets/snapshot';
 import { publishWidgetSnapshot } from '@/services/widgets/publish';
+import { useChecklistItems, useChecklistNames } from './useChecklists';
 import { useToday } from './useToday';
+import { useWidgetSources } from './useWidgetSources';
 
 /**
- * Keeps the home-screen widget fed, from wherever the user happens to be.
+ * Keeps the home-screen widgets fed, from wherever the user happens to be.
  *
  * Mounted once at the root rather than on a screen: a widget that only refreshed
  * while you had Ridik open, on the screen that happens to hold the same query,
@@ -42,23 +43,46 @@ export function useWidgetPublisher(): void {
     [focus, items.data],
   );
 
+  // Stable across renders so the history query key does not churn: the ids come
+  // from `snapshot.habits`, which is a fresh array on every refetch.
+  const habitIds = useMemo(
+    () => (snapshot?.habits ?? []).map((entry) => entry.habit.id),
+    [snapshot?.habits],
+  );
+
+  const sources = useWidgetSources({
+    date: snapshot?.date,
+    zone: snapshot?.zone,
+    habitIds,
+  });
+
   /**
-   * Hold the first publish until the list queries have answered.
+   * Hold the first publish until every source has answered.
    *
-   * Today's snapshot resolves a beat before the checklists do, and publishing
-   * in that gap writes a payload with `list: null` — which the list widget
-   * draws, correctly for what it was handed, as "No lists yet". If the app is
-   * closed before the next publish that sentence is what stays on the home
-   * screen, and it is a lie about a list that exists.
+   * Today's snapshot resolves a beat before the others, and publishing in that
+   * gap writes a payload with `list: null` and an empty month — which the
+   * widgets draw, correctly for what they were handed, as "No lists yet" over a
+   * list that exists and a blank August that has events in it. If the app is
+   * closed before the next publish, that is what stays on the home screen.
    *
-   * Settled, not successful: a checklist query that *fails* must not hold the
-   * other four widgets hostage. A disabled query stays pending forever in
-   * TanStack v5, which is why `focus` is checked before `items` at all.
+   * Settled, not successful: a query that *fails* must not hold the other
+   * widgets hostage. A disabled query stays pending forever in TanStack v5,
+   * which is why `focus` is checked before `items` at all.
    */
   const listSettled = !names.isPending && (!focus || !items.isPending);
+  const ready = listSettled && sources.settled;
 
   useEffect(() => {
-    if (!snapshot || !listSettled) return;
-    void publishWidgetSnapshot(buildWidgetSnapshot({ snapshot, now: at, list }));
-  }, [snapshot, at, list, listSettled]);
+    if (!snapshot || !ready) return;
+    void publishWidgetSnapshot(
+      buildWidgetSnapshot({
+        snapshot,
+        now: at,
+        list,
+        monthEvents: sources.monthEvents,
+        habitHistory: sources.habitHistory,
+        counts: sources.counts,
+      }),
+    );
+  }, [snapshot, at, list, ready, sources.monthEvents, sources.habitHistory, sources.counts]);
 }
