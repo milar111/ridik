@@ -86,7 +86,7 @@ export default function MenuScreen() {
   return (
     // Default bottom clearance, not none: the floating mic comes back on every
     // screen that is not home, and the last row has to stay clear of it.
-    <Screen title="Menu">
+    <Screen close title="Menu">
       {GROUPS.map((group) => (
         <Section key={group.title} title={group.title}>
           <Card padded={false}>

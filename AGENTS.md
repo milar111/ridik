@@ -93,6 +93,14 @@ different products. These are banned; use the replacement:
 | `shadowColor`/`elevation` | `elevate()` from `src/ui/shadow.ts` | Android ignores every iOS shadow prop and cannot colour or offset `elevation` |
 | bare `RefreshControl` | `Refresh` | `tintColor` is iOS-only, `colors` Android-only |
 
+A sheet is `SHEET` in `app/_layout.tsx` — `presentation: 'modal'` plus an
+explicit animation and gesture direction, because `modal` alone gets Android a
+full-screen push with no gesture. **And it must always draw its own Close.** The
+menu shipped for one commit with the drag as its only exit, which on iOS meant
+there was simply no way off it: the gesture is invisible, it is the first thing
+to fail for anyone with a motor impairment, and Android users reach for system
+Back long before they think to swipe.
+
 Two Android text traps, both of which cost a debugging session:
 
 - **A `Text` in a flex row is measured short and clipped, not wrapped.** With

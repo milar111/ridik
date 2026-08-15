@@ -21,6 +21,7 @@ export function Screen({
   contentStyle,
   bottomClearance = MIC_CLEARANCE,
   back = false,
+  close = false,
 }: {
   children: ReactNode;
   scroll?: boolean;
@@ -33,10 +34,19 @@ export function Screen({
   bottomClearance?: number;
   /**
    * Draw a way out. On for every screen the menu pushes; off for the ones that
-   * are their own root — home, and anything presented as a modal, which is
-   * dismissed by dragging or by Back.
+   * are their own root — home, and anything that closes rather than goes back.
    */
   back?: boolean;
+  /**
+   * Draw a Close instead, for a sheet.
+   *
+   * A sheet is dismissible by dragging it away, and that is not enough on its
+   * own: the gesture is invisible, it is the first thing to fail for anyone
+   * with a motor impairment, and on Android people reach for the system Back
+   * before they think to swipe. The menu shipped for one commit with the
+   * gesture as its only exit and there was simply no way off it.
+   */
+  close?: boolean;
 }) {
   const { colors, spacing } = useTheme();
   const insets = useSafeAreaInsets();
@@ -70,6 +80,18 @@ export function Screen({
           ) : null}
         </View>
         {right}
+        {close ? (
+          <Pressable
+            testID="screen-close"
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            hitSlop={10}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+            style={({ pressed }) => [styles.close, { opacity: pressed ? 0.5 : 1 }]}
+          >
+            <Ionicons name="close" size={22} color={colors.text} />
+          </Pressable>
+        ) : null}
       </View>
     ) : null;
 
@@ -164,6 +186,7 @@ const styles = StyleSheet.create({
   // Nudged left so the chevron's own bearing lines the title up with the body
   // text below it, rather than indenting the whole header by an icon's width.
   back: { marginLeft: -8, marginBottom: 4 },
+  close: { padding: 6, marginBottom: 2 },
   sectionHead: {
     flexDirection: 'row',
     alignItems: 'center',

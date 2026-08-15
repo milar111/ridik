@@ -37,6 +37,21 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * How a sheet is presented, identically on both platforms.
+ *
+ * `presentation: 'modal'` alone is an iOS behaviour; on Android
+ * react-native-screens falls back to a plain full-screen push with no gesture,
+ * which is how the menu ended up arriving two different ways. Naming the
+ * animation and the gesture direction gets Android to the same place.
+ */
+const SHEET = {
+  presentation: 'modal',
+  animation: 'slide_from_bottom',
+  gestureEnabled: true,
+  gestureDirection: 'vertical',
+} as const;
+
 export default function RootLayout() {
   const scheme = useColorScheme() === 'light' ? 'light' : 'dark';
   const [boot, setBoot] = useState<BootstrapResult | null>(null);
@@ -87,20 +102,16 @@ export default function RootLayout() {
                   }}
                 >
                   <Stack.Screen name="index" />
-                  {/* `presentation: 'modal'` is an iOS idea: a sheet that slides
-                      up with the screen behind it scaled back. Android has no
-                      equivalent and react-native-screens substitutes a plain
-                      full-screen push, so the same route arrived two different
-                      ways. A card with an explicit slide-from-bottom is the same
-                      animation on both. */}
-                  <Stack.Screen
-                    name="menu"
-                    options={{ presentation: 'card', animation: 'slide_from_bottom' }}
-                  />
-                  <Stack.Screen
-                    name="briefing"
-                    options={{ presentation: 'card', animation: 'slide_from_bottom' }}
-                  />
+                  {/* A sheet on both, which is the iOS behaviour: it slides up,
+                      the screen behind stays visible, and you can drag it away.
+                      Android's default for a modal was a plain full-screen push
+                      with no gesture, so it is told explicitly to slide from the
+                      bottom and to accept a vertical dismiss.
+                      The gesture is never the only way out — both these screens
+                      draw their own Close, because a sheet whose only exit is a
+                      swipe is a sheet some people cannot leave. */}
+                  <Stack.Screen name="menu" options={SHEET} />
+                  <Stack.Screen name="briefing" options={SHEET} />
                 </Stack>
                 {/* Mounted above every route so a thought can be captured from
                     wherever you are. It draws its own floating mic everywhere
