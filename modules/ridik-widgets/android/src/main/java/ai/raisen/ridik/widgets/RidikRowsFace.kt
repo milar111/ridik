@@ -531,15 +531,27 @@ internal object RidikRowsFace {
    * but it has to count *everything* above them or it hands the rows space
    * another line is already standing in.
    *
-   * Both the 12dp paddings are in these numbers, and so is every line between
-   * them: on Calendar the header, the strip and its ruler; on Tasks the header,
-   * the debt strip and the footer; on the checklist the header alone. The
-   * all-day line is the one that varies, so it is subtracted separately.
+   * Both the tile's vertical paddings are in these numbers, and so is every
+   * line between them: on Calendar the header, the strip and its ruler; on
+   * Tasks the header, the debt strip and the footer; on the checklist the
+   * header alone. The all-day line is the one that varies, so it is subtracted
+   * separately.
+   *
+   * They went up by roughly a fifth when the family stopped being cramped. Four
+   * things above the rows each got bigger and none of them is optional: the
+   * tile is padded 14dp rather than 12 top and bottom, the header's count is
+   * the face's hero number at 15sp rather than a 10sp label, every cell run
+   * sits in a well that is 6dp taller than the cells in it, and the air between
+   * the pieces went up with the rest. `plugins/withRidikAndroidWidget.js` is
+   * where each of those numbers lives; this is the only place that adds them
+   * up, and nothing checks the sum. Get it wrong low and the last row is
+   * clipped through the middle, which reads as a rendering fault rather than
+   * as a full tile.
    */
-  private const val CAL_ABOVE = 99
-  private const val CAL_LARGE_ABOVE = 115
-  private const val TASKS_ABOVE = 90
-  private const val LIST_ABOVE = 49
+  private const val CAL_ABOVE = 123
+  private const val CAL_LARGE_ABOVE = 151
+  private const val TASKS_ABOVE = 121
+  private const val LIST_ABOVE = 60
 
   /**
    * One line of copy under the checklist's marks, in dp.
@@ -549,7 +561,7 @@ internal object RidikRowsFace {
    * for the same height. "No list yet." spends two of these; "All twelve
    * done." spends one.
    */
-  private const val LIST_NOTE_LINE = 18
+  private const val LIST_NOTE_LINE = 22
 
   /**
    * How many rows each face draws, which is iOS's count and not the tile's.
@@ -575,20 +587,25 @@ internal object RidikRowsFace {
    * not fit is not dropped — it is clipped through the middle, which reads as a
    * rendering fault rather than as a full tile. So the arithmetic has to know.
    */
-  private const val ALL_DAY_LINE = 18
+  private const val ALL_DAY_LINE = 22
 
   /**
    * How many rows fit in the space left over, from the size the launcher reports.
    *
-   * The arithmetic is deliberately crude: a row is about 22dp with its gap, and
+   * The arithmetic is deliberately crude: a row is about 25dp with its gap, and
    * this only has to be right to the nearest one. Erring short leaves air rather
    * than half a line of text, which is the failure worth having — the rows sit
    * in a weighted container and anything past the bottom is clipped, not pushed.
+   *
+   * Twenty-five and not twenty-two because the gap between two rows went from
+   * five dp to seven. Air between rows is most of what separates a list you can
+   * read at arm's length from a paragraph, and a row is only worth its gap if
+   * the arithmetic knows it has one.
    */
   private fun capacity(roomDp: Int, cap: Int): Int {
     val ceiling = minOf(cap, ROW_SLOTS)
     if (roomDp <= 0) return minOf(3, ceiling)
-    return (roomDp / 22).coerceIn(1, ceiling)
+    return (roomDp / 25).coerceIn(1, ceiling)
   }
 
   /** "AUGUST" — the plate's own header, from the payload's month and not the device's. */

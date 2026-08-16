@@ -371,9 +371,62 @@ function withWidgetTarget(config, { targetBundleIdentifier }) {
   });
 }
 
+/**
+ * Tell EAS the extension exists, so managed credentials provision it.
+ *
+ * A local `xcodebuild` finds the target in the project and signs it with the
+ * same automatic settings as the app, so this changes nothing here. EAS reads
+ * `extra.eas.build.experimental.ios.appExtensions` instead of the pbxproj, and
+ * an extension missing from that list gets no provisioning profile — the build
+ * dies at the signing step, on their machine, after everything else passed.
+ *
+ * Spread rather than assigned: `onesignal-expo-plugin` registers its
+ * Notification Service Extension in the same array, and whichever of the two
+ * runs second must not erase the first.
+ */
+function withEasAppExtension(config, { appGroup, targetBundleIdentifier }) {
+  const extra = config.extra ?? {};
+  const eas = extra.eas ?? {};
+  const build = eas.build ?? {};
+  const experimental = build.experimental ?? {};
+  const ios = experimental.ios ?? {};
+  const existing = Array.isArray(ios.appExtensions) ? ios.appExtensions : [];
+  if (existing.some((entry) => entry && entry.bundleIdentifier === targetBundleIdentifier)) {
+    return config;
+  }
+
+  return {
+    ...config,
+    extra: {
+      ...extra,
+      eas: {
+        ...eas,
+        build: {
+          ...build,
+          experimental: {
+            ...experimental,
+            ios: {
+              ...ios,
+              appExtensions: [
+                ...existing,
+                {
+                  targetName: TARGET_NAME,
+                  bundleIdentifier: targetBundleIdentifier,
+                  entitlements: { [APP_GROUPS_ENTITLEMENT]: [appGroup] },
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
 /** @type {import('expo/config-plugins').ConfigPlugin<{ appGroup?: string; bundleIdentifier?: string }>} */
 const withRidikIosWidget = (config, options = {}) => {
   const resolved = resolveOptions(config, options);
+  config = withEasAppExtension(config, resolved);
   config = withAppGroupOnApp(config, resolved);
   config = withWidgetFiles(config, resolved);
   config = withWidgetTarget(config, resolved);

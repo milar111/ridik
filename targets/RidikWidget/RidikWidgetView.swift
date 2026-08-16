@@ -20,24 +20,12 @@ struct RidikWidgetView: View {
     let palette = RidikPalette.of(scheme: colorScheme, ember: entry.face.ember)
 
     content(palette)
-      .padding(legacyMargin)
+      .ridikTilePadding()
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .ridikGround(palette)
       // A widget gets one tap target per tile and nothing finer, so this is the
       // whole face at both sizes.
       .widgetURL(Route.today)
-  }
-
-  /**
-   The inset iOS 16 does not apply for us.
-
-   Content margins arrived in iOS 17; before that a widget's content ran to the
-   edge of the tile unless it padded itself. Padding on top of the automatic
-   margins would double them, so this is zero wherever they exist.
-   */
-  private var legacyMargin: CGFloat {
-    if #available(iOS 17.0, *) { return 0 }
-    return 14
   }
 
   @ViewBuilder
@@ -81,6 +69,7 @@ private struct TodayFace: View {
         palette: palette
       )
 
+      // The height is the *track's*, well and all — the cells get six less.
       DayElement(
         day: snapshot.day,
         nowCell: nowCell,
@@ -88,14 +77,16 @@ private struct TodayFace: View {
         bucket: small ? 4 : 1
       )
       .frame(height: small ? 26 : 34)
-      .padding(.top, 6)
+      .padding(.top, small ? 6 : 8)
 
       // The same bucket the element was drawn with: the ruler lays its labels
       // out on the element's cells, so a mismatch would point them at nothing.
       DayAxis(day: snapshot.day, palette: palette, bucket: small ? 4 : 1)
         .padding(.top, 3)
 
-      Spacer(minLength: 4)
+      // A small tile carries the strip, the ruler and three lines of words in
+      // 131 points and has nothing spare; a medium one can afford the air.
+      Spacer(minLength: small ? 2 : 4)
 
       readout
     }
@@ -119,19 +110,26 @@ private struct TodayFace: View {
       EmptyNote(headline: note.headline, sub: note.sub, palette: palette, compact: small)
     } else if let next = snapshot.next {
       VStack(alignment: .leading, spacing: 1) {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 9) {
           // Formatted in the payload's zone. `style: .time` renders in the
           // device's, which would put "08:00" above a strip whose hot cell is
           // at the 15:00 mark for anyone reading this abroad.
+          //
+          // **This is the face's hero and it is sized like one.** 26pt on a
+          // medium tile was the same weight as the title beside it, so the eye
+          // landed on neither; at 34 the time is read first and the title is
+          // what it turns out to be about, which is the order somebody glancing
+          // at a home screen actually wants.
           Text(RidikFormat.clockTime(next.startDate, snapshot.timeZone))
-            .font(.system(size: small ? 30 : 26, weight: .medium, design: .monospaced))
+            .font(.system(size: small ? 32 : 34, weight: .medium, design: .monospaced))
             .foregroundStyle(palette.text)
             .lineLimit(1)
             .minimumScaleFactor(0.7)
+            .layoutPriority(1)
 
           if !small {
             Text(next.title)
-              .font(.system(size: 15, weight: .semibold, design: .rounded))
+              .font(.system(size: 14, weight: .semibold, design: .rounded))
               .foregroundStyle(palette.text)
               .lineLimit(1)
           }
@@ -155,15 +153,22 @@ private struct TodayFace: View {
     let location = next.location?.nilIfEmpty
 
     HStack(spacing: 4) {
+      // Both fixed: on a small tile this line is wider than the tile and
+      // something has to give, and SwiftUI's answer without this was to
+      // ellipsise *every* flexible `Text` in the row a little — "leave… 34m ·
+      // Work…". The instruction is the point of the line; the place name is the
+      // afterthought, so the afterthought takes all of the truncation.
       if let leave {
         if leave <= now {
           Text("leave now")
             .foregroundStyle(palette.accent)
+            .fixedSize()
         } else {
           // The only genuinely live element WidgetKit gives for zero wakeups:
           // it counts itself down with the extension not running at all.
           Text("leave in")
             .foregroundStyle(palette.accent)
+            .fixedSize()
           Text(leave, style: .timer)
             .foregroundStyle(palette.accent)
             .monospacedDigit()

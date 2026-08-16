@@ -9,17 +9,50 @@
  *
  * There is no shared source they could all import: an Xcode extension links
  * neither the app nor React Native, and an Android resource file is XML. So the
- * agreement is asserted here instead, by reading the other two as text. It is a
- * crude test and it is the only kind available.
+ * agreement is asserted here instead — the Swift by reading it as text, the
+ * Android by calling the plugin that writes it and checking what comes out.
+ *
+ * Both halves of that have been wrong before, in the same way and for the same
+ * reason: an assertion that reads something *other* than what ships. The Swift
+ * side is genuinely the shipped file. The Android side was, for a while, the
+ * plugin's source — and then a hand-written literal inside it that the plugin
+ * had stopped using, so it passed while the built widget drew something else.
+ * If this file is ever extended, extend it toward the artifact, not away.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { DEFAULT_EMBER, cells, embers } from '../theme';
+import { DEFAULT_EMBER, cells, darkColors, embers, lightColors, tile } from '../theme';
+
+/**
+ * The ground the ramp is judged against, and the ink judged against the ramp.
+ *
+ * Imported, not written out. These were literals here for one release and it
+ * was the reason the whole suite stayed green through a ground change that had
+ * already invalidated every ramp in the file: a test asserting agreement
+ * between three copies of a value cannot also hold a fourth of its own.
+ */
+const GROUND = tile;
+const INK: Record<'light' | 'dark', string> = {
+  light: lightColors.text,
+  dark: darkColors.text,
+};
 
 const ROOT = join(__dirname, '..', '..', '..');
 const SWIFT = readFileSync(join(ROOT, 'targets/RidikWidget/RidikPalette.swift'), 'utf8');
-const PLUGIN = readFileSync(join(ROOT, 'plugins/withRidikAndroidWidget.js'), 'utf8');
+
+/**
+ * The Android resource files, generated rather than read off disk.
+ *
+ * `android/` is gitignored and only exists after a prebuild, so reading the
+ * written XML meant these assertions errored on a fresh clone and never ran in
+ * CI at all — a test that cannot fail is not protecting anything. Calling the
+ * plugin's own generator produces the same strings the build would write, with
+ * no build step in between.
+ */
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const RESOURCES: Record<string, string> = require('../../../plugins/withRidikAndroidWidget')
+  .resourceFiles();
 
 /**
  * `heatCold: Color(rgb: 0xF7CFB8)` inside a named `static let … = RidikPalette(`
@@ -59,16 +92,35 @@ function pluginEmberColours(scheme: 'light' | 'dark'): Record<string, string> {
   return written;
 }
 
-/** The `heat: { … }` literal inside the light or dark `colors({ … })` call. */
-function pluginHeat(scheme: 'light' | 'dark'): Record<string, string> {
-  // The night file is written second, so the dark literal is the later one.
-  const marker = scheme === 'light' ? "'values/ridik_widget_colors.xml'" : "'values-night/ridik_widget_colors.xml'";
-  const after = PLUGIN.split(marker)[1] ?? '';
-  const block = after.slice(after.indexOf('heat: {'), after.indexOf('},', after.indexOf('heat: {')));
+/** The generated `values/` or `values-night/` colour table, by resource name. */
+function generatedColours(scheme: 'light' | 'dark'): Record<string, string> {
+  const dir = scheme === 'light' ? 'values' : 'values-night';
+  const xml = RESOURCES[`${dir}/ridik_widget_colors.xml`]!;
   const out: Record<string, string> = {};
-  for (const [, key, value] of block.matchAll(/(\w+): '(#[0-9A-Fa-f]{6,8})'/g)) {
-    out[key!] = value!.toUpperCase();
+  for (const [, name, value] of xml.matchAll(
+    /<color name="([^"]+)">(#[0-9A-Fa-f]{6,8})<\/color>/g,
+  )) {
+    out[name!] = value!.toUpperCase();
   }
+  return out;
+}
+
+/**
+ * The default ember's ramp as Android will actually draw it.
+ *
+ * Read out of the generated XML rather than out of the plugin's source. It was
+ * the source for one release, matched against a hand-written `heat: {}` literal
+ * that the plugin no longer uses — so this assertion was reading a value that
+ * never reached a device, and stayed green while the shipped ground moved.
+ * The generated file is the artifact; nothing sits between it and the launcher.
+ */
+function pluginHeat(scheme: 'light' | 'dark'): Record<string, string> {
+  const generated = generatedColours(scheme);
+  const level = ['cold', 'low', 'mid', 'hot'] as const;
+  const out: Record<string, string> = { onHeat: generated.ridik_widget_on_heat! };
+  level.forEach((name, index) => {
+    out[name] = generated[`ridik_widget_${DEFAULT_EMBER}_heat_${index}`]!;
+  });
   return out;
 }
 
@@ -94,6 +146,24 @@ describe('the heat ramp agrees across all three platforms', () => {
       });
     }
   }
+
+  /**
+   * And so does the ground they were solved against.
+   *
+   * This is the assertion the suite was missing. A ramp is six colours over a
+   * seventh, so agreeing on the six while disagreeing on the ground is not
+   * agreement at all — and that is exactly what shipped: Swift moved to the
+   * pale tile while the Android plugin kept writing the app's saturated sand,
+   * with every per-ember assertion still green. The two tiles were four points
+   * of lightness apart, which is invisible in a diff and obvious on a phone.
+   */
+  for (const scheme of SCHEMES) {
+    it(`${scheme} ground`, () => {
+      const source = tile[scheme].toUpperCase();
+      expect(swiftValue(scheme, 'tile')).toBe(source);
+      expect(generatedColours(scheme).ridik_widget_ground).toBe(source);
+    });
+  }
 });
 
 describe('the ramp holds its own rules', () => {
@@ -102,17 +172,23 @@ describe('the ramp holds its own rules', () => {
   /* The point of raising the floor: a widget with nothing in it must still read
      as an instrument at rest rather than as a blank card. */
   it('makes a resting cell visible against its own tile', () => {
-    const ground = { light: '#FFE8D4', dark: '#1C0E06' } as const;
     for (const scheme of SCHEMES) {
-      expect(contrast(cells[scheme].cold, ground[scheme])).toBeGreaterThan(1.34);
+      expect(contrast(cells[scheme].cold, GROUND[scheme])).toBeGreaterThan(1.34);
+    }
+  });
+
+  /* `onHeat` is the tile itself, so an inverted numeral reads as the ground
+     showing through a lit cell rather than as white paint sitting on one. */
+  it('inverts to the tile rather than to a colour of its own', () => {
+    for (const scheme of SCHEMES) {
+      expect(cells[scheme].onHeat.toUpperCase()).toBe(GROUND[scheme].toUpperCase());
     }
   });
 
   it('keeps text legible on every level it is allowed on', () => {
-    const ink = { light: '#2E1508', dark: '#FFEEDF' } as const;
     for (const scheme of SCHEMES) {
       for (const level of ['cold', 'low', 'mid'] as const) {
-        expect(contrast(ink[scheme], cells[scheme][level])).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(INK[scheme], cells[scheme][level])).toBeGreaterThanOrEqual(4.5);
       }
       expect(contrast(cells[scheme].onHeat, cells[scheme].hot)).toBeGreaterThanOrEqual(4.5);
     }
@@ -174,9 +250,6 @@ function lightness(hex: string): number {
  * unreadable and nothing anywhere says so.
  */
 describe('every selectable ember is shippable', () => {
-  const GROUND = { light: '#FFE8D4', dark: '#1C0E06' } as const;
-  const INK = { light: '#2E1508', dark: '#FFEEDF' } as const;
-
   for (const option of Object.values(embers)) {
     describe(option.label, () => {
       for (const scheme of SCHEMES) {
@@ -216,10 +289,7 @@ describe('every selectable ember is shippable', () => {
    * resolving to 0 and a cell drawn transparent, with a green build.
    */
   it('the Android build writes every ember at every level', () => {
-    const generated = readFileSync(
-      join(ROOT, 'android/app/src/main/res/values/ridik_widget_colors.xml'),
-      'utf8',
-    );
+    const generated = RESOURCES['values/ridik_widget_colors.xml']!;
     for (const option of Object.values(embers)) {
       for (const level of [0, 1, 2, 3]) {
         expect(generated).toContain(`ridik_widget_${option.name}_heat_${level}`);
@@ -231,10 +301,7 @@ describe('every selectable ember is shippable', () => {
   it('and the values it writes are the ones in theme.ts', () => {
     for (const scheme of SCHEMES) {
       const file = scheme === 'light' ? 'values' : 'values-night';
-      const generated = readFileSync(
-        join(ROOT, `android/app/src/main/res/${file}/ridik_widget_colors.xml`),
-        'utf8',
-      );
+      const generated = RESOURCES[`${file}/ridik_widget_colors.xml`]!;
       for (const [key, hex] of Object.entries(pluginEmberColours(scheme))) {
         const [name, level] = key.split('.') as [string, 'cold' | 'low' | 'mid' | 'hot'];
         const index = { cold: 0, low: 1, mid: 2, hot: 3 }[level];

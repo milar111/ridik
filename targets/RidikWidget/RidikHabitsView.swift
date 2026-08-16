@@ -29,16 +29,10 @@ struct RidikHabitsView: View {
     let palette = RidikPalette.of(scheme: colorScheme, ember: entry.face.ember)
 
     content(palette)
-      .padding(legacyMargin)
+      .ridikTilePadding()
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .ridikGround(palette)
       .widgetURL(Route.habits)
-  }
-
-  /// Content margins are iOS 17; before that a widget pads itself or bleeds.
-  private var legacyMargin: CGFloat {
-    if #available(iOS 17.0, *) { return 0 }
-    return 14
   }
 
   @ViewBuilder
@@ -182,7 +176,14 @@ struct HabitsMetrics {
   static let slots = 6
   /// Between the gutter and the rail, and between the letters and their column.
   static let rail: CGFloat = 6
-  static let cellGap: CGFloat = 1.4
+  /**
+   Between one day's bar and the next.
+
+   Two, not 1.4. At 1.4 a lit run of a fortnight fused into one long block and
+   the board stopped being a count of days — which is the whole reading. The
+   bars lose about half a point each and the field gains its grain back.
+   */
+  static let cellGap: CGFloat = 2
 
   /**
    Ground between one rail and the next, and it is not optional.
@@ -191,10 +192,14 @@ struct HabitsMetrics {
    `cellHeight` — so on a short tile carrying a sentence as well the row and the
    bar are the same height, and six rails with nothing between them fuse into
    twenty-one full-height columns. The empty board is where that shows, which is
-   the one state this face is judged on. Android reserves the same two points as
+   the one state this face is judged on. Android reserves the same points as
    `layout_marginTop` on every rail row.
+
+   Three now rather than two: the rails sit in a well, so what shows between
+   them is the floor of the recess, and two points of it read as a printing
+   error rather than as ground.
    */
-  static let railGap: CGFloat = 2
+  static let railGap: CGFloat = 3
 
   /**
    Below this a 9pt weekday letter does not fit in its column.
@@ -230,17 +235,21 @@ struct HabitsMetrics {
     let window: Int
     let ideal: CGFloat
     let height: CGFloat
+    // A point off each: six rails, a header whose fraction is now a readout
+    // rather than an engraving, and a recess around the board all have to come
+    // out of the same 131 points, and the bar is the one thing here that can
+    // give a point without losing a reading.
     switch width {
-    case ..<236: (window, ideal, height) = (7, 84, 16)
-    case ..<336: (window, ideal, height) = (21, 94, 15)
-    default: (window, ideal, height) = (35, 118, 14)
+    case ..<236: (window, ideal, height) = (7, 84, 15)
+    case ..<336: (window, ideal, height) = (21, 94, 14)
+    default: (window, ideal, height) = (35, 118, 13)
     }
 
     // Never more than this share of the tile, whatever the names want. The
     // gutter that ate a third of the board is the other half of the complaint
     // the wide one fixed.
     let gutter = max(44, min(ideal, width * 0.42))
-    let rails = max(1, width - gutter - rail)
+    let rails = max(1, width - gutter - rail - CellWell.inset * 2)
 
     return HabitsMetrics(
       window: window,
@@ -290,15 +299,23 @@ private struct HabitsBoard: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      TileHeader(eyebrow: "HABITS", trailing: trailing, palette: palette)
+      // `4/6` is the only number this face has and it is the reading, so it is
+      // set as one. At 10pt tracked it was a label on a board, which left the
+      // tile with nothing the eye lands on first.
+      TileHeader(eyebrow: "HABITS", trailing: trailing, emphasis: true, palette: palette)
 
       // Dropped whole when the columns are too narrow to letter, rather than
       // set in 5pt type over them. The rails keep the height it would have had.
       if metrics.showsRuler {
         lettersRow
-          .padding(.top, 2)
+          .padding(.top, 3)
       }
 
+      // **One well behind all six rails, not one per rail.** Six troughs would
+      // cost three points each — eighteen out of the 131 a medium tile has —
+      // and buy an outline around every bar. One recess costs six, reads as the
+      // board being sunk into the tile, and turns `railGap` into visible floor
+      // between the rails rather than plain ground.
       VStack(spacing: HabitsMetrics.railGap) {
         ForEach(rails) { rail in
           row(rail)
@@ -309,11 +326,12 @@ private struct HabitsBoard: View {
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .padding(.top, HabitsMetrics.railGap)
+      .inWell(palette, radius: 6)
+      .padding(.top, 4)
 
       if let note {
         EmptyNote(headline: note.headline, sub: note.sub, palette: palette, compact: true)
-          .padding(.top, 3)
+          .padding(.top, 4)
           // The sentence is measured before the board, not after it. Six rails
           // that each want their full bar height add up to more than a short
           // tile has, and a `VStack` hands the overflow to whatever is last —
@@ -324,6 +342,14 @@ private struct HabitsBoard: View {
     }
   }
 
+  /**
+   The weekday letters, padded by the well's own inset.
+
+   The rails start `CellWell.inset` in from the tile's edge now, so the ruler
+   has to as well — the same agreement `DayAxis` keeps with `DayElement`, and
+   the same silent failure if it is broken: every letter sitting three points
+   left of the column it names.
+   */
   private var lettersRow: some View {
     HStack(spacing: HabitsMetrics.rail) {
       Color.clear.frame(width: metrics.gutter, height: 1)
@@ -340,6 +366,7 @@ private struct HabitsBoard: View {
         }
       }
     }
+    .padding(.horizontal, CellWell.inset)
   }
 
   /**
@@ -359,13 +386,18 @@ private struct HabitsBoard: View {
    sizes is invisible and is the correct thing to spend before the copy.
    */
   private func row(_ rail: HabitRailRow) -> some View {
-    HabitRail(history: rail.history, palette: palette, marksToday: rail.marksToday)
-      .frame(maxHeight: metrics.cellHeight)
-      .padding(.leading, metrics.gutter + HabitsMetrics.rail)
-      .overlay(alignment: .leading) {
-        gutter(rail)
-          .frame(width: metrics.gutter, alignment: .leading)
-      }
+    HabitRail(
+      history: rail.history,
+      palette: palette,
+      marksToday: rail.marksToday,
+      gap: HabitsMetrics.cellGap
+    )
+    .frame(maxHeight: metrics.cellHeight)
+    .padding(.leading, metrics.gutter + HabitsMetrics.rail)
+    .overlay(alignment: .leading) {
+      gutter(rail)
+        .frame(width: metrics.gutter, alignment: .leading)
+    }
   }
 
   @ViewBuilder

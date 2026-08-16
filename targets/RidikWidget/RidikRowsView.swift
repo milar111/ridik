@@ -29,16 +29,10 @@ struct RidikTasksView: View {
     let palette = RidikPalette.of(scheme: colorScheme, ember: entry.face.ember)
 
     content(palette)
-      .padding(legacyMargin)
+      .ridikTilePadding()
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .ridikGround(palette)
       .widgetURL(Route.tasks)
-  }
-
-  /// Content margins are iOS 17; before that a widget pads itself or bleeds.
-  private var legacyMargin: CGFloat {
-    if #available(iOS 17.0, *) { return 0 }
-    return 14
   }
 
   private var small: Bool { family == .systemSmall }
@@ -78,7 +72,10 @@ struct RidikTasksView: View {
         footer(tasks, palette: palette)
       }
 
-      Spacer(minLength: 4)
+      // A medium tile holds a strip, a readout and three rows in 131 points and
+      // has nothing spare; a small one holds two rows and has forty, which is
+      // where its readout's extra eight points came from.
+      Spacer(minLength: small ? 6 : 2)
 
       rowsOrNote(snapshot, palette: palette, stale: stale)
     }
@@ -104,24 +101,43 @@ struct RidikTasksView: View {
       ages: ages,
       cap: small ? 12 : 24,
       palette: palette,
-      maxCellWidth: small ? 11 : 13
+      maxCellWidth: small ? 11 : 13,
+      // Twelve cells across a small tile cannot afford three points of ground
+      // between them; twenty-four across a medium one can, and need it — at two
+      // the strip read as one bar with notches in it rather than as a count.
+      gap: small ? 2 : 3
     )
-    .frame(height: small ? 16 : 18)
-    .padding(.top, 6)
+    // The height is the track's, well and all. The cells get six less.
+    .frame(height: small ? 22 : 24)
+    .padding(.top, small ? 8 : 6)
   }
 
+  /**
+   The count, as a reading rather than as a caption.
+
+   This line used to be two 12pt phrases at opposite ends of the tile, which is
+   the "three evenly spaced stat pills" shape WIDGETS §1 bans with one pill
+   removed: nothing on it was the answer, so the eye had to read both and pick.
+   How many are open is the number this face exists for, so it is set as one and
+   "oldest 9d" trails it as the footnote it always was.
+
+   A small tile can carry it much larger — two rows and a twelve-cell strip
+   leave nearly forty points spare there, which is exactly the air the brief
+   asked for and there is nothing else worth spending it on.
+   */
   private func footer(_ tasks: WidgetSnapshot.Tasks, palette: RidikPalette) -> some View {
-    HStack(spacing: 6) {
-      if let oldest = tasks.ages.first, oldest > 0 {
-        Text("oldest \(oldest)d")
-      }
-      Spacer(minLength: 4)
-      Text("\(tasks.open) open")
-    }
-    .font(.system(size: small ? 11 : 12, weight: .medium, design: .rounded))
-    .foregroundStyle(palette.secondaryText)
-    .lineLimit(1)
-    .padding(.top, 4)
+    let oldest = tasks.ages.first ?? 0
+    return HeroCount(
+      value: "\(tasks.open)",
+      caption: "open",
+      // Dropped on small, where a 26pt reading and a footnote do not both fit
+      // in 119 points and the footnote came back as "oldes…". Nothing is lost:
+      // the first row's own lead already reads `9d`, and it is the same task.
+      trailing: !small && oldest > 0 ? "oldest \(oldest)d" : nil,
+      palette: palette,
+      size: small ? 26 : 18
+    )
+    .padding(.top, small ? 6 : 4)
   }
 
   @ViewBuilder
@@ -151,7 +167,7 @@ struct RidikTasksView: View {
       )
     } else {
       let rows = Array(taskRows(snapshot).prefix(small ? 2 : 3))
-      VStack(alignment: .leading, spacing: 6) {
+      VStack(alignment: .leading, spacing: small ? 8 : 6) {
         ForEach(rows) { row in
           RowLine(
             row: row,
@@ -218,16 +234,10 @@ struct RidikListView: View {
     let palette = RidikPalette.of(scheme: colorScheme, ember: entry.face.ember)
 
     content(palette)
-      .padding(legacyMargin)
+      .ridikTilePadding()
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .ridikGround(palette)
       .widgetURL(destination)
-  }
-
-  /// Content margins are iOS 17; before that a widget pads itself or bleeds.
-  private var legacyMargin: CGFloat {
-    if #available(iOS 17.0, *) { return 0 }
-    return 14
   }
 
   private var small: Bool { family == .systemSmall }
@@ -279,9 +289,18 @@ struct RidikListView: View {
     let done = list.open == 0
 
     VStack(alignment: .leading, spacing: 0) {
+      // The tally is the only number the quiet face has, and it is what the
+      // tile is for — "how much of this is left". Set as a reading, like the
+      // habits fraction, and for the same reason.
+      //
+      // Not on small: the eyebrow there is a list *name*, which is the one
+      // thing on this face that must never be cut, and `4 OF 12` at 14pt plus
+      // a real name is wider than 119 points. Habits' `4/6` is three
+      // characters and has no such problem at any size.
       TileHeader(
         eyebrow: list.name.uppercased(),
         trailing: count(list),
+        emphasis: !small,
         palette: palette
       )
 
@@ -296,7 +315,13 @@ struct RidikListView: View {
           // an empty face that is a different shape from a populated one.
           MarkColumn(count: capacity(done: false), palette: palette)
         } else {
-          VStack(alignment: .leading, spacing: 7) {
+          // Nine on small, where four rows leave seventeen points spare and the
+          // spacing between them *is* the composition — this is the one face
+          // with no graphic to carry it, and a checklist set at the density of
+          // an agenda reads as a paragraph. Medium keeps seven: five rows and
+          // an emphasised tally already fill 131 points, and a row of somebody's
+          // list is worth more than the air between two of them.
+          VStack(alignment: .leading, spacing: small ? 9 : 7) {
             ForEach(Array(rows.prefix(capacity(done: done)))) { row in
               RowLine(
                 row: row,
@@ -308,9 +333,9 @@ struct RidikListView: View {
           }
         }
       }
-      .padding(.top, 6)
+      .padding(.top, small ? 8 : 6)
 
-      Spacer(minLength: 4)
+      Spacer(minLength: small ? 4 : 2)
 
       if let closing = closingLine(list) {
         // Under the drawing, as §4 requires — the sentence is a caption on the

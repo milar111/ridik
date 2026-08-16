@@ -43,7 +43,7 @@ enum Route {
 /**
  One cell. The whole family is this and nothing else.
 
- Three things happen here that look like decoration and are not:
+ Four things happen here that look like decoration and are not:
 
  - **A past cell keeps its level and loses 62% of its height**, bottom-aligned.
    The step in the silhouette *is* the now-marker; there is no playhead line,
@@ -55,6 +55,11 @@ enum Route {
    inner rim, which is invisible as a shape and reads as glow; light gets a 1pt
    inset of the ground instead, so the cell stops touching its neighbours.
    Emission versus impression — WIDGETS §5.
+ - **A lit cell carries a bevel along its top edge and an unlit one does not.**
+   That asymmetry is the depth: `mid` and `hot` sit proud of the track they are
+   in, `cold` and `low` stay down in it. Given to every level it would be a
+   texture and say nothing; given only to the lit ones it is the difference
+   between a grid of swatches and a row of switches, some of them thrown.
  */
 struct HeatCell: View {
   let level: Character
@@ -78,17 +83,84 @@ struct HeatCell: View {
     RoundedRectangle(cornerRadius: radius, style: .continuous)
   }
 
+  /// `mid` and `hot`, never `cold` — and never `low`, which means "a little" and
+  /// has to stay nearly as recessed as nothing at all.
+  private var lit: Bool { level == "2" || level == "3" }
+
   @ViewBuilder
   private var fill: some View {
     if level == "3", let rim = palette.rim {
-      shape
-        .fill(palette.heatHot)
-        .overlay(shape.strokeBorder(rim, lineWidth: 1))
+      // Dark: the rim is drawn over the bevel and is brighter than it, which is
+      // correct — an emitting cell is lit all the way round, not just on top.
+      bevelled.overlay(shape.strokeBorder(rim, lineWidth: 1))
     } else if level == "3" {
-      shape.fill(palette.heatHot).padding(1)
+      bevelled.padding(1)
     } else {
-      shape.fill(palette.heat(level))
+      bevelled
     }
+  }
+
+  /// The fill, with the highlight clipped to the cell's own corners so it
+  /// follows the shape instead of overhanging it by the corner radius.
+  private var bevelled: some View {
+    shape
+      .fill(palette.heat(level))
+      .overlay(alignment: .top) {
+        if lit {
+          Rectangle().fill(palette.depth.bevel).frame(height: 1)
+        }
+      }
+      .clipShape(shape)
+  }
+}
+
+// MARK: - The well
+
+/**
+ The recessed track a run of cells sits in.
+
+ A widget cannot cast a shadow, so depth has to be drawn, and this is the piece
+ that does most of it: a shallow recess with a dark lip along its top and a light
+ one along its floor, exactly the way a milled channel catches a light coming
+ from above. The cells sit *inside* it, which is what makes them read as parts
+ rather than as ink.
+
+ **A well is a shape behind a run of cells, never behind one cell.** It is only
+ visible where the cells are not — the trough around the run and the ground
+ between them — so a well the same size as its contents is invisible, and a well
+ per cell is a fussy outline around every square. The run gets the padding; the
+ cells keep their size.
+ */
+struct CellWell: View {
+  let palette: RidikPalette
+  var radius: CGFloat = 5
+
+  /// The trough you can actually see, and the reason the well is not invisible.
+  static let inset: CGFloat = 3
+
+  var body: some View {
+    let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+    shape
+      .fill(palette.depth.well)
+      // Doubled at the top, so the lip is darker than the floor of the recess.
+      .overlay(alignment: .top) {
+        Rectangle().fill(palette.depth.well).frame(height: 1)
+      }
+      .overlay(alignment: .bottom) {
+        Rectangle().fill(palette.depth.wellFloor).frame(height: 1)
+      }
+      .clipShape(shape)
+  }
+}
+
+extension View {
+  /// A run of cells, sunk into the tile. The inset is the trough.
+  func inWell(
+    _ palette: RidikPalette,
+    inset: CGFloat = CellWell.inset,
+    radius: CGFloat = 5
+  ) -> some View {
+    padding(inset).background(CellWell(palette: palette, radius: radius))
   }
 }
 
@@ -140,6 +212,16 @@ struct DayElement: View {
     func x(of slot: Int) -> CGFloat { edges.indices.contains(slot) ? edges[slot] : 0 }
   }
 
+  /**
+   The strip draws itself in its own well, and `DayAxis` pads itself by the same
+   `CellWell.inset` — that is the only reason the two agree about where a cell
+   is. A well applied at the call site instead would have to be repeated at both
+   of them and matched by hand, and the failure is silent: a ruler pointing one
+   cell left of what it names.
+
+   The height a caller asks for is the height of the *track*. The cells get what
+   is left inside it, which is six points less.
+   */
   var body: some View {
     GeometryReader { proxy in
       let slots = Self.slots(of: day, bucket: bucket, nowCell: nowCell)
@@ -154,6 +236,7 @@ struct DayElement: View {
       }
       .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
     }
+    .inWell(palette)
   }
 
   /// The same arithmetic the `HStack` above performs, written down so the ruler
@@ -258,6 +341,11 @@ struct DayAxis: View {
           .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
       }
+      // The element is drawn inside a well and its cells start `CellWell.inset`
+      // in from the edge. The ruler has to start there too — this is the whole
+      // of the agreement between the two views, and getting it wrong is worth
+      // more than a whole cell of error on the one graphic the labels explain.
+      .padding(.horizontal, CellWell.inset)
   }
 
   private static let font = Font.system(size: 9, weight: .regular, design: .monospaced)
@@ -328,8 +416,21 @@ struct MonthPlate: View {
   let today: Int
   /// Nil to let the rows share whatever height the tile has left.
   var rowHeight: CGFloat? = nil
-  var gap: CGFloat = 2
+  /**
+   Between one column and the next.
+
+   Wider than it was, and wider than `rowGap`, because the two axes have
+   different amounts to spend. Seven columns across a tile have slack; six rows
+   down one do not, and every point taken between rows comes straight off the
+   cells. The plate packed at a flat 2 in both directions is most of what "a
+   42-cell grid crammed to the edge" was describing.
+   */
+  var gap: CGFloat = 3
+  /// Between one week and the next. Never larger than `gap` — see above.
+  var rowGap: CGFloat = 2
   var numerals: Bool = false
+  /// 15pt on the large plate: the numeral is the one number that face carries.
+  var numeralSize: CGFloat = 15
   /**
    Whether today is this tile's one hot cell.
 
@@ -342,8 +443,14 @@ struct MonthPlate: View {
 
   private let rows = 6
 
+  /**
+   The letters sit on the tile; the grid sits in a well under them.
+
+   Both are padded by `CellWell.inset` so a column and its letter line up — the
+   same agreement `DayAxis` keeps with `DayElement`, for the same reason.
+   */
   var body: some View {
-    VStack(spacing: gap) {
+    VStack(spacing: 0) {
       HStack(spacing: gap) {
         ForEach(letters.indices, id: \.self) { index in
           Text(letters[index])
@@ -353,16 +460,21 @@ struct MonthPlate: View {
             .frame(maxWidth: .infinity)
         }
       }
+      .padding(.horizontal, CellWell.inset)
+      .padding(.bottom, 4)
 
-      ForEach(0..<rows, id: \.self) { row in
-        HStack(spacing: gap) {
-          ForEach(0..<7, id: \.self) { column in
-            cell(at: row * 7 + column)
+      VStack(spacing: rowGap) {
+        ForEach(0..<rows, id: \.self) { row in
+          HStack(spacing: gap) {
+            ForEach(0..<7, id: \.self) { column in
+              cell(at: row * 7 + column)
+            }
           }
+          .frame(height: rowHeight)
+          .frame(maxHeight: rowHeight == nil ? CGFloat.infinity : nil)
         }
-        .frame(height: rowHeight)
-        .frame(maxHeight: rowHeight == nil ? CGFloat.infinity : nil)
       }
+      .inWell(palette, radius: 6)
     }
   }
 
@@ -392,7 +504,7 @@ struct MonthPlate: View {
         .overlay {
           if numerals {
             Text("\(number)")
-              .font(.system(size: 13, weight: .medium, design: .monospaced))
+              .font(.system(size: numeralSize, weight: .medium, design: .monospaced))
               .foregroundStyle(palette.ink(on: level))
               .lineLimit(1)
               .minimumScaleFactor(0.8)
@@ -456,7 +568,8 @@ struct HabitRail: View {
    started yet.
    */
   var marksToday: Bool = true
-  var gap: CGFloat = 1.4
+  /// `HabitsMetrics.cellGap`, and the letters over the columns use the same one.
+  var gap: CGFloat = 2
 
   var body: some View {
     HStack(spacing: gap) {
@@ -502,8 +615,10 @@ struct DebtStrip: View {
    cells across a 305pt tile come out at 10.8 — so it only ever bites on iPad.
    */
   var maxCellWidth: CGFloat = 13
-  var gap: CGFloat = 2
+  var gap: CGFloat = 3
 
+  /// The gauge's own track. The height a caller asks for is the track's; the
+  /// cells get what is left inside it.
   var body: some View {
     GeometryReader { proxy in
       let levels = self.levels
@@ -522,6 +637,7 @@ struct DebtStrip: View {
       }
       .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
     }
+    .inWell(palette)
   }
 
   /**
@@ -547,7 +663,17 @@ struct DebtStrip: View {
 
 // MARK: - Chrome
 
-/// The tracked engraving that names a region, from `typography.eyebrow`.
+/**
+ The tracked engraving that names a region, from `typography.eyebrow`.
+
+ It shrinks rather than truncating, and that is not the usual trade. Four of the
+ five eyebrows in the family are words this file chose — TODAY, TASKS, HABITS,
+ the month — and none of them will ever need it. The fifth is a *list name*
+ somebody typed, on a 119pt tile that also carries a tally, and there
+ "HARDWARE" came back as "HARDWA…". A tracked label a fraction smaller is
+ still the same word; a truncated one names nothing, which is the rule §2 states
+ for habit names and is no less true here.
+ */
 struct Eyebrow: View {
   let text: String
   let palette: RidikPalette
@@ -558,6 +684,7 @@ struct Eyebrow: View {
       .tracking(1.2)
       .foregroundStyle(palette.accent)
       .lineLimit(1)
+      .minimumScaleFactor(0.85)
   }
 }
 
@@ -572,6 +699,16 @@ struct TileHeader: View {
   let eyebrow: String
   var detail: String? = nil
   var trailing: String? = nil
+  /**
+   Whether the trailing count is this face's hero number.
+
+   Two faces have nowhere else to put theirs — Habits' `4/6` and List's
+   `4 OF 12` are the whole reading, and at 10pt they were engraving rather than
+   a readout. Set on those two and nowhere else: a header where both ends shout
+   is a dashboard, and Today and Tasks carry their hero further down the tile
+   where there is room for it to be genuinely large.
+   */
+  var emphasis: Bool = false
   let palette: RidikPalette
 
   var body: some View {
@@ -583,12 +720,58 @@ struct TileHeader: View {
           .foregroundStyle(palette.tertiaryText)
           .lineLimit(1)
       }
-      Spacer(minLength: 4)
+      Spacer(minLength: 6)
       if let trailing {
         Text(trailing)
-          .font(.system(size: 10, weight: .semibold, design: .monospaced))
-          .tracking(0.8)
+          .font(.system(size: emphasis ? 14 : 10, weight: .semibold, design: .monospaced))
+          .tracking(emphasis ? 0 : 0.8)
           .foregroundStyle(palette.accent)
+          .lineLimit(1)
+          .minimumScaleFactor(0.8)
+      }
+    }
+  }
+}
+
+/**
+ A number worth reading from across the room, and the word for what it counts.
+
+ The counterpart to `TileHeader`'s tracked engraving: that line is *labelling*,
+ this one is the reading. Which is why the number is set in the instrument face
+ at something you cannot miss and the word beside it is small and human — the
+ two together take one line, where "oldest 9d … 12 open" at a flat 12pt took the
+ same line and gave the eye nothing to land on first.
+
+ A trailing string is allowed and is always the *lesser* fact. Two numbers of
+ equal weight on one line is the dashboard WIDGETS §1 bans; a big one and a
+ quiet one is a reading with a footnote.
+ */
+struct HeroCount: View {
+  let value: String
+  let caption: String
+  var trailing: String? = nil
+  let palette: RidikPalette
+  var size: CGFloat = 18
+
+  var body: some View {
+    HStack(alignment: .firstTextBaseline, spacing: 5) {
+      Text(value)
+        .font(.system(size: size, weight: .medium, design: .monospaced))
+        .foregroundStyle(palette.text)
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+
+      Text(caption)
+        .font(.system(size: 11, weight: .medium, design: .rounded))
+        .foregroundStyle(palette.secondaryText)
+        .lineLimit(1)
+
+      Spacer(minLength: 6)
+
+      if let trailing {
+        Text(trailing)
+          .font(.system(size: 11, weight: .medium, design: .rounded))
+          .foregroundStyle(palette.tertiaryText)
           .lineLimit(1)
       }
     }
@@ -712,7 +895,7 @@ struct RowLine: View {
   let leadWidth: CGFloat
 
   var body: some View {
-    HStack(alignment: .firstTextBaseline, spacing: 7) {
+    HStack(alignment: .firstTextBaseline, spacing: 9) {
       lead
         .frame(width: leadWidth, alignment: .leading)
 
@@ -764,18 +947,22 @@ struct RowLine: View {
 /**
  A checklist's tick.
 
- Not a glyph: a 7pt cell with a point of ground around it, which is the family's
+ Not a glyph: a cell with a point of ground around it, which is the family's
  primitive at its quietest and the only mark on the one face that has no
  graphic. Open is cold, done is claimed — the same two levels the rest of the
- family uses for the same two meanings.
+ family uses for the same two meanings, so a ticked one picks up the bevel and
+ an open one does not.
  */
 struct RowMark: View {
   let done: Bool
   let palette: RidikPalette
 
+  /// Kept in step with `ridikLeadWidth`, which reserves the column for it.
+  static let size: CGFloat = 9
+
   var body: some View {
-    HeatCell(level: done ? "2" : "0", palette: palette)
-      .frame(width: 7, height: 7)
+    HeatCell(level: done ? "2" : "0", palette: palette, radius: 2.5)
+      .frame(width: Self.size, height: Self.size)
       .padding(1)
   }
 }
@@ -799,7 +986,7 @@ struct RowMark: View {
 struct MarkColumn: View {
   let count: Int
   let palette: RidikPalette
-  var spacing: CGFloat = 7
+  var spacing: CGFloat = 9
 
   var body: some View {
     VStack(alignment: .leading, spacing: spacing) {
@@ -822,7 +1009,7 @@ struct MarkColumn: View {
  */
 func ridikLeadWidth(for rows: [RidikRow], wide: Bool) -> CGFloat {
   if rows.contains(where: { if case .mark = $0.lead { return true } else { return false } }) {
-    return 9
+    return RowMark.size + 2
   }
   guard rows.contains(where: \.lead.isTime) else { return 22 }
   let twelveHour = (DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current) ?? "")

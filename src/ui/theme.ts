@@ -76,33 +76,112 @@ export type EmberOption = {
   platePeak: 'mid' | 'low';
 };
 
+/**
+ * Every level below `hot` is its ember composited over `tile` at the alpha in
+ * the comment, and `onHeat` *is* `tile`. Both facts are load-bearing.
+ *
+ * Compositing over the tile rather than picking six colours by eye is what lets
+ * the ramp be re-solved when the ground moves — which it did, once, and the
+ * hand-picked values it replaced were the reason empty widgets looked washed
+ * out. The alphas differ per ember and per scheme because the constraints bind
+ * differently: a darker ember needs more of itself to clear the resting floor,
+ * and dark mode needs less to clear the step between levels.
+ *
+ * `onHeat` being the tile is what makes an inverted numeral read as the ground
+ * showing *through* a lit cell rather than as white paint on top of it.
+ */
 export const embers: Record<EmberName, EmberOption> = {
-  // #C7360F / #FF5A36 at 23 / 46 / 70 / 100 percent.
+  // #C7360F over linen at 23 / 46 / 71; #FF5A36 over near-black at 24 / 46 / 70.
   ember: {
     name: 'ember',
     label: 'Ember',
     note: 'The original. A coil at temperature.',
-    light: { cold: '#F2BFA7', low: '#E59679', mid: '#D86B4A', hot: '#C7360F', onHeat: '#FFF7F0' },
-    dark: { cold: '#501F11', low: '#84311C', mid: '#BB4328', hot: '#FF5A36', onHeat: '#1C0E06' },
+    light: { cold: '#F2CBBD', low: '#E59E89', mid: '#D86F52', hot: '#C7360F', onHeat: '#FFF7F1' },
+    dark: { cold: '#4F2216', low: '#82321F', mid: '#B84329', hot: '#FF5A36', onHeat: '#17100C' },
     platePeak: 'mid',
   },
-  // #A82318 / #F04B3C at 27 / 50 / 74 / 100.
+  // #A82318 at 24 / 48 / 72; #F04B3C at 26 / 50 / 74.
   kiln: {
     name: 'kiln',
     label: 'Kiln',
     note: 'Further from orange. A firing chamber, not a coil.',
-    light: { cold: '#E8B3A1', low: '#D48676', mid: '#BF5649', hot: '#A82318', onHeat: '#FFF7F0' },
-    dark: { cold: '#551E15', low: '#862C21', mid: '#B93B2E', hot: '#F04B3C', onHeat: '#1C0E06' },
+    light: { cold: '#EAC4BD', low: '#D6928A', mid: '#C15F56', hot: '#A82318', onHeat: '#FFF7F1' },
+    dark: { cold: '#4F1F18', low: '#822D24', mid: '#B83C30', hot: '#F04B3C', onHeat: '#17100C' },
     platePeak: 'low',
   },
-  // #96341A / #DE6038 at the same four.
+  // #96341A at 26 / 50 / 75; #DE6038 at 25 / 49 / 74.
   rust: {
     name: 'rust',
     label: 'Rust',
     note: 'Browner and quieter. Oxidised steel.',
-    light: { cold: '#E3B7A2', low: '#CA8E77', mid: '#B1634A', hot: '#96341A', onHeat: '#FFF7F0' },
-    dark: { cold: '#502414', low: '#7D371F', mid: '#AC4B2B', hot: '#DE6038', onHeat: '#1C0E06' },
+    light: { cold: '#E4C5BA', low: '#CA9585', mid: '#B16651', hot: '#96341A', onHeat: '#FFF7F1' },
+    dark: { cold: '#492417', low: '#783721', mid: '#AA4B2D', hot: '#DE6038', onHeat: '#17100C' },
     platePeak: 'low',
+  },
+};
+
+/**
+ * The widget's own ground, and why it is not the app's.
+ *
+ * The app is a saturated warm field because it is a hero screen — one surface,
+ * filling the phone, lit as though the microphone were the heat source. A
+ * widget is a guest on somebody else's home screen, sitting between other
+ * apps' tiles, and the same saturation there reads as shouting. Every
+ * well-made widget in the wild is pale for this reason.
+ *
+ * It also measures better. The ramp resolved against this tile separates *more*
+ * from its own ground than the one resolved against the app's `bg` did — 1.56:1
+ * against 1.39:1 for a resting cell. The tile being too saturated is what made
+ * empty widgets look washed out, and raising the ember was treating the
+ * symptom.
+ *
+ * One ramp still serves both surfaces: solved against this, the harder ground,
+ * it clears the floor on the app's card too (1.53:1 and 1.39:1 in dark).
+ */
+export const tile: Record<ColorScheme, string> = {
+  light: '#FFF7F1',
+  dark: '#17100C',
+};
+
+/**
+ * Depth, as four values.
+ *
+ * Not shadows — a widget cannot cast one, and on Android it cannot even ask.
+ * These are the edges that make a cell read as sitting *in* a surface rather
+ * than *on* it: a dark lip at the top of a track, a light one at its bottom, a
+ * highlight along the top of a lit segment, and a single soft bloom in one
+ * corner of the tile.
+ *
+ * The bloom is the only gradient anywhere in the family and it is deliberately
+ * local. A gradient across a whole tile is a wash, and a wash is what makes a
+ * surface look printed rather than lit; a gradient across one corner reads as a
+ * light source, which is the entire idea the palette is named after.
+ */
+export type DepthRamp = {
+  /** The recessed lip at the top of a track. */
+  well: string;
+  /** The light edge at the bottom of one, catching the same light. */
+  wellFloor: string;
+  /** Along the top of a lit segment, so it sits proud of its slot. */
+  bevel: string;
+  /** The corner bloom's centre. It fades to fully transparent. */
+  bloom: string;
+};
+
+export const depth: Record<ColorScheme, DepthRamp> = {
+  light: {
+    well: '#14000000',
+    wellFloor: '#B3FFFFFF',
+    bevel: '#66FFFFFF',
+    bloom: '#1FC7360F',
+  },
+  // Dark needs roughly double: the same alpha over a near-black ground moves a
+  // fraction as far in perceived lightness as it does over linen.
+  dark: {
+    well: '#38000000',
+    wellFloor: '#14FFFFFF',
+    bevel: '#26FFFFFF',
+    bloom: '#3DFF5A36',
   },
 };
 
@@ -121,17 +200,19 @@ export function isEmberName(value: unknown): value is EmberName {
  * The default ember's ramp — what everything that has not been told otherwise
  * draws.
  *
- * Light is #C7360F over #FFE8D4 at 23% / 46% / 70% / 100%; dark is #FF5A36 over
- * #1C0E06 at the same four, and the direction of travel inverts — heat brightens
+ * Light is #C7360F over the tile at 23% / 46% / 71% / 100%; dark is #FF5A36 at
+ * 24% / 46% / 70% / 100%, and the direction of travel inverts — heat brightens
  * away from the ground instead of darkening toward it, which is why dark reads
  * as an emitting instrument rather than a printed one.
  *
  * The resting cell used to sit at 14%, which is 1.22:1 against its own tile —
  * technically present and, on a widget with nothing in it, indistinguishable
- * from a plain card. 23% brings it to 1.39:1: still unmistakably *off*, but the
- * grid reads as an instrument at rest instead of a wash. It costs 0.3 of a
- * lightness step between the levels, which is worth it — see
- * `widget-tokens.test.ts` for the arithmetic that is still enforced.
+ * from a plain card. It now reads 1.41:1 against the pale tile: still
+ * unmistakably *off*, but the grid reads as an instrument at rest instead of a
+ * wash. Note which lever bought that. Raising the *ember* was tried first and
+ * made the tile shout without making the resting cell any clearer; lowering the
+ * *ground* moved the whole ramp at once. See `widget-tokens.test.ts` for the
+ * arithmetic that is still enforced.
  *
  * Read off `embers` rather than written out again: these were two copies of the
  * same eight values, which is the drift this file spends its comments warning

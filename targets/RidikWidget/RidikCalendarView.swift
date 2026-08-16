@@ -28,16 +28,10 @@ struct RidikCalendarView: View {
     let palette = RidikPalette.of(scheme: colorScheme, ember: entry.face.ember)
 
     content(palette)
-      .padding(legacyMargin)
+      .ridikTilePadding()
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .ridikGround(palette)
       .widgetURL(Route.calendar)
-  }
-
-  /// Content margins are iOS 17; before that a widget pads itself or bleeds.
-  private var legacyMargin: CGFloat {
-    if #available(iOS 17.0, *) { return 0 }
-    return 14
   }
 
   @ViewBuilder
@@ -86,8 +80,12 @@ private struct CalendarFace: View {
     VStack(alignment: .leading, spacing: 0) {
       TileHeader(eyebrow: monthLabel, palette: palette)
 
+      // The plate is the whole face here, so it takes everything left. The well
+      // it now sits in costs six points of that and buys the one thing a flat
+      // 42-cell grid could not have: an edge, so the month reads as a plate
+      // rather than as forty-two marks printed near the tile's corner.
       plate(rowHeight: nil, numerals: false, todayIsHot: true)
-        .padding(.top, 3)
+        .padding(.top, 5)
 
       if let line = plateNote {
         Text(line)
@@ -95,7 +93,7 @@ private struct CalendarFace: View {
           .foregroundStyle(palette.text)
           .lineLimit(1)
           .minimumScaleFactor(0.75)
-          .padding(.top, 4)
+          .padding(.top, 5)
       }
     }
   }
@@ -107,7 +105,7 @@ private struct CalendarFace: View {
     VStack(alignment: .leading, spacing: 0) {
       header
       allDayLine
-      element(height: 30)
+      element(height: 28)
       Spacer(minLength: 4)
       // An all-day line costs a row. Three rows and a line do not both fit in
       // 131 points, and a clipped fourth row looks like a rendering bug.
@@ -128,13 +126,16 @@ private struct CalendarFace: View {
     VStack(alignment: .leading, spacing: 0) {
       header
 
-      // 41 × 25 (WIDGETS §3.2). Seven columns of 41 come out of the width
-      // exactly, and the height has to share 321 points with an element, a
-      // ruler and three rows — a row of 26 clipped the last agenda row on the
-      // shortest large tile, and a row cut through the middle reads as a
-      // rendering fault rather than as a full tile.
-      plate(rowHeight: 25, numerals: true, todayIsHot: false)
-        .padding(.top, 3)
+      // 24, down a point from 25, and the point went into the well the plate
+      // now sits in (WIDGETS §3.2). The height has to share 321 points with a
+      // recessed plate, an element, a ruler and three rows — a row that clipped
+      // the last agenda line reads as a rendering fault rather than as a full
+      // tile, so the plate gives way before the rows do.
+      //
+      // The numeral is 15pt rather than 13. It is the only number this face
+      // carries and it was set at the size of a caption inside a 38pt cell.
+      plate(rowHeight: 24, numerals: true, todayIsHot: false)
+        .padding(.top, 5)
 
       if let line = plateNote {
         Text(line)
@@ -145,11 +146,13 @@ private struct CalendarFace: View {
       }
 
       // Whitespace, and deliberately no separator: a hairline rule here is what
-      // would turn two readings of one day into two panels of a dashboard.
-      Spacer(minLength: 8)
+      // would turn two readings of one day into two panels of a dashboard. The
+      // two wells do the separating now, which is what they are for — a recess
+      // has an edge without anybody having to draw a line.
+      Spacer(minLength: 10)
 
       allDayLine
-      element(height: 28)
+      element(height: 26)
       Spacer(minLength: 4)
       // The all-day line costs a row here exactly as it does on medium: it is
       // about 18 points, the content box is 321, and three rows plus a line
@@ -179,7 +182,11 @@ private struct CalendarFace: View {
       // long the app has been closed. See `WidgetSnapshot.dayOfMonth(_:)`.
       today: monthFresh ? snapshot.dayOfMonth(now) : 0,
       rowHeight: rowHeight,
-      gap: numerals ? 3 : 2,
+      // Columns can afford the air, rows cannot: seven across a 293pt tile have
+      // slack, six down a 131pt one do not, and every point spent between weeks
+      // comes straight off the cell.
+      gap: numerals ? 4 : 3,
+      rowGap: numerals ? 3 : 2,
       numerals: numerals,
       todayIsHot: todayIsHot
     )
@@ -197,7 +204,7 @@ private struct CalendarFace: View {
 
       DayAxis(day: snapshot.day, palette: palette)
     }
-    .padding(.top, 6)
+    .padding(.top, 8)
   }
 
   /// All-day events are a line, not a list: "flying to Berlin" is exactly what
@@ -238,7 +245,7 @@ private struct CalendarFace: View {
       )
     } else {
       let rows = Array(agendaRows.prefix(rowCap))
-      VStack(alignment: .leading, spacing: 6) {
+      VStack(alignment: .leading, spacing: 7) {
         ForEach(rows) { row in
           RowLine(
             row: row,
