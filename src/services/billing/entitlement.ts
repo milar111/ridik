@@ -18,6 +18,7 @@
  * cancels. Nothing in the app can take that decision for them, which is why
  * cancelling is a link out rather than a button.
  */
+import { formatCount } from '@/core/format';
 import { createLogger } from '@/core/logger';
 
 const log = createLogger('billing');
@@ -141,7 +142,7 @@ export function titleFor(plan: PlanId): string {
 
 /** One line for the paywall, in the units the user is actually buying. */
 export function describeAllowance(tier: PlanTier): string {
-  return `${TIER_ALLOWANCE[tier].toLocaleString()} requests a month`;
+  return `${formatCount(TIER_ALLOWANCE[tier])} requests a month`;
 }
 
 /**

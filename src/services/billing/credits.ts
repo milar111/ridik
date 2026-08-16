@@ -24,6 +24,7 @@
  * be impossible to deflate. Both attacks are the same attack — free requests on
  * the operator's key — and each store is chosen for the direction it resists.
  */
+import { formatCount } from '@/core/format';
 
 /** The consumable, as configured in RevenueCat. Pinned; see the catalogue test. */
 export const TOPUP_PRODUCT = 'ridik_topup_100';
@@ -83,7 +84,7 @@ export function purchasedFrom(transactions: number): number {
 export function describeCredits(ledger: CreditLedger): string {
   const left = creditsRemaining(ledger);
   if (left === 0) return 'No top-up requests left';
-  return `${left.toLocaleString()} top-up ${left === 1 ? 'request' : 'requests'} left`;
+  return `${formatCount(left)} top-up ${left === 1 ? 'request' : 'requests'} left`;
 }
 
 /** What a single purchase adds, for the button that offers it. */

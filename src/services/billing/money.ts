@@ -21,6 +21,8 @@
  * make impossible, and it is the same failure whether the number is invented
  * or merely relabelled.
  */
+import { formatMoney } from '@/core/format';
+
 import { PLAN_IDS, PLAN_PERIOD, isYearly, type Plan, type PlanId } from './entitlement';
 
 /** Ridik prices in USD. See `money()` for why that is not the same as forcing it. */
@@ -39,22 +41,11 @@ const MONTHS_PER_YEAR = 12;
  */
 export function money(amount: number, currency: string | null): string | null {
   if (!Number.isFinite(amount) || amount < 0) return null;
-  const code = (currency ?? BASE_CURRENCY).toUpperCase();
-  try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: code,
-      // Two places, always. `$5` and `$5.00` in one column is the kind of
-      // ragged table that makes a price list look improvised.
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount);
-  } catch {
-    // Intl accepts any well-formed three-letter code and prints it verbatim, so
-    // this catches only a malformed one. A price with no symbol is still a true
-    // price; a crashed paywall sells nothing.
-    return `${amount.toFixed(2)} ${code}`;
-  }
+  // Delegated rather than reimplemented. `core/format.ts` already writes money
+  // for the ledger and the spoken briefing, and it is already independent of
+  // the device locale — a second formatter here is how "€12.50" in a note and
+  // "12,50 EUR" on the paywall end up in the same app.
+  return formatMoney(amount, currency ?? BASE_CURRENCY);
 }
 
 /**

@@ -23,6 +23,7 @@ import {
   plansBilling,
 } from '../money';
 import type { Plan, PlanId, PlanTier } from '../entitlement';
+import { formatCount } from '@/core/format';
 
 function plan(id: PlanId, over: Partial<Plan> = {}): Plan {
   const tier: PlanTier = id.startsWith('pro') ? 'pro' : 'base';
@@ -83,6 +84,30 @@ describe('a price reads the same on every phone', () => {
   it('refuses a number that is not a price', () => {
     expect(money(Number.NaN, 'USD')).toBeNull();
     expect(money(-1, 'USD')).toBeNull();
+  });
+
+  /**
+   * Every number the app writes, one way.
+   *
+   * The leak was not in the prices — those went through here — but in the two
+   * places that wrote a *count*: `1000..toLocaleString()` renders "1,000" on a
+   * US device and "1 000" on a European one, so a paywall card read "1,000
+   * requests a month" while the row confirming the same purchase read "1 000".
+   * Counts and money now share one rule, which is why this test lives beside
+   * the price tests rather than in a formatting suite of its own.
+   */
+  it('groups a count the same way it groups a price', () => {
+    expect(formatCount(1000)).toBe('1,000');
+    expect(formatCount(250)).toBe('250');
+    expect(money(1000, 'USD')).toContain('1,000');
+  });
+
+  it('does not use the device locale for either', () => {
+    for (const written of [formatCount(1000), money(1000, 'USD') ?? '']) {
+      // A narrow no-break space is what a European locale groups with, and it
+      // is invisible in a diff — which is how this survived a review.
+      expect(written).not.toMatch(/[  \s]/);
+    }
   });
 });
 

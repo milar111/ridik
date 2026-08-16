@@ -51,6 +51,19 @@ export function speakMoney(amount: number, currency: string): string {
   return cents > 0 ? `${base} ${cents}` : base;
 }
 
+/**
+ * "1,000" on every device.
+ *
+ * `Number.toLocaleString()` with no locale argument formats against the
+ * *device's* — so the same allowance rendered "1,000" on one phone and
+ * "1 000" (narrow no-break space) on another, in an app whose own prices are
+ * written one way. Every number this app shows goes through here or through
+ * `formatMoney`.
+ */
+export function formatCount(value: number): string {
+  return addThousandSeparators(String(Math.round(value)));
+}
+
 function addThousandSeparators(value: string): string {
   const [intPart = '', decPart] = value.split('.');
   const sign = intPart.startsWith('-') ? '-' : '';

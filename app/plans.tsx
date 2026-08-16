@@ -54,6 +54,7 @@ import {
   annualPitch,
   annualSaving,
   monthlyPitch,
+  money,
   monthlyPrice,
   planFor,
   plansBilling,
@@ -388,9 +389,15 @@ function TopUp() {
 
   const ledger = credits.data ?? NO_CREDITS;
   const left = creditsRemaining(ledger);
-  // The store's own string, and the button says nothing about money until it
-  // has one — a price is the last thing on this screen that may be a guess.
-  const cost = price.data?.price?.trim() ? price.data.price : null;
+  // Formatted the same way the plan cards are. Passing the store's own string
+  // straight through is what put "3,00 US$" on this button next to "$8.33" on
+  // the card above it — both correct, both the same currency, and only one of
+  // them looking deliberate. Falls back to the store's string when the store
+  // gave no amount to format, because a real price beats a tidy blank.
+  const listed = price.data ?? null;
+  const cost =
+    (listed?.amount != null ? money(listed.amount, listed.currency) : null) ??
+    (listed?.price?.trim() ? listed.price : null);
 
   return (
     <Card style={{ gap: spacing.sm }}>
