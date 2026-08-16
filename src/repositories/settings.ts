@@ -111,18 +111,24 @@ export const SETTINGS = {
    * Where Gemini's schema ladder starts. 0 = strict schema, 1 = envelope only.
    *
    * The strict schema is ~4,626 tokens of every request — the single largest
-   * line item — and dropping it reads like free money. It is not: it buys
-   * constrained decoding over 22 tools, and the repair calls it prevents cost
-   * more than the tokens it spends. Break-even is an extra repair on 45% of
-   * requests and nothing has yet run against a real key, so this ships at 0
-   * and exists to be measured rather than argued about: `llm_usage.calls`
-   * over `llm_usage.requests` is the repair rate, on whichever rung is set.
+   * line item, 62% of the input — and ships OFF, at rung 1.
+   *
+   * It is not free money, but the arithmetic clears comfortably: dropping it
+   * saves $0.00116 a call against a repair costing $0.00228, so break-even is
+   * an extra repair on 51% of requests, and the envelope rung still constrains
+   * valid JSON, a real tool name and an actions array — only `parameters` goes
+   * free-form, where zod catches it. Expected repair rate moves ~5% to ~12%.
+   * Seven points against fifty-one.
+   *
+   * Those rates are reasoned, not measured, which is why this stayed a setting
+   * rather than a constant: `llm_usage.calls` over `llm_usage.requests` is the
+   * repair rate. If it settles above ~1.5, set this back to 0.
    *
    * Developer-only. A stranger setting this to 1 would make the assistant
    * less reliable and cost more, which is exactly the test AGENTS.md sets for
    * what may not go on the Settings screen.
    */
-  llmSchemaRung: define(z.union([z.literal(0), z.literal(1)]), () => 0),
+  llmSchemaRung: define(z.union([z.literal(0), z.literal(1)]), () => 1),
   llmDailyRequestCap: define(z.number().int().min(0).max(100_000), () => 200),
   llmMonthlyRequestCap: define(z.number().int().min(0).max(1_000_000), () => 3_000),
 

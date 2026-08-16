@@ -78,9 +78,21 @@ describe('the schema ladder', () => {
     expect(breakEven).toBeLessThan(0.7);
   });
 
+  /* The provider still defaults to strict when nobody says otherwise — the
+     choice to ship rung 1 is the app's, made in `settings.llmSchemaRung`, so a
+     caller that constructs a provider directly gets the conservative one. */
   it('starts on the strict schema unless told otherwise', () => {
     expect(createGeminiProvider({ apiKey: 'k' }).schemaRung).toBe(0);
     expect(createGeminiProvider({ apiKey: 'k', startRung: 1 }).schemaRung).toBe(1);
+  });
+
+  /* What rung 1 keeps, and why the trade is narrower than "drop the schema".
+     A turn is still usable without the strict rung: only `parameters` is
+     unconstrained, and zod rejects a bad one into the repair loop. */
+  it('still constrains the envelope on the rung the app ships', () => {
+    const envelope = RESPONSE_SCHEMA as { properties: Record<string, unknown> };
+    expect(envelope.properties.actions).toBeDefined();
+    expect(JSON.stringify(RESPONSE_SCHEMA)).toContain('tool_name');
   });
 
   /* A hand-edited setting must not index off the end of the ladder: the schema

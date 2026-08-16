@@ -42,15 +42,25 @@ export type GeminiProviderOptions = {
    * The strict schema is ~4,626 tokens of every call and buys constrained
    * decoding across 22 tools; the envelope leaves `parameters` free-form and
    * leans on the repair loop instead. Dropping it therefore looks like an
-   * unconditional saving and is not one: at $0.25/M input it saves $0.00116 a
-   * call, and one extra schema repair — which resends the rejected reply plus
-   * the validator's complaints — costs $0.00259. The break-even is an extra
-   * repair on 45% of requests, and no turn has ever been taken against a real
-   * key, so that rate is unmeasured.
+   * unconditional saving. It is not unconditional, but it is a good trade.
    *
-   * Hence a dial rather than a decision. `llm_usage` already records `calls`
-   * and `requests`, so calls-per-request IS the repair rate: run a while on
-   * each rung and the arithmetic answers itself.
+   * At $0.25/M input it saves $0.00116 a call. One extra schema repair costs
+   * $0.00228 — the rejected reply and the validator's complaints are only
+   * ~300 tokens, and the cost is dominated by resending the base prompt.
+   * Transport retries are excluded: `client.ts` counts a 429 as an attempt,
+   * not a call, because it returns no tokens and bills nothing. Break-even is
+   * therefore an extra repair on **51%** of requests.
+   *
+   * What the envelope actually gives up is narrower than it sounds. It still
+   * constrains valid JSON, a real tool name and an actions array; only
+   * `parameters` goes free-form, and zod catches those. So the expected repair
+   * rate moves from ~5% (constrained decoding: only cross-field rules can
+   * reject) to ~12% — 7 points against a 51-point budget.
+   *
+   * Still a dial, because those rates are reasoned and not measured: no turn
+   * has run against a real key. `llm_usage` records `calls` and `requests`, so
+   * calls-per-request IS the repair rate. If it settles above ~1.5 on rung 1,
+   * put it back.
    */
   startRung?: number;
 };
