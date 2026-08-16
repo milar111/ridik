@@ -8,7 +8,11 @@
  *  - **Every turn is audited.** A row lands in `llm_interactions` whether the
  *    turn succeeded, asked a question or fell over, because a voice bug the
  *    user cannot reproduce is only debuggable from the transcript plus the raw
- *    reply. Failing to write that row must never fail the turn.
+ *    reply. Failing to write that row must never fail the turn. The row is not
+ *    only a diagnostic: `app/history.tsx` shows it to the user, because Ridik
+ *    keeps no audio and the transcript here is the only record of what they
+ *    said. What is written below is what somebody will read — the `parameters`
+ *    especially, which are the only place a mis-heard list name is visible.
  *  - **A question is a turn, not a dead end.** Both kinds of question — the
  *    model asking for a missing parameter, and the executor refusing to guess
  *    or to overwrite — come back as one `clarification` the dock can answer,
@@ -28,7 +32,7 @@ import { newId } from '@/db/ids';
 import { llmInteractions } from '@/db/schema';
 import type { LlmClient } from '@/llm/client';
 import { actionSchema, type LlmAction, type ToolName } from '@/llm/contract';
-import type { ConfirmMode } from './confirm';
+import { alwaysAsks, type ConfirmMode, type ConfirmScope } from './confirm';
 import { buildLlmContext } from '@/llm/context';
 import { createExecutor, type ActionResult, type ExecutorEffects } from '@/llm/executor';
 import type { LlmMessage } from '@/llm/provider';
@@ -83,7 +87,12 @@ export type TurnOutcome = {
 
 export type TurnInput = {
   transcript: string;
-  /** Recogniser confidence, `null` when the engine reported none. Audited as-is. */
+  /**
+   * Recogniser confidence, `null` when the engine reported none. Audited
+   * as-is, and read by the review gate: a write the receipt could undo is
+   * still shown first when the words behind it were heard badly. Typed input
+   * passes `null` and must — see `wasPoorlyHeard` in `./confirm`.
+   */
   confidence?: number | null;
   /** The `pending` from the previous turn's clarification, echoed back by the UI. */
   pending?: string;
@@ -190,6 +199,20 @@ const pendingSchema = z.discriminatedUnion('kind', [
     question: z.string(),
     transcript: z.string(),
     actions: z.array(actionSchema).min(1),
+    /**
+     * Which question each action was blocked on, positionally.
+     *
+     * Without it a yes is a blank cheque: replaying everything as `confirmed`
+     * released the handlers' own checks too, so a calendar_add parked by the
+     * *review* gate — "Add to calendar — Title: Gym, Starts: 15:00?" — came
+     * back with the clash check disarmed and double-booked the user over an
+     * event the question never mentioned.
+     *
+     * Optional so an envelope written by an older build still parses; absent
+     * reads as `details`, which is the widest grant and therefore the one the
+     * old code was already making.
+     */
+    scopes: z.array(z.enum(['review', 'details'])).optional(),
   }),
   z.object({
     v: z.literal(1),
@@ -276,7 +299,13 @@ export function createOrchestrator(options: OrchestratorOptions) {
     }
   }
 
-  function executorFor(at: number) {
+  /**
+   * `confidence` is threaded in rather than defaulted because the review gate
+   * reads it: how well the utterance was heard is the second thing deciding
+   * whether a write is shown before it lands. It was already carried this far
+   * for the audit trail and stopped here.
+   */
+  function executorFor(at: number, confidence: number | null) {
     return createExecutor({
       repos,
       zone,
@@ -284,6 +313,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
       ...(options.effects ? { effects: options.effects } : {}),
       ...(logger ? { logger } : {}),
       confirmMode: options.confirmMode ?? 'never',
+      confidence,
     });
   }
 
@@ -293,14 +323,24 @@ export function createOrchestrator(options: OrchestratorOptions) {
     input: TurnInput,
     startedAt: number,
   ): Promise<TurnOutcome> {
-    const executor = executorFor(startedAt);
-    const pairs: { action: LlmAction; result: ActionResult }[] = [];
-    for (const action of state.actions) {
-      pairs.push({ action, result: await executor.execute(action, { confirmed: true }) });
+    // The confidence still matters on this path: an action parked by the review
+    // gate is replayed as `reviewed` only, so the gate has to be able to see
+    // that it has already fired for this utterance rather than fire again.
+    const executor = executorFor(startedAt, input.confidence ?? null);
+    const pairs: Pair[] = [];
+    for (const [index, action] of state.actions.entries()) {
+      // A yes releases exactly the question that was asked. `review` was "is
+      // this what you said?" and says nothing about what the data looks like,
+      // so the handlers' own checks — the clash, the overwrite — still run and
+      // can still ask, which is a *new* question rather than the same one
+      // again.
+      const granted: ConfirmScope = state.scopes?.[index] ?? 'details';
+      const grant = granted === 'review' ? { reviewed: true } : { confirmed: true };
+      pairs.push({ action, result: await executor.execute(action, grant), granted });
     }
 
     const results = pairs.map((pair) => pair.result);
-    const clarification = clarificationFor(state.transcript, pairs, { alreadyConfirmed: true });
+    const clarification = clarificationFor(state.transcript, pairs);
     const feedback = composeFeedback(undefined, results);
 
     await audit({
@@ -425,7 +465,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
     }
 
     const { response, raw, model, usage, calls, degraded } = interpretation.value;
-    const executor = executorFor(startedAt);
+    const executor = executorFor(startedAt, input.confidence ?? null);
     const results =
       response.actions.length > 0 ? await executor.executeAll(response.actions) : [];
     // `executeAll` returns one result per action, in order, so the pairing is
@@ -527,42 +567,64 @@ function toItem(result: ActionResult): TurnItem {
 }
 
 /**
+ * One action, its result, and — on a replay — which question its yes answered.
+ *
+ * `granted` is absent on a fresh turn, which is what "nothing has been asked
+ * about this action yet" means; it is never `undefined` on the way back from
+ * `applyPending`.
+ */
+type Pair = { action: LlmAction; result: ActionResult; granted?: ConfirmScope };
+
+/**
  * Folds every action the executor refused to guess at into one question.
  *
  * More than one is rare — it takes an utterance whose second and third intents
  * are both ambiguous — but the dock has room for exactly one question, and
  * dropping the others would silently lose the work.
  *
+ * **Which one gets to be the question is a decision, not source order.** Fold
+ * "add milk to the shopping list and log fifty euros on groceries" and both
+ * actions block; read positionally, what gets spoken is "Add to a list — List:
+ * shopping, Adding: milk? 1 other thing needs an answer too", the amount never
+ * appears anywhere, and the yes that covers them both books €50 the user was
+ * never shown. `ALWAYS_ASKS` exists precisely because a mis-heard fifteen looks
+ * like a real transaction for ever, so the money leads and the list is the one
+ * folded into the count.
+ *
  * Which envelope it lands in matters more than the wording. Only a yes/no can
- * be parked as a `confirm`: replaying those actions under `confirmed` is what
- * the answer means. "Which one did you mean?" is not a yes/no — `confirmed`
- * deliberately never turns an ambiguous match into a guess — so replaying it
- * would ask the identical question for ever while the user says yes into the
- * void. Those go back to the model as a `clarify`, where "the drone one" can
- * actually narrow the query. One ambiguous action makes the whole batch a
- * clarify: the model re-plans the utterance from its own question, which is
- * slower than a local yes but never loops and never writes the wrong row.
+ * be parked as a `confirm`: replaying those actions under the scope they were
+ * blocked on is what the answer means. "Which one did you mean?" is not a
+ * yes/no — a confirmation deliberately never turns an ambiguous match into a
+ * guess — so replaying it would ask the identical question for ever while the
+ * user says yes into the void. Those go back to the model as a `clarify`, where
+ * "the drone one" can actually narrow the query. One ambiguous action makes the
+ * whole batch a clarify: the model re-plans the utterance from its own
+ * question, which is slower than a local yes but never loops and never writes
+ * the wrong row.
  */
 function clarificationFor(
   transcript: string,
-  pairs: { action: LlmAction; result: ActionResult }[],
-  options: { alreadyConfirmed?: boolean } = {},
+  pairs: Pair[],
 ): { question: string; pending: string } | undefined {
   const blocked = pairs.filter((pair) => pair.result.needsConfirmation);
-  const first = blocked[0];
-  if (!first?.result.needsConfirmation) return undefined;
+  // Source order everywhere except the one sentence the user hears: a later
+  // action routinely depends on a row an earlier one created, so the *actions*
+  // must not be re-ordered even when a different one leads the question.
+  const lead = blocked.find((pair) => alwaysAsks(pair.action.tool_name)) ?? blocked[0];
+  const asked = lead?.result.needsConfirmation;
+  if (!lead || !asked) return undefined;
 
-  // Anything still blocked *after* a yes cannot be unblocked by a second one,
-  // whatever it says about itself; asking again is the loop by another name.
-  const answerable =
-    options.alreadyConfirmed !== true &&
-    blocked.every((pair) => pair.result.needsConfirmation?.ambiguous !== true);
+  // A question the user has already answered cannot be answered again — asking
+  // is the loop by another name. A question they have *not* been asked can:
+  // that is the clash a review yes never mentioned, and it is a new question
+  // rather than the same one repeated.
+  const answerable = blocked.every(isUnasked);
 
   const rest = blocked.length - 1;
   const question =
     rest === 0
-      ? first.result.needsConfirmation.question
-      : `${first.result.needsConfirmation.question} ${countLabel(rest, 'other thing')} ${
+      ? asked.question
+      : `${asked.question} ${countLabel(rest, 'other thing')} ${
           rest === 1 ? 'needs' : 'need'
         } an answer too${answerable ? ' — yes covers them all' : ''}.`;
 
@@ -576,10 +638,24 @@ function clarificationFor(
             question,
             transcript,
             actions: blocked.map((pair) => pair.action),
+            scopes: blocked.map((pair) => pair.result.needsConfirmation!.scope),
           }
         : { v: 1, kind: 'clarify', question, transcript },
     ),
   };
+}
+
+/** Whether a yes would be answering something the user has not already been asked. */
+function isUnasked(pair: Pair): boolean {
+  const asked = pair.result.needsConfirmation;
+  if (!asked) return false;
+  // Never a yes/no, whoever is asking and however many times.
+  if (asked.ambiguous === true) return false;
+  if (pair.granted === undefined) return true;
+  // `details` is the widest grant there is; still blocked under it means the
+  // handler will refuse the same way for ever.
+  if (pair.granted === 'details') return false;
+  return asked.scope === 'details';
 }
 
 /**

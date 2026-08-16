@@ -239,11 +239,25 @@ function resolveCaps(input: CapsInput): WindowCaps {
 export type TurnEstimate = { tokens: number; costMicros: number };
 
 /**
- * One turn with no history to go on. Measured against the shipped prompt in
- * August 2026: ~7,240 input tokens (the strict response schema alone is ~62% of
- * that — see `__tests__/prompt-cache.test.ts`) and a short JSON reply.
+ * One turn with no history to go on. Re-measured against the shipped prompt on
+ * 16 August 2026.
+ *
+ * Both halves moved, in opposite directions, and the old pair was wrong on
+ * each. Input was 7,240 when the strict response schema was sent on every
+ * call; `settings.llmSchemaRung` now defaults to the envelope, which took the
+ * schema from ~4,626 tokens to ~323 and the turn to ~3,240. Output was 260 —
+ * the visible reply only — but a thinking model also bills
+ * `thoughtsTokenCount` at the output rate, and that was being discarded until
+ * `provider/gemini.ts` learned to add it. Measured turns run nearer 600.
+ *
+ * This is only the cold-start guess: `estimateNextTurn` prefers the rolling
+ * average of what this user's turns have actually drawn. But the guess is what
+ * a fresh install is budgeted against, and it decides whether the very first
+ * utterance of a free trial is waved through or refused — so being 2.2x high
+ * on input over-charged the trial, and being 2.3x low on output under-charged
+ * the part that costs six times more.
  */
-export const TYPICAL_TURN = { inputTokens: 7_240, outputTokens: 260 } as const;
+export const TYPICAL_TURN = { inputTokens: 3_240, outputTokens: 600 } as const;
 
 /** The same figure as one number, for anyone sizing a budget in tokens. */
 export const TYPICAL_TURN_TOKENS = TYPICAL_TURN.inputTokens + TYPICAL_TURN.outputTokens;

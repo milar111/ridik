@@ -65,6 +65,11 @@ describe('settings repository', () => {
         googleCalendarId: null,
         googleAccountEmail: null,
         onboardingComplete: false,
+        // Silence is not a decision. `false` would be, and the pipeline would
+        // then have to tell "declined" from "never asked" by looking at
+        // `onboardingComplete`, which is exactly the collapse this avoids.
+        assistantConsent: 'unset',
+        assistantConsentAt: null,
         weekStartsOn: 1,
         whisperFallbackEnabled: true,
         ember: 'ember',

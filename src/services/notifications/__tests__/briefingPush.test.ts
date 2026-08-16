@@ -355,7 +355,36 @@ describe('resolvePushHref', () => {
     expect(resolvePushHref({ data: { href: '/notes?pane=lists&list=Hardware' } })).toBe(
       '/notes?pane=lists&list=Hardware',
     );
-    expect(resolvePushHref({ data: { href: '/?speak=1' } })).toBe('/?speak=1');
+    expect(resolvePushHref({ data: { href: '/plans?pane=curriculum' } })).toBe(
+      '/plans?pane=curriculum',
+    );
+  });
+
+  /**
+   * Home stays openable and the verb does not.
+   *
+   * `?speak=1` used to be a meaningless parameter, which is why it stood in the
+   * test above as an example of a query string surviving. It is now the address
+   * a widget, the launcher long-press, the Control Center button and the Quick
+   * Settings tile use to open the microphone — so that same assertion had
+   * quietly become "a message anybody can send you may start recording". A
+   * blocked segment cannot fix it, because the segment is home.
+   */
+  it('will not let a message somebody sends you switch the microphone on', () => {
+    for (const href of [
+      '/?speak=1',
+      'ridik:///?speak=1',
+      '/?speak=0',
+      '/tasks?speak=1',
+      '/notes?pane=lists&speak=true',
+      // Decoded before it is compared: every query parser reads this as `speak`.
+      '/?%73peak=1',
+    ]) {
+      expect(resolvePushHref({ data: { href } }, null)).toBeNull();
+    }
+
+    // The route itself is untouched — a briefing may still open home.
+    expect(resolvePushHref({ data: { href: '/' } }, null)).toBe('/');
   });
 
   it('refuses to leave the app', () => {
@@ -377,6 +406,15 @@ describe('resolvePushHref', () => {
   it('will not open the developer screen from a message somebody can send you', () => {
     expect(resolvePushHref({ data: { href: '/developer' } }, null)).toBeNull();
     expect(resolvePushHref({ data: { href: 'ridik:///developer' } }, null)).toBeNull();
+  });
+
+  /* A full-screen "Allow" that a stranger's message can open is the shape of
+     every consent-farming attack there is. The screen is reached from the first
+     run, from Settings, and from the app's own refusal notice — all three of
+     which are the user already looking at Ridik. */
+  it('will not open the consent screen from a message somebody can send you', () => {
+    expect(resolvePushHref({ data: { href: '/consent' } }, null)).toBeNull();
+    expect(resolvePushHref({ data: { href: 'ridik:///consent' } }, null)).toBeNull();
   });
 
   it('returns null rather than guessing when the caller offers no fallback', () => {

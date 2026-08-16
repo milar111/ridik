@@ -25,6 +25,8 @@ import { appSettings } from '@/db/schema';
 import { DEFAULT_EMBER, EMBER_NAMES, type EmberName } from '@/ui/theme';
 import { DEFAULT_CONFIRM_MODE } from '@/llm/confirm';
 import type { ConfirmMode } from '@/llm/confirm';
+import { ASSISTANT_CONSENT_STATES, DEFAULT_ASSISTANT_CONSENT } from '@/llm/consent';
+import type { AssistantConsent } from '@/llm/consent';
 
 import { serialised, transactional } from './transaction';
 
@@ -97,7 +99,40 @@ export const SETTINGS = {
   ),
   googleCalendarId: define<string | null>(z.string().min(1).nullable(), () => null),
   googleAccountEmail: define<string | null>(z.string().min(1).nullable(), () => null),
+  /**
+   * True once the first-run screen has been answered, either way.
+   *
+   * It existed for a long time with nothing reading or writing it. The consent
+   * screen is what a first run *is* in this app — there is no tour, no account
+   * and no setup — so answering it is what makes this true, and it stays true
+   * afterwards even if the user later revokes.
+   */
   onboardingComplete: define(z.boolean(), () => false),
+  /**
+   * Whether the words of a request may be sent to the assistant's provider.
+   *
+   * The gate in front of every billable call, and the reason `app/consent.tsx`
+   * exists. Defaults to `unset` — not to `false` and not to `granted` — because
+   * silence is not a decision: the pipeline refuses to send on anything but
+   * `granted`, and only `unset` opens the first-run screen. See
+   * `src/llm/consent.ts` for why that is three states rather than a boolean.
+   *
+   * A closed set for the same reason `ember` and `confirmMode` are: a
+   * hand-edited row decodes to the default, and the default here is the safe
+   * end — an unreadable value must never read as permission.
+   */
+  assistantConsent: define<AssistantConsent>(
+    z.enum(ASSISTANT_CONSENT_STATES),
+    () => DEFAULT_ASSISTANT_CONSENT,
+  ),
+  /**
+   * When that decision was last recorded, as UTC epoch ms, or null.
+   *
+   * Not decoration: "we asked, and this is when they answered" is the record
+   * both stores' privacy reviews ask for, and it is the only way to tell a
+   * decision made under this build's wording from one made under a future one.
+   */
+  assistantConsentAt: define<number | null>(z.number().int().min(0).nullable(), () => null),
   weekStartsOn: define<0 | 1>(z.union([z.literal(0), z.literal(1)]), () => 1),
   whisperFallbackEnabled: define(z.boolean(), () => true),
 

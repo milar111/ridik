@@ -24,6 +24,7 @@ import { createFocusSessionsRepository } from '@/repositories/focusSessions';
 import { createGeofencesRepository } from '@/repositories/geofences';
 import { createHabitsRepository } from '@/repositories/habits';
 import { createLedgerRepository } from '@/repositories/ledger';
+import { createLlmInteractionsRepository } from '@/repositories/llmInteractions';
 import { createNotesRepository } from '@/repositories/notes';
 import { createPlacesRepository } from '@/repositories/places';
 import { createProjectsRepository } from '@/repositories/projects';
@@ -53,6 +54,7 @@ function buildRepositories(db: RidikDatabase): Repositories {
     geofences: createGeofencesRepository(db),
     habits: createHabitsRepository(db),
     ledger: createLedgerRepository(db),
+    llmInteractions: createLlmInteractionsRepository(db),
     notes: createNotesRepository(db),
     places: createPlacesRepository(db),
     projects: createProjectsRepository(db),
@@ -618,20 +620,179 @@ describe('orchestrator', () => {
       expect(await repos.notes.listNotes()).toHaveLength(1);
     });
 
+    const TASK_REPLY = JSON.stringify({
+      actions: [{ tool_name: 'task_add', parameters: { title: 'call Dad' } }],
+      speech: 'Added.',
+    });
+
     it('does not stand between the user and a task they can undo', async () => {
+      const { orchestrator } = harness({ responses: [TASK_REPLY] }, 'irreversible');
+      await orchestrator.interpretAndExecute({ transcript: 'add a task to call Dad' });
+      expect(await repos.tasks.listActiveTasks()).toHaveLength(1);
+    });
+
+    /* The confidence was already measured, already carried in `TurnInput` and
+       already audited; until it reached the executor it decided nothing, so a
+       barely-understood sentence wrote a row exactly like a crisp one. */
+    it('holds that same task back when it barely heard the words', async () => {
+      const { orchestrator } = harness({ responses: [TASK_REPLY] }, 'irreversible');
+      const outcome = await orchestrator.interpretAndExecute({
+        transcript: 'add a task to call Dad',
+        confidence: 0.72,
+      });
+
+      expect(await repos.tasks.listActiveTasks()).toHaveLength(0);
+      expect(outcome.clarification?.question ?? '').toContain('call Dad');
+
+      // And a yes still finishes the job, on the path that already existed.
+      await orchestrator.interpretAndExecute({
+        transcript: 'yes',
+        ...(outcome.clarification?.pending ? { pending: outcome.clarification.pending } : {}),
+      });
+      expect(await repos.tasks.listActiveTasks()).toHaveLength(1);
+    });
+
+    it('lets it through again once the recogniser is sure', async () => {
+      const { orchestrator } = harness({ responses: [TASK_REPLY] }, 'irreversible');
+      await orchestrator.interpretAndExecute({
+        transcript: 'add a task to call Dad',
+        confidence: 0.97,
+      });
+      expect(await repos.tasks.listActiveTasks()).toHaveLength(1);
+    });
+
+    /* Money is the one domain where the wrong value is unnoticed rather than
+       visible, so it does not get to be waved through by a good score. */
+    it('shows a transaction first however cleanly it was heard', async () => {
       const { orchestrator } = harness(
         {
           responses: [
             JSON.stringify({
-              actions: [{ tool_name: 'task_add', parameters: { title: 'call Dad' } }],
-              speech: 'Added.',
+              actions: [
+                {
+                  tool_name: 'ledger_add',
+                  parameters: { amount: 15, currency: 'EUR', category: 'food' },
+                },
+              ],
+              speech: 'Logged.',
             }),
           ],
         },
         'irreversible',
       );
-      await orchestrator.interpretAndExecute({ transcript: 'add a task to call Dad' });
-      expect(await repos.tasks.listActiveTasks()).toHaveLength(1);
+      const outcome = await orchestrator.interpretAndExecute({
+        transcript: 'spent fifteen euros on lunch',
+        confidence: 0.99,
+      });
+
+      expect(await repos.ledger.listRecent()).toHaveLength(0);
+      // The amount is the thing that might be wrong, so it has to be readable.
+      expect(outcome.clarification?.question ?? '').toContain('15');
+    });
+
+    /**
+     * The gate must not disarm the checks that run underneath it.
+     *
+     * Both questions used to be released by one `confirmed` flag, so the review
+     * preview — which is built before any handler has looked at the calendar and
+     * therefore cannot mention a clash — swallowed the clash question whole. The
+     * result was the exact inversion of the feature: an utterance heard *well*
+     * kept the double-booking guard, and one heard badly lost it.
+     */
+    it('still asks about a clash the preview never mentioned', async () => {
+      await repos.calendar.createEvent({
+        title: 'Dentist',
+        startsAt: at(`${WEDNESDAY}T15:00`),
+        endsAt: at(`${WEDNESDAY}T16:00`),
+      });
+
+      const { orchestrator } = harness(
+        {
+          responses: [
+            JSON.stringify({
+              actions: [
+                { tool_name: 'calendar_add', parameters: { title: 'Gym', start: `${WEDNESDAY}T15:00` } },
+              ],
+              speech: 'Booked.',
+            }),
+          ],
+        },
+        'irreversible',
+      );
+
+      // Heard badly enough for the gate to fire; `calendar_add` is reversible,
+      // so nothing else would have stopped it.
+      const review = await orchestrator.interpretAndExecute({
+        transcript: 'book gym at three',
+        confidence: 0.8,
+      });
+      expect(review.clarification?.question ?? '').toContain('Gym');
+      expect(review.clarification?.question ?? '').not.toContain('Dentist');
+
+      const clash = await orchestrator.interpretAndExecute({
+        transcript: 'yes',
+        confidence: 0.8,
+        ...(review.clarification?.pending ? { pending: review.clarification.pending } : {}),
+      });
+
+      // Nothing written yet, and the second question is the one the first never
+      // asked — by name.
+      expect(await repos.calendar.listForLocalDate(WEDNESDAY, ZONE)).toHaveLength(1);
+      expect(clash.clarification?.question ?? '').toContain('Dentist');
+      expect(parsePending(clash.clarification!.pending)).toMatchObject({ kind: 'confirm' });
+
+      // And a second yes finishes it, rather than looping on the same question.
+      await orchestrator.interpretAndExecute({
+        transcript: 'yes',
+        confidence: 0.8,
+        ...(clash.clarification?.pending ? { pending: clash.clarification.pending } : {}),
+      });
+      const day = await repos.calendar.listForLocalDate(WEDNESDAY, ZONE);
+      expect(day.map((row) => row.title).sort()).toEqual(['Dentist', 'Gym']);
+    });
+
+    /**
+     * Two blocked actions, one question, and the dock has room for exactly one.
+     * Read positionally the sentence is about milk and the amount appears
+     * nowhere — while the yes that answers it runs both. `ALWAYS_ASKS` exists
+     * because a mis-heard fifty is invisible for ever, so it leads.
+     */
+    it('reads the money back, not whichever action the model listed first', async () => {
+      const { orchestrator } = harness(
+        {
+          responses: [
+            JSON.stringify({
+              actions: [
+                { tool_name: 'checklist_add', parameters: { list_name: 'shopping', items: ['milk'] } },
+                {
+                  tool_name: 'ledger_add',
+                  parameters: { amount: 50, currency: 'EUR', category: 'groceries' },
+                },
+              ],
+              speech: 'Done.',
+            }),
+          ],
+        },
+        'irreversible',
+      );
+
+      const outcome = await orchestrator.interpretAndExecute({
+        transcript: 'add milk to the shopping list and log fifty euros on groceries',
+        confidence: 0.97,
+      });
+
+      const question = outcome.clarification?.question ?? '';
+      expect(question).toContain('50');
+      expect(question).toContain('1 other thing');
+      expect(await repos.ledger.listRecent()).toHaveLength(0);
+
+      // The list still gets its item: only the *question* is re-ordered, never
+      // the actions, which routinely depend on each other in source order.
+      const pending = parsePending(outcome.clarification!.pending);
+      expect(pending).toMatchObject({ kind: 'confirm' });
+      expect(
+        (pending as { actions: { tool_name: string }[] }).actions.map((a) => a.tool_name),
+      ).toEqual(['checklist_add', 'ledger_add']);
     });
   });
 });

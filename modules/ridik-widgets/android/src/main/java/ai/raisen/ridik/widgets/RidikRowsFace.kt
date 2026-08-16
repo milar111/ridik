@@ -82,6 +82,9 @@ internal object RidikRowsFace {
 
     val views = RemoteViews(context.packageName, ids.layout)
     views.setOnClickPendingIntent(android.R.id.background, openApp(context, kind, snapshot))
+    // The header's mic, on every face that has room for one. The tile opens the
+    // screen it is about; this is the only tap on it that starts a sentence.
+    views.speakable(context, ids)
 
     when {
       snapshot == null -> views.notice(

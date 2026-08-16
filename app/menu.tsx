@@ -76,6 +76,12 @@ const GROUPS: { title: string; entries: Entry[] }[] = [
   {
     title: 'App',
     entries: [
+      {
+        href: '/history',
+        icon: 'chatbubble-ellipses-outline',
+        label: 'History',
+        hint: 'What Ridik heard and what it did',
+      },
       { href: '/settings', icon: 'person-circle-outline', label: 'Profile', hint: 'Your plan, your data' },
     ],
   },

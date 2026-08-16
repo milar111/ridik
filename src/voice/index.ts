@@ -29,6 +29,13 @@ export type CaptureOptions = {
   silenceTimeoutMs?: number;
   onPartial?: (text: string) => void;
   onStateChange?: (state: VoiceState) => void;
+  /**
+   * Keep the audio on the phone: no network recogniser, no silent retry over
+   * one. Set whenever assistant consent is not `granted` — see `onDeviceOnly`
+   * in `./types`. Whisper is gated separately, by the caller, because it is a
+   * different recipient and a different opt-in.
+   */
+  onDeviceOnly?: boolean;
   /** Whisper is opt-in and needs a key; without both, the ladder stops early. */
   whisper?: { enabled: boolean; apiKey?: string | null; maxSeconds?: number };
   /** Cancels a Whisper recording in progress. */
@@ -105,6 +112,7 @@ function listenOnce(options: CaptureOptions): Promise<Result<VoiceCapture>> {
       locale: options.locale,
       minConfidence: options.minConfidence,
       silenceTimeoutMs: options.silenceTimeoutMs,
+      onDeviceOnly: options.onDeviceOnly,
       onPartial: options.onPartial,
       onStateChange: options.onStateChange,
       onError: (error) => done(err(error)),

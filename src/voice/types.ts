@@ -48,7 +48,40 @@ export type SttListenOptions = {
   silenceTimeoutMs?: number;
   /** Set false to skip the on-device attempt entirely. */
   preferOnDevice?: boolean;
+  /**
+   * Refuse the platform's *network* recogniser outright, even when the device
+   * has no offline model for the locale.
+   *
+   * On-device recognition has always been preferred, and preferring is not the
+   * same promise as guaranteeing: `supportsOnDeviceRecognition()` is false on a
+   * great many Android devices and on any iPhone whose locale dictation has not
+   * been downloaded, and the session then starts with
+   * `requiresOnDeviceRecognition: false` — which streams the raw audio to
+   * Apple's or Google's speech servers. There is also a silent retry over the
+   * network when the on-device engine reports `service-not-allowed` or
+   * `language-not-supported`.
+   *
+   * That is a defensible default for someone who agreed to it and a false
+   * statement to someone who did not: the consent screen's third panel is about
+   * the recording, and the refusal notice says in so many words that nothing
+   * went to the provider. So the pipeline sets this whenever consent is not
+   * `granted`, and a phone with no offline voice for the language is told to
+   * type rather than quietly uploaded.
+   */
+  onDeviceOnly?: boolean;
 };
+
+/**
+ * What the user is told when the words may not leave the phone and the phone
+ * cannot do it alone.
+ *
+ * Names the two ways out — type it, or turn the assistant on — because a wall
+ * with no door reads as a broken microphone, and this one is a choice the user
+ * made and can unmake.
+ */
+export const NO_OFFLINE_VOICE_MESSAGE =
+  'This phone has no offline voice for your language, and Ridik is keeping your words on ' +
+  'this phone. You can type instead, or turn the assistant on in Settings.';
 
 export const DEFAULT_LOCALE = 'en-US';
 export const DEFAULT_MIN_CONFIDENCE = 0.7;

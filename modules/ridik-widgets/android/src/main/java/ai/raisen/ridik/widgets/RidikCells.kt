@@ -1,6 +1,9 @@
 package ai.raisen.ridik.widgets
 
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.SystemClock
 import android.text.SpannableString
 import android.text.Spanned
@@ -174,6 +177,13 @@ internal class WidgetIds(context: Context, layoutName: String, val ember: String
   val footLeft = id("ridik_foot_left")
   val footRight = id("ridik_foot_right")
 
+  /**
+   * The mic in the header. `0` on every small layout, which is not an error —
+   * see `speakable`, and `header()` in the plugin for why small does not carry
+   * one.
+   */
+  val mic = id("ridik_mic")
+
   fun id(name: String) = resources.getIdentifier(name, "id", pkg)
 
   /**
@@ -292,6 +302,50 @@ internal fun RemoteViews.notice(ids: WidgetIds, title: String, body: String) {
   setTextViewText(ids.noticeTitle, title)
   setTextViewText(ids.noticeBody, body)
 }
+
+/**
+ * Where the microphone goes, and the one address in this app that is a *verb*.
+ *
+ * Home with a flag on it rather than a route of its own: listening is not a
+ * place, and the flag is consumed the moment it is read — see
+ * `src/features/voice/speakIntent.ts`, which owns every guard that makes firing
+ * it exactly once possible. The literal is repeated in `RidikElements.swift` and
+ * in that file because neither an Android widget nor a WidgetKit extension can
+ * import a line of this app's TypeScript; `speak-intent.test.tsx` reads all
+ * three and fails when they drift, which is the only mechanism there is —
+ * a widget pointed at the wrong URL builds, ships and looks deliberate.
+ */
+internal const val SPEAK_TARGET = "ridik:///?speak=1"
+
+/**
+ * Makes the header's mic start a sentence.
+ *
+ * A no-op when the layout has no mic in it: `getIdentifier` answers 0 for an id
+ * the file does not carry, every RemoteViews action against 0 is dropped in
+ * silence, and every small face is deliberately in exactly that state. Guarding
+ * here rather than at each call site keeps the two faces from having to know
+ * which sizes carry one.
+ *
+ * Its own request code — the tap intents are numbered 0 through 4 and the leave
+ * alarm holds 900 — because `FLAG_UPDATE_CURRENT` matches on the code, and two
+ * intents sharing one would hand every widget on the home screen whichever was
+ * built last. Which is exactly the bug that made every tile open the same list.
+ */
+internal fun RemoteViews.speakable(context: Context, ids: WidgetIds) {
+  if (ids.mic == 0) return
+  val intent = Intent(Intent.ACTION_VIEW, Uri.parse(SPEAK_TARGET)).setPackage(context.packageName)
+  setOnClickPendingIntent(
+    ids.mic,
+    PendingIntent.getActivity(
+      context,
+      SPEAK_REQUEST,
+      intent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    ),
+  )
+}
+
+private const val SPEAK_REQUEST = 800
 
 internal fun RemoteViews.showBody(ids: WidgetIds) {
   setViewVisibility(ids.notice, View.GONE)

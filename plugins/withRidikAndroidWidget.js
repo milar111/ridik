@@ -58,6 +58,15 @@ const IDS = {
   noticeBody: 'ridik_notice_body',
   eyebrow: 'ridik_eyebrow',
   count: 'ridik_count',
+  /**
+   * The one *control* in the family, and the only view on a tile that opens
+   * something other than the screen the tile is about.
+   *
+   * It is a second click target, which RemoteViews does support: a child with
+   * its own `setOnClickPendingIntent` takes the touch before the root's. Only
+   * medium and large carry it — see `header()` for why small does not.
+   */
+  mic: 'ridik_mic',
   headline: 'ridik_headline',
   sub: 'ridik_sub',
   allDay: 'ridik_allday',
@@ -260,6 +269,25 @@ const groundDrawable = (ember) => `ridik_widget_ground_${ember}`;
 
 /** The recessed track every cell run sits inside. Neutral, so one file serves all. */
 const WELL = 'ridik_well';
+
+/**
+ * The microphone glyph, and the label a screen reader reads instead of it.
+ *
+ * One file for all three embers because it is drawn white and tinted by the
+ * `ImageView` in the layout, and the layouts are already per-ember. A tint is a
+ * colour *reference*, resolved by whoever inflates the view — which is the
+ * launcher, in its own night mode, which is the only correct answer.
+ */
+const MIC_DRAWABLE = 'ridik_widget_mic';
+const MIC_LABEL = 'ridik_widget_speak_label';
+
+/**
+ * What the Quick Settings tile is called, which is not what the widget's mic is
+ * called: a `contentDescription` is read out in a sentence ("Speak to Ridik,
+ * button") while a tile label is a caption under an icon in a grid about ten
+ * characters wide. "Speak to Ridik" there is ellipsised to "Speak to R…".
+ */
+const TILE_LABEL = 'ridik_widget_tile_label';
 
 /** A cell of the strip, the rails, the debt gauge or the checklist's marks. */
 const heatDrawable = (ember, level, today) =>
@@ -818,7 +846,43 @@ ${indent(depth + 6)}android:paddingStart="2dp"${text(depth + 6, count)}
 ${indent(depth + 6)}android:textAllCaps="true"
 ${indent(depth + 6)}android:textColor="@color/${accentColour(ember)}"
 ${indent(depth + 6)}android:textSize="${figure.size}sp"${attr(depth + 6, 'visibility', count ? null : 'gone')} />
-${indent(depth)}</LinearLayout>`;
+${size === 'small' ? '' : `\n${mic(depth + 2, { ember })}\n`}${indent(depth)}</LinearLayout>`;
+}
+
+/**
+ * The microphone, at the trailing edge of the header.
+ *
+ * Every entry point this family has ever had opens a screen you *read*, and the
+ * thing they are all sitting next to on the home screen is an app whose entire
+ * purpose is capture. This is the one tap on a tile that starts a sentence
+ * instead of ending one, and it is the reason the widgets are worth their own
+ * process at all.
+ *
+ * **Not on small.** Not for want of dp — a small tile has room for 18 of them —
+ * but because iOS gives a `.systemSmall` widget exactly one tap target and it is
+ * the whole tile. A mic drawn there would open the reading screen on one
+ * platform and the microphone on the other, which is the "two different
+ * products" failure AGENTS.md is about. The rule is stated once, here and in
+ * `SpeakAffordance` in `RidikElements.swift`, and both say no.
+ *
+ * `android:tint` rather than a per-ember drawable: the ember tints it, the
+ * layouts are already generated per ember, and the launcher resolves the colour
+ * reference in its own process — which is the whole reason nothing in this file
+ * computes a colour. One vector, fifty-three layouts, no night-mode seam.
+ */
+function mic(depth, { ember }) {
+  const pad = indent(depth + 4);
+  return `${indent(depth)}<ImageView
+${pad}android:id="@+id/${IDS.mic}"
+${pad}android:layout_width="26dp"
+${pad}android:layout_height="18dp"
+${pad}android:layout_marginStart="6dp"
+${pad}android:contentDescription="@string/${MIC_LABEL}"
+${pad}android:layout_gravity="center_vertical"
+${pad}android:paddingStart="8dp"
+${pad}android:scaleType="fitCenter"
+${pad}android:src="@drawable/${MIC_DRAWABLE}"
+${pad}android:tint="@color/${accentColour(ember)}" />`;
 }
 
 /**
@@ -2000,6 +2064,43 @@ ${lines.join('\n')}
 `;
 }
 
+function speakStrings() {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<!-- ${GENERATED} -->
+<resources>
+  <string name="${MIC_LABEL}">Speak to Ridik</string>
+  <string name="${TILE_LABEL}">Speak</string>
+</resources>
+`;
+}
+
+/**
+ * The microphone, as a path rather than as a bitmap.
+ *
+ * A `VectorDrawable` is native from API 21 and this ships to 26, so no support
+ * library is involved and nothing has to be rasterised at the app's density and
+ * shipped through Binder — which is the same reason §8 of WIDGETS.md refuses
+ * bitmaps for the cells. Drawn white and tinted by the `ImageView`, so one file
+ * serves all three embers and both schemes.
+ */
+function micDrawable() {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<!-- ${GENERATED} -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:pathData="M12,14c1.66,0 3,-1.34 3,-3V5c0,-1.66 -1.34,-3 -3,-3S9,3.34 9,5v6c0,1.66 1.34,3 3,3z" />
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:pathData="M17,11c0,2.76 -2.24,5 -5,5s-5,-2.24 -5,-5H5c0,3.53 2.61,6.43 6,6.92V21h2v-3.08c3.39,-0.49 6,-3.39 6,-6.92h-2z" />
+</vector>
+`;
+}
+
 /**
  * Stops resource shrinking from deleting the widget.
  *
@@ -2338,6 +2439,12 @@ function resourceFiles() {
     'values/ridik_widget_strings.xml': strings(WIDGETS.filter((w) => w.kind === 'today')),
     'values/ridik_rows_strings.xml': strings(WIDGETS.filter((w) => w.kind !== 'today')),
 
+    // The mic's accessible name. A `contentDescription` is the *only* thing
+    // TalkBack has to go on here — the glyph carries no text, and a widget
+    // cannot be explored by anything else.
+    'values/ridik_widget_speak.xml': speakStrings(),
+    [`drawable/${MIC_DRAWABLE}.xml`]: micDrawable(),
+
     'raw/ridik_widget_keep.xml': keepRules(),
 
     // Linen and a warm near-black — the widget's own tile, and deliberately not
@@ -2497,6 +2604,65 @@ const withWidgetReceiver = (config) =>
   });
 
 /**
+ * The Quick Settings tile — the twin of the iOS Control Center button.
+ *
+ * A `<service>` rather than a `<receiver>`, and the only one this plugin adds.
+ * It draws nothing from the snapshot: a tile has no size, no layout and no
+ * update period, so it is a glyph, a word and a URL, which is the whole reason
+ * it costs one file on each platform rather than a sixth face.
+ *
+ * `BIND_QUICK_SETTINGS_TILE` is what makes it a tile at all — without it the
+ * system will not bind, and the failure is that the tile simply never appears in
+ * the edit list, with nothing logged. Exported for the same reason the widget
+ * receivers are: the system is the caller.
+ */
+const TILE_SERVICE = 'ai.raisen.ridik.widgets.RidikSpeakTileService';
+
+function tileService() {
+  return {
+    $: {
+      'android:name': TILE_SERVICE,
+      'android:exported': 'true',
+      'android:icon': `@drawable/${MIC_DRAWABLE}`,
+      'android:label': `@string/${TILE_LABEL}`,
+      'android:permission': 'android.permission.BIND_QUICK_SETTINGS_TILE',
+    },
+    'intent-filter': [
+      { action: [{ $: { 'android:name': 'android.service.quicksettings.action.QS_TILE' } }] },
+    ],
+  };
+}
+
+/**
+ * Pure, and exported, so the tile can be asserted without a prebuild — the same
+ * reasoning as `resourceFiles()`. A manifest entry that never reaches the
+ * manifest is invisible: the tile simply is not in the edit list, and nothing
+ * anywhere says why.
+ */
+function addSpeakTile(application) {
+  // Filtered rather than appended, exactly as the receivers are: `android/` is
+  // not wiped between prebuilds, and two services for one class is a manifest
+  // merger failure rather than a duplicate tile.
+  application.service = [
+    ...(application.service ?? []).filter(
+      (existing) => existing.$?.['android:name'] !== TILE_SERVICE,
+    ),
+    tileService(),
+  ];
+  return application;
+}
+
+const withSpeakTile = (config) =>
+  withAndroidManifest(config, (config) => {
+    const application = config.modResults.manifest.application?.[0];
+    if (!application) {
+      throw new Error('withRidikAndroidWidget: the manifest has no <application> to add to.');
+    }
+    addSpeakTile(application);
+    return config;
+  });
+
+/**
  * More heap for the build, because these layouts are why it needs it.
  *
  * Five faces at five sizes generated twenty-one layouts, and the largest — a
@@ -2531,7 +2697,7 @@ const withBuildHeap = (config) =>
   });
 
 module.exports = function withRidikAndroidWidget(config) {
-  return withBuildHeap(withWidgetReceiver(withWidgetResources(config)));
+  return withBuildHeap(withSpeakTile(withWidgetReceiver(withWidgetResources(config))));
 };
 
 /**
@@ -2545,3 +2711,11 @@ module.exports = function withRidikAndroidWidget(config) {
  * anything on a machine that has never run `expo prebuild`.
  */
 module.exports.resourceFiles = resourceFiles;
+
+/**
+ * The Quick Settings tile's manifest entry, for
+ * `src/features/voice/__tests__/speak-intent.test.tsx`. Same reasoning as
+ * `resourceFiles`: an entry that never lands is a tile that never appears, with
+ * nothing failing and nothing logged.
+ */
+module.exports.addSpeakTile = addSpeakTile;

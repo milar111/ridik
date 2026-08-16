@@ -131,6 +131,27 @@ describe('wipeAllTables', () => {
     it('names only keys the settings repository actually has', () => {
       for (const key of PRESERVED_SETTINGS) expect(isSettingKey(key)).toBe(true);
     });
+
+    /**
+     * And the line the exemption must never be extended across.
+     *
+     * `llm_usage` is preserved because five integers a day are a spend control
+     * rather than anything the user wrote. `llm_interactions` is the opposite
+     * of that: it is the user's own words, and it is the *only* copy of them,
+     * because Ridik throws the audio away. The two tables sit next to each
+     * other in the schema and are one careless line in `PRESERVED_TABLES`
+     * apart from a phone that will not forget what was said to it.
+     */
+    it('erases every transcript, which is not a spend control', () => {
+      database.client.runSync(
+        `INSERT INTO llm_interactions (id, transcript, status, created_at) VALUES (?, ?, 'ok', 1)`,
+        ['i1', 'the doctor said the results were'],
+      );
+
+      wipeAllTables(database.client);
+
+      expect(database.client.getAllSync('SELECT id FROM llm_interactions', [])).toEqual([]);
+    });
   });
 
   /* Migrations key on PRAGMA user_version; a wipe that reset it would re-run

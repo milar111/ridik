@@ -284,6 +284,34 @@ with a 1pt ground inset — the family's primitive at its quietest.
 
 Tap → `ridik:///notes?pane=lists&list=<urlencoded name>`.
 
+### 3.6 The mic — the one control in the family
+
+Every tap above opens a screen you **read**. This is the one that starts a
+sentence, and it is why these tiles are worth their own process at all: the most
+repeated line in five-star reviews of everything in this category is capture at
+the instant the thought exists, and it is always named at the *entry point*, not
+at the app.
+
+A `mic.fill` glyph in `accent`, at the trailing edge of the header, after the
+count. Not a cell: §1 gives the family one primitive and says what may fill it,
+so a sixth thing wearing that shape would read as data. Chrome in the eyebrow's
+own colour reads as a control, which is what it is.
+
+Tap → `ridik:///?speak=1` — home, with a flag on it. Listening is not a place;
+the flag is consumed the instant it is read and every guard that makes it fire
+exactly once lives in `src/features/voice/speakIntent.ts`.
+
+**Medium and large only, on both platforms.** Not for want of room — a small
+tile has 18pt to spare. A `.systemSmall` widget gets exactly one tap target and
+it is `widgetURL`, so a `Link` there is inert: the same glyph would open the
+reading screen on iOS and the microphone on Android, which is the "two different
+products" failure with no way to see it in a screenshot. `SpeakAffordance` in
+`RidikElements.swift` and `header()` in `plugins/withRidikAndroidWidget.js` are
+the two halves of that rule and both say no.
+
+Not on the notice pane either. "Nothing published yet." and "Ridik was updated."
+are the two states where the tile has no header, on both platforms.
+
 ---
 
 ## 4. Empty states
@@ -442,6 +470,47 @@ granularity free. Entries are cheap; only `reloadTimelines` spends the budget.
 a push from `RidikWidgets.redrawAll` on every publish. `onAppWidgetOptionsChanged`
 must be wired on every provider, or a resize redraws without re-picking the
 layout variant.
+
+---
+
+## 7b. The system control — Control Center and Quick Settings
+
+The same mic, one layer further out: **iOS 18 `ControlWidget`** in the existing
+extension (`RidikControls.swift`), **Android `TileService`**
+(`RidikSpeakTileService.kt`), registered by the same plugin that registers the
+five providers. Both open `ridik:///?speak=1`.
+
+**Both platforms or neither.** A quick-capture button on one and not the other
+is the AGENTS.md failure arriving through the door nobody would spot in a
+screenshot comparison — so `speak-intent.test.tsx` asserts them as a pair.
+
+What makes this cheap is that a control is **not a widget**. It reads no
+snapshot, has no size, no layout, no timeline and no update period; it is a
+glyph, a word and a URL. Nothing in §1–§6 applies to it, and adding it cost one
+file per platform rather than a sixth face.
+
+Three things that are the platforms being awkward rather than decisions:
+
+- **`ControlWidget` is iOS 18 and this extension ships to 16.4.** The bundle
+  adds it through `if #available` — `WidgetBundleBuilder` calls
+  `buildLimitedAvailability` — so a phone on 17 gets the five widgets and is
+  never told the control exists. Raising the extension's floor two majors to
+  ship a button would be the wrong trade.
+- **`startActivityAndCollapse` changed shape in API 34.** The `Intent` overload
+  throws `UnsupportedOperationException` once the app targets 34, and the
+  `PendingIntent` overload does not exist below it. Both branches are
+  load-bearing on a build that targets 36 and ships to 26.
+- **A locked phone has to be unlocked first.** Launching straight from the lock
+  screen leaves the app running behind the keyguard, holding the microphone and
+  invisible. `unlockAndRun` is the supported way to ask and is a no-op on a
+  phone that is already open.
+
+And one that is: the tile is `STATE_INACTIVE`, never `STATE_ACTIVE`. It is a
+button, not a switch — nothing about the app is "on" while it sits there.
+
+`kind`/class names here are as permanent as a widget's: `RidikSpeakControl` and
+`ai.raisen.ridik.widgets.RidikSpeakTileService`. Renaming either takes the
+button off every Lock Screen and out of every Quick Settings panel it is on.
 
 ---
 

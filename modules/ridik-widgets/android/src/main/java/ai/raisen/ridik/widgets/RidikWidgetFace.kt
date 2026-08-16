@@ -54,6 +54,10 @@ internal object RidikWidgetFace {
 
     val views = RemoteViews(context.packageName, ids.layout)
     views.setOnClickPendingIntent(android.R.id.background, openApp(context))
+    // The header's mic, where the layout has one. Set before the notice branch
+    // rather than inside the `else`: a RemoteViews action against a view that is
+    // GONE costs nothing and is still correct the moment it is shown again.
+    views.speakable(context, ids)
 
     when {
       snapshot == null -> views.notice(

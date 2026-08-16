@@ -66,6 +66,13 @@ let session = 0;
 
 export function registerVoicePipeline(impl: VoicePipeline): void {
   pipeline = impl;
+  // Announced as state as well as kept in the module, because "is the mic
+  // usable yet" is now a question a *screen* asks. An intent arriving from a
+  // widget, a shortcut or a Control Center button lands during the bootstrap it
+  // triggered, and firing it into a null pipeline turns the one thing the app
+  // is for into "Voice is still starting up." on a cold launch — the only
+  // launch those entry points ever produce.
+  useVoiceStore.setState({ pipelineReady: true });
 }
 
 export function getVoicePipeline(): VoicePipeline | null {
@@ -74,6 +81,14 @@ export function getVoicePipeline(): VoicePipeline | null {
 
 type VoiceState = {
   status: VoiceStatus;
+  /**
+   * Whether a pipeline has been registered yet — see `registerVoicePipeline`.
+   *
+   * Deliberately outside `reset()`: it is a fact about the process, not about
+   * the turn, and a reset that cleared it would tell every waiting intent the
+   * mic had gone away again.
+   */
+  pipelineReady: boolean;
   expanded: boolean;
   partial: string;
   transcript: string;
@@ -100,6 +115,7 @@ type VoiceState = {
 
 export const useVoiceStore = create<VoiceState>((set, get) => ({
   status: 'idle',
+  pipelineReady: getVoicePipeline() != null,
   expanded: false,
   partial: '',
   transcript: '',

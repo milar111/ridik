@@ -31,3 +31,4 @@ export * from './useSettings';
 export * from './useEmber';
 export * from './useFocus';
 export * from './useAssistant';
+export * from './useHistory';

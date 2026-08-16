@@ -24,6 +24,20 @@ enum Route {
   static let habits = url("ridik:///habits")
   static let lists = url("ridik:///notes?pane=lists")
 
+  /**
+   The one address in this app that is a verb rather than a place.
+
+   Home with a flag on it, not a route of its own — you end up on the same screen
+   either way, and the flag is consumed the instant it is read. Every guard that
+   makes "fire exactly once" possible lives in
+   `src/features/voice/speakIntent.ts`; this extension links neither the app nor
+   React Native, so the string is a fourth copy of one that also appears in
+   `RidikCells.kt` and in the plugin's sibling. `speak-intent.test.tsx` reads
+   them and fails when they drift: a widget pointed at a URL nothing matches
+   builds, ships, and looks like a decision.
+   */
+  static let speak = url("ridik:///?speak=1")
+
   /// A named list, so tapping the list widget opens the one it was showing.
   static func list(named name: String) -> URL {
     let encoded =
@@ -729,6 +743,53 @@ struct TileHeader: View {
           .lineLimit(1)
           .minimumScaleFactor(0.8)
       }
+      SpeakAffordance(palette: palette)
+    }
+  }
+}
+
+/**
+ The one control in the family, at the trailing edge of every header.
+
+ Five widgets, on two home screens, all of them next to an app whose entire
+ purpose is capture — and until this, every one of them opened a screen you
+ *read*. Tapping the tile still does; this is the single tap on it that starts a
+ sentence, and it is why these tiles are worth their own process.
+
+ Three things about it are decisions rather than styling:
+
+ - **Nothing is drawn on `.systemSmall`.** Not for want of room: a small widget
+   gets exactly one tap target and it is `widgetURL`, so a `Link` there is
+   inert and the mic would quietly open the reading screen instead. Android
+   would honour the same glyph, which is the "two different products" failure
+   AGENTS.md exists to prevent — so the rule is stated in both places and both
+   say no. `header()` in `plugins/withRidikAndroidWidget.js` is the other half.
+ - **It is `accent`, and it is not a cell.** WIDGETS §1 gives the family one
+   primitive and says what may fill it; a sixth thing wearing that shape would
+   read as data. A glyph in the eyebrow's own colour reads as chrome, which is
+   what a control is.
+ - **`Text(Image(...))` rather than an `Image`.** The header is a
+   `.firstTextBaseline` `HStack`, and a plain `Image` has no baseline to align —
+   it would hang below the eyebrow by its own descender's worth. A symbol inside
+   a `Text` sits on the line like a letter.
+ */
+struct SpeakAffordance: View {
+  @Environment(\.widgetFamily) private var family
+  let palette: RidikPalette
+
+  var body: some View {
+    if family != .systemSmall {
+      Link(destination: Route.speak) {
+        Text(Image(systemName: "mic.fill"))
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(palette.accent)
+          // The glyph is 11pt and a finger is not. The padding is the tap
+          // target, and `contentShape` is what makes the empty half of it count.
+          .padding(.leading, 8)
+          .padding(.vertical, 2)
+          .contentShape(Rectangle())
+      }
+      .accessibilityLabel("Speak to Ridik")
     }
   }
 }

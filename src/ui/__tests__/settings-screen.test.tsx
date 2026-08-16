@@ -74,7 +74,18 @@ jest.mock('@/hooks/useSystem', () => ({
 }));
 
 const mockPush = jest.fn();
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, back: jest.fn() }) }));
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: mockPush, back: jest.fn(), replace: jest.fn(), canGoBack: () => true }),
+  /* `useNavigateOnce` releases its guard when the screen is focused again, so
+     every group that navigates through it needs this. Without it the hook threw
+     on the first render and the surrounding `ErrorBoundary` swallowed it — the
+     Plan group has been silently rendering as its fallback in this suite, which
+     is exactly the failure an error boundary is built to hide. */
+  useFocusEffect: (effect: () => void | (() => void)) => {
+    const { useEffect } = jest.requireActual<typeof import('react')>('react');
+    useEffect(effect, [effect]);
+  },
+}));
 
 let mockAssistantMode: 'hosted' | 'personal-key' | 'offline';
 jest.mock('@/hooks/useAssistant', () => ({
@@ -190,6 +201,46 @@ describe('settings screen', () => {
 
     expect(screen.queryByText('Briefing at')).toBeNull();
     expect(screen.queryByText('Morning briefing')).toBeNull();
+  });
+
+  /*
+   * The one decision that lets anything leave this phone, and it has to be
+   * findable afterwards. A permission you cannot revoke is not a permission,
+   * and both stores treat "we asked once at install" as an answer to a
+   * different question.
+   *
+   * It passes this screen's own test, which almost nothing on `/developer`
+   * does: set it to the worst value a stranger could pick and the app still
+   * works. The worst value is "no", and "no" is a working app with an offline
+   * assistant.
+   */
+  it('lets the assistant permission be found and changed afterwards', async () => {
+    mockRepos.settings.getAll.mockResolvedValue({
+      ...defaultSettings(),
+      assistantConsent: 'granted',
+    });
+    await wrap(<SettingsScreen />);
+
+    // The value, not the label, is what has to be awaited: the label is static
+    // and the row renders before the settings read lands on it.
+    expect(await screen.findByText(/The words of a request go to Google/)).toBeTruthy();
+    expect(screen.getByText('Where your words go')).toBeTruthy();
+
+    // Through the disclosure, never a bare switch: agreeing to something you
+    // are not being shown is not agreement, and a switch has no way to show it.
+    await fireEvent.press(screen.getByRole('button', { name: 'Change' }));
+    expect(mockPush).toHaveBeenCalledWith('/consent');
+  });
+
+  it('says plainly that nothing is sent once it has been turned off', async () => {
+    mockRepos.settings.getAll.mockResolvedValue({
+      ...defaultSettings(),
+      assistantConsent: 'declined',
+    });
+    await wrap(<SettingsScreen />);
+
+    expect(await screen.findByText(/Nothing is sent/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Turn on' })).toBeTruthy();
   });
 
   /* Two preferences now, and both pass the same test: set either one to the

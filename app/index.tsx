@@ -24,8 +24,13 @@ import { HomeMic, LastAction, NextUpLine, nextUp, useDailyBriefing } from '@/fea
 import { buildAgenda } from '@/features/today/agenda';
 import { SectionBoundary } from '@/features/today/Fallbacks';
 import { useNow } from '@/features/today/useNow';
+import { useSpeakIntent } from '@/features/voice/speakIntent';
 import { useVoiceStore } from '@/features/voice/store';
-import { useToday } from '@/hooks';
+import { useSetting, useToday } from '@/hooks';
+// The pure predicate, not `@/features/consent` — that barrel carries the
+// disclosure screen, and home may not pull a HeatField, the billing hooks and
+// expo-constants in to answer a yes/no question.
+import { hasAnsweredConsent } from '@/llm/consent';
 import { HeatField, type HeatState } from '@/ui/HeatField';
 import { useTheme } from '@/ui/ThemeProvider';
 import { useFontsReady } from '@/ui/fonts';
@@ -52,7 +57,22 @@ export default function HomeScreen() {
   const status = useVoiceStore((s) => s.status);
   const fontsReady = useFontsReady();
 
-
+  // `ridik:///?speak=1` — how a widget, the launcher long-press, a Control
+  // Center button or a Quick Settings tile asks for the microphone. Everything
+  // that makes that safe to do once (and only once) is in the hook.
+  //
+  // The consent answer is what orders the two: `ConsentGate` draws its
+  // disclosure *over* this screen, which stays mounted and live underneath, so
+  // an unwired speak intent would open the microphone behind the lid and make
+  // a widget the one way past the one screen that cannot be skipped. Held
+  // rather than dropped — the tap fires the moment the question is answered.
+  //
+  // No `isLoading` guard, unlike the gate: `useSetting` reports the declared
+  // default while the read is in flight and that default is `unset`, which is
+  // the safe end here. The gate needs the guard for the opposite reason — for
+  // it, `unset` is the value that draws a lid over every launch.
+  const consent = useSetting('assistantConsent');
+  useSpeakIntent({ consentAnswered: hasAnsweredConsent(consent.value) });
 
   const snapshot = today.data;
 

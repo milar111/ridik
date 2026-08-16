@@ -1,19 +1,42 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 
 import { DateTime, dayRange } from '@/core/time';
 import { ThemeProvider } from '@/ui/ThemeProvider';
 import { ToastProvider } from '@/ui/components';
-import { useVoiceStore } from '@/features/voice/store';
+import { registerVoicePipeline, useVoiceStore, type VoicePipeline } from '@/features/voice/store';
 
 import HomeScreen from '../../../../app/index';
 
 const mockPush = jest.fn();
 const mockSetSetting = jest.fn();
+const mockSetParams = jest.fn();
+/** What the URL is carrying. `?speak=1` is how a widget asks for the mic. */
+let mockParams: Record<string, string | string[]> = {};
 let mockLastBriefingShown: string | null = '2026-08-11';
+/**
+ * Whether the first run has been answered. Home reads it to decide whether a
+ * `?speak=1` may fire — `ConsentGate` draws its disclosure *over* this screen,
+ * which stays mounted underneath. 'granted' by default so every other
+ * assertion here is about an app somebody has already onboarded.
+ */
+let mockConsent: 'unset' | 'granted' | 'declined' = 'granted';
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush, back: jest.fn(), replace: jest.fn(), canGoBack: () => true }),
+  useRouter: () => ({
+    push: mockPush,
+    back: jest.fn(),
+    replace: jest.fn(),
+    navigate: jest.fn(),
+    // The *global* setter, which writes to whichever route is focused. The
+    // speak flag is read locally and must be cleared locally, so nothing here
+    // may reach for this one.
+    setParams: jest.fn(),
+    canGoBack: () => true,
+  }),
+  // This route's own navigator: `useSpeakIntent` clears the flag through it.
+  useNavigation: () => ({ setParams: mockSetParams }),
+  useLocalSearchParams: () => mockParams,
   // `useNavigateOnce` releases its guard when the screen is focused again.
   useFocusEffect: (effect: () => void | (() => void)) => {
     const { useEffect } = jest.requireActual<typeof import('react')>('react');
@@ -23,9 +46,16 @@ jest.mock('expo-router', () => ({
 
 jest.mock('@/hooks', () => ({
   useToday: jest.fn(),
-  // The briefing is presented once a day from home. Marked already-seen by
-  // default so it does not navigate out from under every other assertion.
-  useSetting: () => ({ value: mockLastBriefingShown, isLoading: false, error: null, set: mockSetSetting }),
+  // Keyed, because home now reads two of them and they mean opposite things:
+  // the briefing is presented once a day (marked already-seen by default so it
+  // does not navigate out from under every other assertion), and the consent
+  // answer is what a speak intent waits for.
+  useSetting: (key: string) => ({
+    value: key === 'assistantConsent' ? mockConsent : mockLastBriefingShown,
+    isLoading: false,
+    error: null,
+    set: mockSetSetting,
+  }),
 }));
 
 /* The undo goes through the same mutations the screens use, so the whole
@@ -109,11 +139,14 @@ function wrap() {
 
 beforeEach(() => {
   mockPush.mockReset();
+  mockSetParams.mockReset();
+  mockParams = {};
   // Cleared, not reset: a reset would strip the async implementation and the
   // component's `.then()` would be reading it off undefined.
   mockUndoRun.mockClear();
   mockSetSetting.mockReset();
   mockLastBriefingShown = '2026-08-11';
+  mockConsent = 'granted';
   useVoiceStore.getState().reset();
   hooks.useToday.mockReturnValue({ data: snapshot(), isPending: false, isError: false });
 });
@@ -254,5 +287,115 @@ describe('home screen', () => {
     await fireEvent.press(profile);
 
     expect(mockPush).toHaveBeenCalledTimes(1);
+  });
+
+  /* The reason any of this exists: five widgets and a launcher shortcut could
+     only ever open a screen you read, and the thing they were all next to had
+     no address at all. `?speak=1` is that address, and the whole difficulty is
+     that a parameter is a value and not an event. */
+  describe('the speak intent', () => {
+    const listen = jest.fn(async () => {});
+    const pipeline: VoicePipeline = {
+      listen,
+      stopListening: async () => {},
+      process: async (transcript) => ({ transcript, items: [] }),
+      speak: async () => {},
+      stopSpeaking: async () => {},
+    };
+
+    beforeEach(() => {
+      listen.mockClear();
+      registerVoicePipeline(pipeline);
+    });
+
+    it('starts listening when a widget opens the app with ?speak=1', async () => {
+      mockParams = { speak: '1' };
+      await wrap();
+      await waitFor(() => expect(listen).toHaveBeenCalledTimes(1));
+    });
+
+    /* Cleared rather than remembered. Nothing else can distinguish "the URL
+       still says speak" from "the user asked again", and coming Back from the
+       menu onto a screen that never unmounted would otherwise re-fire. */
+    it('takes the flag back out of the URL as it consumes it', async () => {
+      mockParams = { speak: '1' };
+      await wrap();
+      await waitFor(() => expect(mockSetParams).toHaveBeenCalledWith({ speak: '' }));
+    });
+
+    it('fires once, however many times the screen re-renders', async () => {
+      mockParams = { speak: '1' };
+      await wrap();
+      await waitFor(() => expect(listen).toHaveBeenCalledTimes(1));
+
+      // Home subscribes to the voice status, so a turn moving through the
+      // pipeline is a real re-render with the URL unchanged — which is exactly
+      // the sequence a listening session produces on its own.
+      await act(async () => {
+        useVoiceStore.setState({ status: 'thinking' });
+        useVoiceStore.setState({ status: 'idle' });
+      });
+      await waitFor(() => expect(listen).toHaveBeenCalledTimes(1));
+    });
+
+    it('leaves the mic alone on an ordinary launch', async () => {
+      await wrap();
+      expect(listen).not.toHaveBeenCalled();
+      expect(mockSetParams).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The ordering between the two things that landed together, and the one a
+     * reviewer will look for.
+     *
+     * `ConsentGate` is an overlay over the navigator rather than a redirect, so
+     * this screen is mounted, routed and live *underneath* the disclosure. A
+     * widget tap that fired anyway would open the microphone behind a screen
+     * nobody has read yet — the one entry point in the app that is a verb
+     * becoming the one way past the one screen that cannot be skipped.
+     */
+    it('does not open the microphone behind an unanswered consent screen', async () => {
+      mockConsent = 'unset';
+      mockParams = { speak: '1' };
+
+      await wrap();
+      await act(async () => {});
+
+      expect(listen).not.toHaveBeenCalled();
+      // And the tap is *held*, not spent: clearing the flag under the lid
+      // would throw the intent away for having been early.
+      expect(mockSetParams).not.toHaveBeenCalled();
+    });
+
+    it('honours that same tap the moment the question is answered', async () => {
+      mockConsent = 'unset';
+      mockParams = { speak: '1' };
+      await wrap();
+      expect(listen).not.toHaveBeenCalled();
+
+      mockConsent = 'granted';
+      // The answer lands through the settings cache, which re-renders home; the
+      // voice status is this suite's way of provoking that same render. It has
+      // to *change* — two writes back to the value it already held are batched
+      // into no render at all, which is why the test above can use the pair.
+      await act(async () => {
+        useVoiceStore.setState({ status: 'thinking' });
+      });
+
+      await waitFor(() => expect(listen).toHaveBeenCalledTimes(1));
+    });
+
+    /* Declining is an answer, and it leaves a working app: the offline matcher
+       still files a plain sentence with nothing leaving the phone. Gating the
+       mic on `granted` would have left the tile dead for ever on a rung that
+       never needed the network. */
+    it('still listens for somebody who declined the assistant', async () => {
+      mockConsent = 'declined';
+      mockParams = { speak: '1' };
+
+      await wrap();
+
+      await waitFor(() => expect(listen).toHaveBeenCalledTimes(1));
+    });
   });
 });

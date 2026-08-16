@@ -22,6 +22,7 @@ import {
   DEFAULT_LOCALE,
   DEFAULT_MIN_SPEECH_MS,
   DEFAULT_TRAILING_SILENCE_MS,
+  NO_OFFLINE_VOICE_MESSAGE,
   type SttFinalResult,
   type SttListenOptions,
   type VoiceState,
@@ -46,6 +47,8 @@ type Session = {
   options: SttListenOptions;
   locale: string;
   onDevice: boolean;
+  /** Set when the audio may not reach the network at all — see `onDeviceOnly`. */
+  onDeviceOnly: boolean;
   retriedOnNetwork: boolean;
   subscriptions: Subscription[];
   detector: SilenceDetector;
@@ -112,8 +115,23 @@ export async function startListening(options: SttListenOptions): Promise<Result<
   }
 
   const locale = options.locale ?? DEFAULT_LOCALE;
-  const onDevice = options.preferOnDevice === false ? false : await supportsOnDevice(locale);
-  return beginSession(options, locale, onDevice, false);
+  const onDeviceOnly = options.onDeviceOnly === true;
+  const onDevice =
+    options.preferOnDevice === false && !onDeviceOnly ? false : await supportsOnDevice(locale);
+
+  // The one case where "prefer on-device" is not enough. Without this the
+  // session would start with `requiresOnDeviceRecognition: false`, which hands
+  // the raw audio to Apple's or Google's speech servers — on a turn where the
+  // app has just been told, and is about to tell the user again, that their
+  // words are staying on the phone.
+  if (onDeviceOnly && !onDevice) {
+    const error = new AppError('unsupported', NO_OFFLINE_VOICE_MESSAGE);
+    emitState(options, 'error');
+    options.onError?.(error);
+    return err(error);
+  }
+
+  return beginSession(options, locale, onDevice, onDeviceOnly, false);
 }
 
 /** Asks the engine for a final result and settles the session. */
@@ -203,12 +221,14 @@ function beginSession(
   options: SttListenOptions,
   locale: string,
   onDevice: boolean,
+  onDeviceOnly: boolean,
   retriedOnNetwork: boolean,
 ): Result<void> {
   const current: Session = {
     options,
     locale,
     onDevice,
+    onDeviceOnly,
     retriedOnNetwork,
     subscriptions: [],
     detector: createSilenceDetector({
@@ -325,6 +345,17 @@ function handleError(current: Session, event: ExpoSpeechRecognitionErrorEvent): 
     !current.retriedOnNetwork &&
     (event.error === 'service-not-allowed' || event.error === 'language-not-supported')
   ) {
+    // …unless the audio may not leave the phone. This retry is the second way
+    // the recording reaches a speech server, and it is the quieter one: the
+    // first attempt looked local and only the fallback is not.
+    if (current.onDeviceOnly) {
+      log.info('on-device recognition unavailable and the network is not permitted', event);
+      const error = new AppError('unsupported', NO_OFFLINE_VOICE_MESSAGE);
+      current.settled = true;
+      finish(current, 'error');
+      current.options.onError?.(error);
+      return;
+    }
     log.info('on-device recognition unavailable; retrying over the network', event);
     retryOnNetwork(current);
     return;
@@ -355,7 +386,7 @@ function retryOnNetwork(current: Session): void {
   // Let the dead attempt emit its trailing `end` before new listeners exist.
   restartTimer = setTimeout(() => {
     restartTimer = null;
-    const started = beginSession(current.options, current.locale, false, true);
+    const started = beginSession(current.options, current.locale, false, false, true);
     if (!started.ok) log.warn('network retry failed to start', started.error);
   }, RESTART_DELAY_MS);
 }

@@ -122,6 +122,11 @@ const DEFAULTS = {
   llmTrialRequestsUsed: 0,
   llmTrialTokensUsed: 0,
   simulateStoreBuild: false,
+  // Granted in the shared defaults so that every assertion below is about the
+  // thing it names. The gate itself is exercised in its own describe block, and
+  // a suite where the default were `unset` would be a suite where every "the
+  // model was called" expectation quietly tested the consent check instead.
+  assistantConsent: 'granted',
 };
 
 /**
@@ -486,7 +491,10 @@ describe('what a turn is allowed to cost', () => {
         getAll: async () => {
           throw new Error('database is locked');
         },
-        get: async () => undefined,
+        // The consent row still answers: `get` is its own SELECT and the two
+        // reads fail independently. Left unanswered this test would pass on the
+        // consent gate rather than on the trial it is named after.
+        get: async (key: string) => (key === 'assistantConsent' ? 'granted' : undefined),
         set: async () => undefined,
       },
     });
@@ -511,7 +519,7 @@ describe('what a turn is allowed to cost', () => {
         getAll: async () => {
           throw new Error('database is locked');
         },
-        get: async () => undefined,
+        get: async (key: string) => (key === 'assistantConsent' ? 'granted' : undefined),
         set: async () => undefined,
       },
     });
@@ -629,6 +637,190 @@ describe('what a turn is allowed to cost', () => {
       expect(mockSettings.llmTrialRequestsUsed).toBe(0);
       expect(mockSettings.llmTrialTokensUsed).toBe(0);
     });
+  });
+});
+
+/**
+ * Consent, through the pipeline rather than through the screen.
+ *
+ * The screen collects the answer; what has to be true here is that no path to
+ * anybody else's machine can be taken without it. Apple's 5.1.2(i) is not
+ * satisfied by a screen that appears — implementation guidance calls a consent
+ * screen shown *after* the first request the most common technical rejection —
+ * so these assert the negative: no billable client is built, no trial request
+ * is spent, no recording is offered to Whisper, and the turn still gets an
+ * answer.
+ */
+describe('what may leave the phone at all', () => {
+  beforeEach(() => {
+    mockSecrets.set(LLM_API_KEY_STORE_KEY, 'a-personal-key');
+    mockInterpret.mockResolvedValue(modelSpoke);
+  });
+
+  it.each(['unset', 'declined'] as const)(
+    'sends nothing to the provider while consent is %p, and says so',
+    async (consent) => {
+      mockSettings.assistantConsent = consent;
+
+      const outcome = await createVoicePipeline().process('note the resistors');
+
+      // The whole point: not a smaller request, not a slower one — none.
+      expect(mockRecord).not.toHaveBeenCalled();
+      expect(outcome.notice).toContain('Google');
+      expect(outcome.noticeAction).toEqual({ label: 'What gets sent', href: '/consent' });
+      // And it is not a dead end: the offline matcher answered the utterance.
+      expect(mockInterpret).toHaveBeenCalled();
+      expect(outcome.items).toBeDefined();
+    },
+  );
+
+  /* Two states, two sentences. Somebody who chose this is told what they chose;
+     somebody who has not been asked is told there is a question waiting. */
+  it('tells someone who declined something different from someone never asked', async () => {
+    mockSettings.assistantConsent = 'declined';
+    const declined = await createVoicePipeline().process('note the resistors');
+
+    mockSettings.assistantConsent = 'unset';
+    const unset = await createVoicePipeline().process('note the resistors');
+
+    expect(declined.notice).not.toBe(unset.notice);
+    expect(declined.notice).toMatch(/still hears you/i);
+    expect(unset.notice).toMatch(/has not been told/i);
+  });
+
+  /* A store build with a trial in front of it must not spend one of the 25 on
+     a turn that never reached the model. */
+  it('charges nothing for a turn it refused to send', async () => {
+    registerBillingProvider(billing(true));
+    mockSettings.assistantConsent = 'declined';
+
+    await createVoicePipeline().process('note the resistors');
+
+    expect(mockSettings.llmTrialRequestsUsed).toBe(0);
+    expect(mockSettings.llmTrialTokensUsed).toBe(0);
+  });
+
+  /* The hosted build is the one that ships, and the one where the operator's
+     key is what would be spent. It goes through the same gate and in the same
+     order — before the endpoint is even read. */
+  it('holds the hosted build too', async () => {
+    mockExtra.assistantApiUrl = 'https://api.example.test';
+    mockSecrets.set(ASSISTANT_TOKEN_STORE_KEY, 'a-session-token');
+    mockSettings.assistantConsent = 'unset';
+
+    const outcome = await createVoicePipeline().process('note the resistors');
+
+    expect(mockRecord).not.toHaveBeenCalled();
+    expect(outcome.notice).toContain('Google');
+  });
+
+  /**
+   * Fail closed. An answer we could not read is not permission — the
+   * alternative is a device with a broken SQLite file sending a stranger's
+   * speech to Google on the strength of not having been able to check.
+   */
+  it('treats an unreadable consent row as no consent', async () => {
+    const repos = jest.requireMock('@/repositories') as { getRepositories: () => unknown };
+    const original = repos.getRepositories;
+    repos.getRepositories = () => ({
+      db: {},
+      settings: {
+        getAll: async () => ({ ...mockSettings }),
+        // Only this row. Everything else the turn reads is fine, so the turn
+        // being answered offline can only be the gate's doing.
+        get: async (key: string) => {
+          if (key === 'assistantConsent') throw new Error('database is locked');
+          return mockSettings[key];
+        },
+        set: async () => undefined,
+        bump: async () => 0,
+      },
+    });
+
+    try {
+      const outcome = await createVoicePipeline().process('note the resistors');
+      expect(mockRecord).not.toHaveBeenCalled();
+      expect(outcome.notice).toBeTruthy();
+    } finally {
+      repos.getRepositories = original;
+    }
+  });
+
+  /**
+   * Whisper is the stricter half of the same promise: it uploads the
+   * *recording*, to a second third party. The consent screen's plainest
+   * sentence is that the audio never leaves the phone, and "off by default" is
+   * not that sentence.
+   */
+  it('will not offer the recording to Whisper without consent either', async () => {
+    mockCapture.mockResolvedValue(heard('hello', null));
+    mockSecrets.set(WHISPER_API_KEY_STORE_KEY, 'whisper-key');
+    mockSettings.whisperFallbackEnabled = true;
+    mockSettings.assistantConsent = 'declined';
+
+    await createVoicePipeline().listen(noHandlers);
+
+    expect(mockCapture.mock.calls[0]![0].whisper).toEqual({ enabled: false, apiKey: null });
+    // Not even read: a key nothing may use is a key nothing should fetch.
+    expect(mockGetItem).not.toHaveBeenCalledWith(WHISPER_API_KEY_STORE_KEY, expect.anything());
+  });
+
+  /**
+   * And the recogniser itself, which is the rung that *looks* local from here
+   * and is not.
+   *
+   * On-device recognition is preferred and frequently unavailable — most
+   * Android devices, any iPhone whose locale dictation was never downloaded —
+   * and the session then starts with `requiresOnDeviceRecognition: false`,
+   * which streams the raw audio to Apple's or Google's speech servers, with a
+   * silent retry over the network on top. So a fresh install that read the
+   * screen, tapped "Use Ridik offline" and spoke had its audio uploaded — and
+   * was told "nothing went to Google" on that exact turn.
+   */
+  it.each(['unset', 'declined'] as const)(
+    'keeps the recording off the network while consent is %p',
+    async (consent) => {
+      mockCapture.mockResolvedValue(heard('hello', null));
+      mockSettings.assistantConsent = consent;
+
+      await createVoicePipeline().listen(noHandlers);
+
+      expect(mockCapture.mock.calls[0]![0].onDeviceOnly).toBe(true);
+    },
+  );
+
+  it('lets the recogniser use the network once consent is granted', async () => {
+    mockCapture.mockResolvedValue(heard('hello', null));
+    mockSettings.assistantConsent = 'granted';
+
+    await createVoicePipeline().listen(noHandlers);
+
+    expect(mockCapture.mock.calls[0]![0].onDeviceOnly).toBe(false);
+  });
+
+  /* Fail closed here too: a settings read that did not land is not a yes. */
+  it('keeps it off the network when the settings could not be read at all', async () => {
+    mockCapture.mockResolvedValue(heard('hello', null));
+    const repos = jest.requireMock('@/repositories') as { getRepositories: () => unknown };
+    const original = repos.getRepositories;
+    repos.getRepositories = () => ({
+      db: {},
+      settings: {
+        getAll: async () => {
+          throw new Error('database is locked');
+        },
+        get: async () => undefined,
+        set: async () => undefined,
+        bump: async () => 0,
+      },
+    });
+
+    try {
+      await createVoicePipeline().listen(noHandlers);
+      expect(mockCapture.mock.calls[0]![0].onDeviceOnly).toBe(true);
+    } finally {
+      repos.getRepositories = original;
+    }
   });
 });
 

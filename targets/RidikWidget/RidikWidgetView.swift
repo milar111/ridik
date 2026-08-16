@@ -23,8 +23,9 @@ struct RidikWidgetView: View {
       .ridikTilePadding()
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .ridikGround(palette)
-      // A widget gets one tap target per tile and nothing finer, so this is the
-      // whole face at both sizes.
+      // The whole face, at both sizes. A `.systemSmall` widget genuinely has no
+      // finer grain than this — `Link` is inert there — which is why the mic in
+      // the header is drawn on medium and large only; see `SpeakAffordance`.
       .widgetURL(Route.today)
   }
 

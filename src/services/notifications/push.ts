@@ -45,6 +45,12 @@ import { router } from 'expo-router';
 import { now } from '@/core/clock';
 import { createLogger } from '@/core/logger';
 import { fail, ok, toAppError, type Result } from '@/core/result';
+import { mayReachProvider } from '@/llm/consent';
+// Statically, unlike `@/features/briefing` below: the repositories are pure by
+// invariant — nothing under `src/repositories/**` may import `expo-*` — so this
+// costs a module graph and no native binding, and `getRepositories()` is
+// guarded rather than the import being deferred.
+import { getRepositories } from '@/repositories';
 import { registerBootstrapStep } from '@/startup/bootstrap';
 
 import {
@@ -115,6 +121,17 @@ let published: BriefingTags | null = null;
 let lastRefreshAt: number | null = null;
 let appStateSubscription: { remove: () => void } | null = null;
 let started = false;
+/**
+ * Whether this process has already taken the tags back off a user who may not
+ * have them published.
+ *
+ * `published` cannot answer that question: it is module state, so a user who
+ * granted consent, had their day uploaded, revoked it and then restarted the
+ * app would come back with `published === null` and nothing would ever go and
+ * fetch the old tags back. This runs the withdrawal once per launch instead,
+ * which self-heals a revocation made in any earlier session.
+ */
+let withdrawn = false;
 
 /** What the diagnostics screen would show. A copy: nothing outside may mutate it. */
 export function pushStatus(): PushState {
@@ -228,12 +245,12 @@ export async function setPushEnabled(enabled: boolean): Promise<Result<PushState
   try {
     if (!enabled) {
       OneSignal.User.pushSubscription.optOut();
-      // The tags describe a day. Leaving them on a user who has opted out means
-      // an accidental send still knows what they were doing last Tuesday.
-      OneSignal.User.removeTags([...BRIEFING_TAG_KEYS]);
-      published = null;
       state.optedIn = false;
-      state.tagsPublishedAt = null;
+      // The tags describe a day. Leaving them on a user who has opted out means
+      // an accidental send still knows what they were doing last Tuesday — and
+      // `mayPublishBriefing` reads `optedIn`, so nothing puts them back.
+      withdrawn = false;
+      withdrawTags(OneSignal);
       return ok(pushStatus());
     }
 
@@ -251,6 +268,50 @@ export async function setPushEnabled(enabled: boolean): Promise<Result<PushState
 }
 
 /* ------------------------------------------------------------------ tags -- */
+
+/**
+ * Whether today's briefing may be handed to the push service at all.
+ *
+ * Two conditions, and the first one is the one this file shipped without.
+ *
+ * **Consent.** `briefing_line` and `briefing_headline` are not counters — they
+ * are `composeVisual`'s own sentences, which interpolate real event titles,
+ * task titles, habit names and the names of people in the CRM ("You owe Ivo:
+ * the resistor order", "Oncology follow-up at 09:30"). Uploading those is
+ * personal data leaving the phone, to a third party, and it was happening from
+ * a bootstrap step — before the consent lid had even been drawn on a fresh
+ * install, and it stayed up there after the user declined. The consent screen
+ * now names the push service alongside the assistant, and this is the gate that
+ * makes the naming true.
+ *
+ * **Opt-in.** A device that will not be delivered to has no reason to have
+ * published anything. Without this, `setPushEnabled(false)` took the tags down
+ * and the very next foreground put them straight back.
+ *
+ * Fails closed: an answer that could not be read is not a yes.
+ */
+async function mayPublishBriefing(): Promise<boolean> {
+  if (!state.optedIn) return false;
+  try {
+    return mayReachProvider(await getRepositories().settings.get('assistantConsent'));
+  } catch (error) {
+    log.warn('could not read assistant consent; publishing nothing', error);
+    return false;
+  }
+}
+
+/** Takes back anything an earlier grant, or an earlier session, left published. */
+function withdrawTags(OneSignal: OneSignalModule): void {
+  if (withdrawn) return;
+  withdrawn = true;
+  try {
+    OneSignal.User.removeTags([...BRIEFING_TAG_KEYS]);
+  } catch (error) {
+    log.warn('could not withdraw the briefing tags', error);
+  }
+  published = null;
+  state.tagsPublishedAt = null;
+}
 
 /**
  * Publishes today's briefing to OneSignal as data tags.
@@ -271,12 +332,28 @@ export async function refreshBriefingTags(
   const OneSignal = load();
   if (!OneSignal || !state.configured) return ok(null);
 
+  // Before the briefing is even built: nothing about a day the user has not
+  // agreed to share should be read, let alone composed into a sentence.
+  if (!(await mayPublishBriefing())) {
+    withdrawTags(OneSignal);
+    return ok(null);
+  }
+  withdrawn = false;
+
   const at = now();
   if (!force && !dueForRefresh(lastRefreshAt, at)) return ok(published);
   lastRefreshAt = at;
 
   try {
-    const { generateBriefing } = await import('@/features/briefing');
+    // Resolved at call time, exactly like `load()` above and for the same
+    // reason: `@/features/briefing` reaches the repositories and the TTS voice,
+    // and neither belongs in the import graph of a module that is evaluated
+    // during bootstrap. `require` rather than `await import` because it is as
+    // lazy and it is loadable — a dynamic import is left untransformed by this
+    // project's babel setup, so the whole publish path was unreachable from a
+    // test and this file's consent gate could not be proved at all.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { generateBriefing } = require('@/features/briefing') as typeof import('@/features/briefing');
     const briefing = await generateBriefing('today');
     if (!briefing.ok) {
       // A briefing that cannot be built must not overwrite a good line with a

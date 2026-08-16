@@ -28,7 +28,7 @@ import {
   needsConfirmation as gateAsks,
   previewSentence,
 } from './confirm';
-import type { ActionPreview, ConfirmMode } from './confirm';
+import type { ActionPreview, ConfirmMode, ConfirmScope } from './confirm';
 import type { Logger } from '@/core/logger';
 import { AppError, toAppError, type AppErrorCode } from '@/core/result';
 import {
@@ -98,6 +98,17 @@ export type ExecutionContext = {
    * writes `src/features/home/undo.ts` cannot take back.
    */
   confirmMode?: ConfirmMode;
+  /**
+   * How well the recogniser heard the utterance these actions came from, on
+   * 0..1, or `null` when nothing measured it — typed text, Whisper, and most
+   * Android engines report none.
+   *
+   * On the context and not on `ExecuteOptions` because it is a property of the
+   * *turn*: one utterance was heard once, however many actions the model got
+   * out of it, and a batch where the second action was heard better than the
+   * first is not a thing that can happen.
+   */
+  confidence?: number | null;
 };
 
 export type ActionResult = {
@@ -135,6 +146,13 @@ export type ActionResult = {
     candidates?: { id: string; label: string }[];
     ambiguous?: boolean;
     /**
+     * Which question this is — see `ConfirmScope`. Carried out of the executor
+     * because the answer has to come back knowing what it answered: a yes to
+     * the gate's "is this what you said?" is not a yes to a clash nobody has
+     * mentioned yet.
+     */
+    scope: ConfirmScope;
+    /**
      * The values about to be written, when the question is "is this right?"
      * rather than "which one did you mean?".
      *
@@ -151,11 +169,27 @@ export type ActionResult = {
 
 export type ExecuteOptions = {
   /**
-   * The user answered a previous `needsConfirmation` with yes. Only ever
-   * un-blocks a destructive-but-unambiguous action (deleting a note, booking
-   * over a clash); it never turns an ambiguous match into a guess.
+   * The user answered a *handler's own* question with yes — a clash, an
+   * overwrite, a delete. Only ever un-blocks a destructive-but-unambiguous
+   * action; it never turns an ambiguous match into a guess.
+   *
+   * Releases the review gate as well, and that direction is safe: a handler
+   * question is only ever reached by an action that already passed the gate.
    */
   confirmed?: boolean;
+  /**
+   * The user was shown this action's fields by the review gate and said yes.
+   *
+   * Deliberately *not* `confirmed`. The gate fires before any handler has
+   * looked at the data, so its preview cannot mention a clash, an overwrite or
+   * a duplicate — and for one commit the two shared a flag, which meant the
+   * utterances heard *worst* were exactly the ones that lost the double-booking
+   * guard: "book gym at three" heard at 0.80 got the preview ("Add to calendar
+   * — Title: Gym, Starts: …?"), and the yes to that question also swallowed
+   * "“Gym” clashes with “Dentist” at 3 PM." Two events at 15:00, one question
+   * asked, the other silently answered on the user's behalf.
+   */
+  reviewed?: boolean;
 };
 
 /** Everything a handler decides; `execute` stamps the tool name on top. */
@@ -345,7 +379,13 @@ function ask(
   return {
     ok: false,
     summary: question,
-    needsConfirmation: candidates && candidates.length > 0 ? { question, candidates } : { question },
+    // Every caller of `ask` is a handler that has already looked at the stored
+    // data — a clash, an overwrite, a delete, an ambiguous match. The gate
+    // builds its own result and is the only source of `review`.
+    needsConfirmation:
+      candidates && candidates.length > 0
+        ? { question, candidates, scope: 'details' }
+        : { question, scope: 'details' },
     ...extra,
   };
 }
@@ -1741,20 +1781,28 @@ export function createExecutor(ctx: ExecutionContext) {
        * Deliberately here rather than inside each handler: this is the one
        * place every action passes through, so a tool added later is covered
        * by having been added to the contract rather than by its author
-       * remembering. The handlers' own `asked()` confirmations — a clash, a
-       * deletion — are a different question and still run underneath this;
-       * `confirmed` releases both, which is correct, because a user who has
-       * read the fields and said yes has answered both questions at once.
+       * remembering. The handlers' own `ask()` confirmations — a clash, a
+       * deletion — are a *different* question and still run underneath this,
+       * which is why `reviewed` releases this gate and nothing else. Sharing
+       * one flag with `confirmed` meant a yes to "Add to calendar — Title:
+       * Gym, Starts: 15:00?" also silently answered "that clashes with
+       * Dentist, book it anyway?" — a question whose subject appeared nowhere
+       * on the card the user actually read.
+       *
+       * The gate reads two things: what the tool is, and how well the words
+       * were heard. `ctx.confidence` is the second — see the threshold's
+       * docblock in `confirm.ts` for why it is a separate number from the one
+       * that decides whether a transcript is worth sending at all.
        */
-      if (!options.confirmed) {
+      if (!options.confirmed && !options.reviewed) {
         const mode = ctx.confirmMode ?? DEFAULT_CONFIRM_MODE;
-        if (gateAsks(action.tool_name, mode)) {
+        if (gateAsks(action.tool_name, mode, ctx.confidence ?? null)) {
           const preview = describeAction(action, (at) => formatDateTime(at, ctx.zone));
           return {
             toolName: action.tool_name,
             ok: false,
             summary: preview.title,
-            needsConfirmation: { question: previewSentence(preview), preview },
+            needsConfirmation: { question: previewSentence(preview), preview, scope: 'review' },
           };
         }
       }

@@ -179,6 +179,21 @@ export const qk = {
     mode: () => [ROOT, 'assistant', 'mode'] as const,
   },
 
+  /**
+   * The assistant's audit trail — what was heard, what it did, what failed.
+   *
+   * Nothing invalidates this after a turn on purpose: `VoiceDock` already
+   * invalidates the whole cache when one lands, and a second, narrower call
+   * would only be a second thing to forget.
+   */
+  history: {
+    all: [ROOT, 'history'] as const,
+    list: (limit: number, status: string | null) =>
+      [ROOT, 'history', 'list', limit, status] as const,
+    detail: (id: string) => [ROOT, 'history', 'detail', id] as const,
+    stats: () => [ROOT, 'history', 'stats'] as const,
+  },
+
   /** The assistant's own spend meter; invalidated after every metered turn. */
   usage: {
     all: [ROOT, 'usage'] as const,

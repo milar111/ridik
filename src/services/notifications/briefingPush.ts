@@ -202,6 +202,9 @@ export const PUSH_ROUTE_SEGMENTS: readonly string[] = [
   'curriculum',
   'focus',
   'habits',
+  // Read-only, and it shows the user their own words. A sender learns nothing
+  // by opening it, which is the test every entry on this list has to pass.
+  'history',
   'ledger',
   'menu',
   'note',
@@ -230,11 +233,42 @@ export const PUSH_ROUTE_SEGMENTS: readonly string[] = [
  * did not choose to trust in that moment, and letting one drive a redemption
  * would hand any sender a free attempt at somebody else's checkout session —
  * and, on a stolen link, at their subscription.
+ *
+ * `consent` is where the user decides whether their words may be sent to a
+ * third party. A push is a message from a server they did not choose to trust
+ * at that moment, and a message that can open a full-screen "Allow" is the
+ * shape of every consent-farming attack there is. The screen is reached from
+ * the first run, from Settings, and from the app's own refusal notice — all
+ * three of which are the user already looking at Ridik.
  */
-export const PUSH_BLOCKED_SEGMENTS: readonly string[] = ['developer', 'unlock'];
+export const PUSH_BLOCKED_SEGMENTS: readonly string[] = ['consent', 'developer', 'unlock'];
+
+/**
+ * Query parameters a push may not carry, whatever route it names.
+ *
+ * `speak` is the app's one *verb*. `ridik:///?speak=1` is home with a flag on
+ * it, and the flag opens the microphone — it is how a widget, the launcher
+ * long-press, the Control Center button and the Quick Settings tile all ask to
+ * start listening. A blocked *segment* cannot express that, because the segment
+ * is home and home has to stay openable; a briefing that could not open the
+ * screen it is about would be the wrong fix.
+ *
+ * So the flag is refused wherever it appears. A message from a server the user
+ * did not choose to trust must not be able to switch their microphone on, and
+ * nobody tapping a notification believes they are starting a recording. This
+ * was harmless right up until the URL grew a verb — the parameter used to be
+ * meaningless on home, which is why it stood in this file's own test as an
+ * example of a query string surviving.
+ *
+ * Spelled here rather than imported from `@/features/voice/speakIntent`: that
+ * module is a hook over expo-router and this file is pure by contract. The two
+ * spellings are asserted to agree in `speak-intent.test.tsx`.
+ */
+export const PUSH_BLOCKED_PARAMS: readonly string[] = ['speak'];
 
 const ALLOWED = new Set(PUSH_ROUTE_SEGMENTS);
 const BLOCKED = new Set(PUSH_BLOCKED_SEGMENTS);
+const BLOCKED_PARAMS = new Set(PUSH_BLOCKED_PARAMS);
 
 /** The app's own scheme, as it appears in a `ridik:///briefing` launch URL. */
 const SCHEME = 'ridik://';
@@ -298,6 +332,41 @@ function normaliseHref(raw: string | null): string | null {
   const path = href.split(/[?#]/, 1)[0] ?? '';
   const segment = path.split('/')[1] ?? '';
   if (BLOCKED.has(segment) || !ALLOWED.has(segment)) return null;
+  // Refused rather than stripped: a payload that names a verb is either hostile
+  // or wrong, and both deserve the same answer as an unknown route — the tap
+  // still opens the app, which is where a plain launch lands anyway.
+  if (carriesBlockedParam(href)) return null;
 
   return href;
+}
+
+/**
+ * Whether a query string mentions a parameter a push may not set.
+ *
+ * The presence of the name is what is refused, not a particular value: nothing
+ * a dashboard sends has any business naming `speak`, and reading `speak=0` as
+ * benign would be a gate that can be talked round with an encoding.
+ */
+function carriesBlockedParam(href: string): boolean {
+  const start = href.indexOf('?');
+  if (start === -1) return false;
+
+  const query = href.slice(start + 1).split('#', 1)[0] ?? '';
+  return query.split('&').some((pair) => BLOCKED_PARAMS.has(decodeKey(pair.split('=', 1)[0] ?? '')));
+}
+
+/**
+ * A query-string key as the router will read it.
+ *
+ * Decoded, because `%73peak=1` is `speak=1` to every query parser there is and
+ * comparing the raw bytes would be a gate with a documented way past it. A
+ * malformed escape throws, and something that cannot be decoded is not a key
+ * anybody meant — it is left as it is, where it matches nothing.
+ */
+function decodeKey(raw: string): string {
+  try {
+    return decodeURIComponent(raw).toLowerCase();
+  } catch {
+    return raw.toLowerCase();
+  }
 }

@@ -28,6 +28,15 @@ import {
 } from './mode';
 import { currentZone } from '@/core/time';
 import { briefingScript } from '@/features/briefing';
+// The module, not `@/features/consent` — that barrel carries the screen, and
+// the pipeline must not pull React into a file the `logic` project loads.
+import { readAssistantConsent } from '@/features/consent/gate';
+import {
+  CONSENT_ACTION,
+  consentNotice,
+  mayReachProvider,
+  type AssistantConsent,
+} from '@/llm/consent';
 import {
   registerVoicePipeline,
   type VoiceOutcome,
@@ -184,6 +193,14 @@ let hosted: LlmClient | null = null;
  * decided rides back on the turn as a notice.
  */
 async function clientForTurn(transcript: string): Promise<TurnClient> {
+  // Before the endpoint, before the keychain, before the budget. Every other
+  // branch below ends at somebody else's machine, and the order is the control:
+  // a consent check that ran after the client was built would be a consent
+  // check that could be skipped by adding a fourth mode, and one that ran after
+  // the request is the specific mistake app review rejects for.
+  const consent = await readAssistantConsent();
+  if (!mayReachProvider(consent)) return withheld(consent);
+
   const endpoint = assistantApiUrl();
   if (endpoint) {
     if (!hosted) {
@@ -253,6 +270,26 @@ async function clientForTurn(transcript: string): Promise<TurnClient> {
     notice: budget.notice,
     action: budget.action,
     estimatedTokens: budget.estimatedTokens,
+  };
+}
+
+/**
+ * A turn nobody has agreed to send: offline engine, and say so every time.
+ *
+ * The same shape a spent trial takes, on purpose — the app is never dead, it
+ * just answers on its own — but for a different reason and with a different way
+ * out. `metered` and `trial` are both false because no request was made and
+ * nothing may be charged for one that was not.
+ */
+function withheld(consent: AssistantConsent): TurnClient {
+  log.info('assistant consent not granted; answering offline', { consent });
+  return {
+    client: mockClient,
+    metered: false,
+    trial: false,
+    notice: consentNotice(consent),
+    action: { ...CONSENT_ACTION },
+    estimatedTokens: 0,
   };
 }
 
@@ -472,13 +509,39 @@ export function createVoicePipeline(): VoicePipeline {
   return {
     async listen(handlers) {
       const config = await settings().catch(() => null);
-      const whisperKey = config?.whisperFallbackEnabled
-        ? await readSecret(WHISPER_API_KEY_STORE_KEY)
-        : null;
+      // Consent covers this rung too, and more obviously than it covers the
+      // model: Whisper uploads the *recording*, to a second third party, and
+      // the consent screen's central promise is that the audio never leaves the
+      // phone. It is opt-in and needs a key pasted on the developer screen, so
+      // nobody meets it by accident — but "off by default" is not the same
+      // promise as "not without your say-so", and only one of them is the one
+      // the screen makes.
+      const whisperAllowed =
+        config?.whisperFallbackEnabled === true && mayReachProvider(config.assistantConsent);
+      const whisperKey = whisperAllowed ? await readSecret(WHISPER_API_KEY_STORE_KEY) : null;
+
+      /**
+       * And it covers the *recogniser* too, which is the rung nobody thought to
+       * gate because it looks local from the call site.
+       *
+       * It is not reliably local. On-device recognition is preferred and often
+       * simply unavailable — most Android devices, and any iPhone whose locale
+       * dictation has not been downloaded — and the session then starts with
+       * `requiresOnDeviceRecognition: false`, which streams the raw audio to
+       * Apple's or Google's speech servers; there is a silent retry over the
+       * network on top of that. So a fresh install that read the screen, tapped
+       * "Use Ridik offline" and spoke had its audio uploaded, and was then told
+       * "nothing went to Google" by the refusal notice on that exact turn.
+       *
+       * Fails closed on a settings read that did not land: an unknown answer is
+       * not a yes.
+       */
+      const onDeviceOnly = !mayReachProvider(config?.assistantConsent ?? 'unset');
 
       const capture = await captureUtterance({
         ...(config ? { minConfidence: config.voiceConfidenceThreshold } : {}),
         ...(config ? { silenceTimeoutMs: config.silenceTimeoutMs } : {}),
+        onDeviceOnly,
         onPartial: handlers.onPartial,
         whisper: { enabled: Boolean(whisperKey), apiKey: whisperKey },
       });

@@ -17,6 +17,7 @@ import { createFocusSessionsRepository } from './focusSessions';
 import { createGeofencesRepository } from './geofences';
 import { createHabitsRepository } from './habits';
 import { createLedgerRepository } from './ledger';
+import { createLlmInteractionsRepository } from './llmInteractions';
 import { createNotesRepository } from './notes';
 import { createPlacesRepository } from './places';
 import { createProjectsRepository } from './projects';
@@ -35,6 +36,8 @@ export type Repositories = {
   geofences: ReturnType<typeof createGeofencesRepository>;
   habits: ReturnType<typeof createHabitsRepository>;
   ledger: ReturnType<typeof createLedgerRepository>;
+  /** The assistant's audit trail — what was heard and what it did. */
+  llmInteractions: ReturnType<typeof createLlmInteractionsRepository>;
   notes: ReturnType<typeof createNotesRepository>;
   places: ReturnType<typeof createPlacesRepository>;
   projects: ReturnType<typeof createProjectsRepository>;
@@ -57,6 +60,7 @@ export function createRepositories(db: RidikDatabase): Repositories {
     geofences: createGeofencesRepository(db),
     habits: createHabitsRepository(db),
     ledger: createLedgerRepository(db),
+    llmInteractions: createLlmInteractionsRepository(db),
     notes: createNotesRepository(db),
     places: createPlacesRepository(db),
     projects: createProjectsRepository(db),
@@ -99,6 +103,7 @@ export * from './focusSessions';
 export * from './geofences';
 export * from './habits';
 export * from './ledger';
+export * from './llmInteractions';
 export * from './notes';
 export * from './places';
 export * from './projects';

@@ -9,6 +9,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Platform, useColorScheme } from 'react-native';
 
+import { ConsentGate } from '@/features/consent';
 import { VoiceDock } from '@/features/voice/VoiceDock';
 import { useEmberChoice } from '@/hooks/useEmber';
 import { useWidgetPublisher } from '@/hooks/useWidgetPublisher';
@@ -151,6 +152,11 @@ export default function RootLayout() {
                     half-migrated database would publish a face built from
                     nothing. */}
                 {boot?.ok ? <WidgetPublisher /> : null}
+                {/* Over the navigator and over the dock, never instead of
+                    either: the first run has to cover whatever route a cold
+                    start landed on, and it must not be able to stop expo-router
+                    matching the initial URL. Draws nothing once answered. */}
+                {boot?.ok ? <ConsentGate /> : null}
                 {!boot || !fontsReady ? (
                   <View
                     style={[styles.overlay, styles.centred, { backgroundColor: theme.colors.bg }]}

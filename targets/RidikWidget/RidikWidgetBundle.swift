@@ -28,6 +28,23 @@ struct RidikWidgetBundle: WidgetBundle {
     RidikTasksWidget()
     RidikHabitsWidget()
     RidikListWidget()
+    controls
+  }
+
+  /**
+   The Control Center / Lock Screen button, on the systems that have one.
+
+   Split into its own builder because `ControlWidget` is iOS 18 and this
+   extension ships to 16.4 with the app. `WidgetBundleBuilder` understands
+   `if #available` — it calls `buildLimitedAvailability` — so an older phone gets
+   the five widgets and is never told the control exists, which is the only way
+   to add it without moving the whole extension's floor two majors.
+   */
+  @WidgetBundleBuilder
+  var controls: some Widget {
+    if #available(iOS 18.0, *) {
+      RidikSpeakControl()
+    }
   }
 }
 

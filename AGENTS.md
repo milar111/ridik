@@ -46,6 +46,39 @@ you if you do not know them.
   money are estimated before the call from this user's own rolling average and reconciled after
   from what the provider reported, and the estimate errs towards refusing: one unnecessary
   offline answer costs less than one uncapped call.
+- **Nothing reaches a provider without `assistantConsent === 'granted'`.** The check is the
+  first statement in `clientForTurn()` — before the endpoint, before the keychain, before the
+  budget — because a consent check that runs after the request is the specific thing Apple's
+  5.1.2(i) guidance rejects for, and one that runs after the client is built is one a fourth
+  provider mode can skip. Whisper is gated too: it uploads the *recording*, to a second third
+  party, and "off by default" is not the promise the screen makes. Three states, never a
+  boolean — `unset` opens the first-run screen, `declined` must never see it again, and both
+  refuse equally. **Unreadable is `unset`.** A database that will not open cannot be evidence
+  that anyone agreed to anything. Refusing degrades to the offline matcher with a `notice` and
+  a way back, exactly as a spent trial does; `src/llm/consent.ts` owns the words and names the
+  provider, and it is named because naming it is the requirement.
+- **Every outbound path is behind the same gate, and every recipient is on the same screen.**
+  There are four ways personal data can leave this phone and only one of them looks like it:
+  the model (`clientForTurn`), the *recogniser* (`onDeviceOnly` in `src/voice/types.ts` —
+  on-device is preferred and is simply unavailable on most Android devices, and the session
+  then streams the audio to Apple's or Google's speech servers), Whisper
+  (`src/voice/whisper.ts`, which posts to OpenAI), and the briefing push
+  (`services/notifications/push.ts`, whose `briefing_line` tag is `composeVisual`'s own
+  sentence, complete with event titles and people's names). Adding a fifth means adding
+  `mayReachProvider` to it **and** a sentence to `ConsentScreen`: a grant obtained with a
+  disclosure that understates is worse than no disclosure, because it is the thing the grant
+  was obtained with. `ASSISTANT_PROVIDER`, `WHISPER_PROVIDER` and `PUSH_PROVIDER` in
+  `src/llm/consent.ts` are the names, and `consent-screen.test.tsx` asserts all three reach
+  the screen.
+- **A yes answers the question it was asked and no other.** Two questions ride the same yes/no
+  envelope: the review gate's "is this what you said?" (built before any handler has looked at
+  the data, so it can never mention a clash) and a handler's own "is this what you meant?".
+  `ConfirmScope` in `src/llm/confirm.ts` keeps them apart, `ExecuteOptions` carries `reviewed`
+  and `confirmed` separately, and the pending envelope records which one each parked action was
+  blocked on. Collapsing them into one flag meant the utterances heard *worst* were exactly the
+  ones that lost the double-booking guard. And when a batch blocks more than one action, the
+  question that gets spoken is chosen by `alwaysAsks`, not by source order — otherwise "add
+  milk and log fifty on groceries" asks about the milk and books the €50 unseen.
 
 ## The shape of the app
 
@@ -220,7 +253,12 @@ it is pure; everything else feeds it.
   "Unmatched Route". Startup code lives in `src/startup/`.
 - **The root layout must mount its navigator on the first render.** Gating `<Stack>` behind an async
   bootstrap leaves expo-router unable to match the initial URL. Bootstrap state is an overlay drawn
-  over the navigator, not a replacement for it.
+  over the navigator, not a replacement for it. `ConsentGate` is the third of these and the
+  reason it is not a redirect from `app/index.tsx`: a launch can land on `/tasks` from a
+  reminder or `/today` from a widget, and a first-run gate that only guards the front door is
+  not a gate. It also draws nothing until the row has actually been read — `useSetting` reports
+  the declared default while the query is in flight, which here would put a full-screen consent
+  sheet over the first frame of every launch.
 - **`expo-dev-client` is intentionally absent.** Its launcher needs a manual tap, which breaks
   automated simulator verification. A plain debug build loads Metro directly.
 - **RNTL v14 is fully async.** `render`, `rerender`, `unmount` and `fireEvent` all return promises.
@@ -326,6 +364,38 @@ payload published in that gap carries `list: null` — which the list widget cor
 "No lists yet" over a list that exists. `useWidgetPublisher` holds the first publish until the
 list queries have *settled*, not succeeded, so a failing one cannot hold the other four hostage.
 
+**`ridik:///?speak=1` is the only address in this app that is a verb.** Every widget, the
+launcher long-press, the iOS control and the Android tile point at it, and `app/index.tsx`
+consumes it through `useSpeakIntent`. Two things about that are easy to break:
+
+- **A parameter is a value, not an event.** Read naively it starts a listening session on every
+  re-render, again on the way Back from the menu, and again every time the OS resumes the app
+  with the same URL still set. It is cleared as it is consumed, and re-armed only when the flag
+  goes away — `src/features/voice/__tests__/speak-intent.test.tsx` has one test per path.
+- **It waits, it does not fire and fail.** These entry points produce cold launches almost
+  exclusively, which is precisely when the pipeline is a bootstrap step that has not run yet;
+  firing early gets "Voice is still starting up." where the whole product should be. The gate is
+  `pipelineReady` plus a foregrounded app, and the intent is *held* rather than dropped, so a
+  tap made too early is honoured the moment it can be rather than thrown away.
+- **A push may not carry it.** `PUSH_BLOCKED_PARAMS` in `briefingPush.ts` refuses the flag on
+  any route, because the thing to block is the *parameter*: the segment is home, and a briefing
+  that could not open home would be the wrong fix. The parameter was meaningless until the URL
+  grew a verb — it stood in that file's own test as the example of a query string surviving —
+  so a notification quietly gained the ability to start a recording session.
+- **It must not open the microphone underneath `ConsentGate`.** The gate is an overlay, so home
+  is mounted and live beneath it, and an unwired speak intent would make the one address that is
+  a verb the one way past the one screen that cannot be skipped. `app/index.tsx` passes
+  `consentAnswered`, and it is *answered* rather than *granted* — `hasAnsweredConsent` in
+  `src/llm/consent.ts` — because declining leaves a working app whose offline matcher still
+  files a plain sentence, and gating on `granted` would kill the mic tile for ever on a rung
+  that never needed the network. Nothing is consumed while it waits: clearing the flag under the
+  lid would lose the tap.
+
+**The mic on a tile is medium and large only, on both platforms.** A `.systemSmall` widget has
+exactly one tap target, so a `Link` there is inert — the same glyph would open the reading
+screen on iOS and the microphone on Android. `SpeakAffordance` and the plugin's `header()` each
+carry half the rule.
+
 ## Known gaps
 
 Honest list. Everything else in the brief is built, tested and has been run on both simulators.
@@ -350,8 +420,15 @@ Honest list. Everything else in the brief is built, tested and has been run on b
   shortcut and reverse geocoding. A real map needs `react-native-maps`.
 - **Home-screen shortcuts are registered but not tap-verified.** `adb shell dumpsys shortcut`
   confirms both actions are published to the OS, and the handler in
-  `src/features/voice/useQuickActions.ts` is wired — but a launcher long-press cannot be faithfully
-  simulated over adb, so the tap-through has only been reasoned about, not observed.
+  `src/features/voice/useQuickActions.ts` now routes to `ridik:///?speak=1` rather than calling
+  the store — but a launcher long-press cannot be faithfully simulated over adb, so the
+  tap-through has only been reasoned about, not observed. The route itself can be, and is:
+  `adb shell "am start -a android.intent.action.VIEW -d 'ridik:///?speak=1'"`.
+- **The system control and the Quick Settings tile have not been tapped on a device.** The iOS
+  control type-checks against the 26.5 SDK at a 16.4 deployment target and the Kotlin compiles
+  and its manifest entry merges (`:app:processDebugResources`), but placing a Control Center
+  button or a QS tile is a launcher gesture, exactly like the shortcut above. The URL they open
+  is the one every other entry point opens and is covered end to end.
 - **A refetch failure over a cached Today snapshot is invisible.** The screen keeps showing the last
   good day with no indication that it has stopped updating.
 - **Google Calendar sync is untested against the live API.** Every path is covered against a mocked

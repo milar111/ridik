@@ -36,6 +36,7 @@ import {
 } from '@/features/settings';
 import { useEmber, useSetting } from '@/hooks';
 import { useEntitlement } from '@/hooks/useBilling';
+import { ASSISTANT_PROVIDER, type AssistantConsent } from '@/llm/consent';
 import { describePlan, describeRenewal, FREE } from '@/services/billing/entitlement';
 import {
   useEraseAllData,
@@ -63,6 +64,9 @@ export default function SettingsScreen() {
       </ErrorBoundary>
       <ErrorBoundary label="profile: attention">
         <AttentionGroup />
+      </ErrorBoundary>
+      <ErrorBoundary label="profile: assistant">
+        <AssistantGroup />
       </ErrorBoundary>
       <ErrorBoundary label="profile: preferences">
         <PreferencesGroup />
@@ -201,6 +205,53 @@ function AttentionGroup() {
           />
         );
       })}
+    </Group>
+  );
+}
+
+/* --------------------------------------------------------------- assistant */
+
+/**
+ * The one decision that lets anything leave this phone, and the way to change
+ * it.
+ *
+ * A row rather than a switch, and that is the whole design. Turning consent
+ * *off* is a one-tap act and a switch would do it fine; turning it back *on*
+ * cannot be, because agreeing to something you are not being shown is not
+ * agreement. Both directions therefore go through `/consent`, where the
+ * disclosure is — and it is the same component the first run drew, so the
+ * wording a decision is taken under cannot drift between the two screens where
+ * it is taken.
+ *
+ * It passes this screen's own test, unlike almost everything on `/developer`:
+ * set it to the worst value a stranger could pick and the app still works. The
+ * worst value is "no", and "no" is a working app with an offline assistant.
+ */
+const CONSENT_COPY: Record<AssistantConsent, { value: string; action: string }> = {
+  granted: {
+    value: `The words of a request go to ${ASSISTANT_PROVIDER}. The audio never leaves this phone.`,
+    action: 'Change',
+  },
+  declined: {
+    value: 'Nothing is sent. Ridik files simple phrases on its own.',
+    action: 'Turn on',
+  },
+  unset: { value: 'Not decided yet.', action: 'Read it' },
+};
+
+function AssistantGroup() {
+  const nav = useNavigateOnce();
+  const consent = useSetting('assistantConsent');
+  const copy = CONSENT_COPY[consent.value];
+
+  return (
+    <Group title="Assistant">
+      <Row
+        icon={consent.value === 'granted' ? 'paper-plane-outline' : 'phone-portrait-outline'}
+        label="Where your words go"
+        value={copy.value}
+        right={<Button label={copy.action} size="sm" onPress={() => nav.push('/consent')} />}
+      />
     </Group>
   );
 }

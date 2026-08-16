@@ -18,9 +18,21 @@
  * So the rule here is not "confirm every write" — that would put a dialog in
  * front of the fastest thing about the app, and a prompt shown every time is a
  * prompt nobody reads. It is **confirm what undo cannot take back**. The two
- * lists are complements by construction: if the receipt can offer you an undo,
- * you get the speed; if it cannot, you get the question. Neither list is
+ * lists are mostly complements by construction: if the receipt can offer you an
+ * undo, you get the speed; if it cannot, you get the question. Neither list is
  * allowed to be a judgement call, which is why both are spelled out.
+ *
+ * Two things sit on top of that rule, and both exist because tool identity is
+ * not the only thing that decides how likely this row is to be wrong:
+ *
+ *  - **How well the words were heard.** The recogniser reports a confidence per
+ *    utterance and it was, until this gate learned to read it, measured, stored
+ *    in `llm_interactions` and acted on by nothing. A barely-understood
+ *    sentence executed exactly like a crisp one. `REVIEW_CONFIDENCE_THRESHOLD`
+ *    below is the second dimension: an undoable write still lands silently when
+ *    the engine was sure, and asks first when it was not.
+ *  - **What a wrong value costs even when it *can* be undone.** `ALWAYS_ASKS`
+ *    is that exception, and money is currently its only member.
  */
 import type { LlmAction, ToolName } from './contract';
 
@@ -86,6 +98,84 @@ const REVERSIBLE: ReadonlySet<ToolName> = new Set<ToolName>([
   'ledger_add',
 ]);
 
+/**
+ * The writes that ask however well they were heard and however easily the
+ * receipt could take them back.
+ *
+ * `ledger_add` is the only member, and it is here rather than struck off
+ * `REVERSIBLE` on purpose. Striking it off was the other option and it is the
+ * worse one: `undo.ts` would have to lose it too, or `confirm.test.ts` fails on
+ * the two lists disagreeing — and the two lists disagreeing is exactly the bug
+ * that pair exists to make impossible. That would trade a safety net for a
+ * safety net. Keeping it on both gives it two: a question before, and an undo
+ * on the receipt after.
+ *
+ * Money earns the double cover because it is the one domain where a wrong
+ * value is *unnoticed* rather than visible. A mis-heard event title is read
+ * back off the agenda the next time you look at the day; a mis-heard 15 that
+ * should have been 50 looks exactly like a real transaction for ever, and
+ * "fifty" and "fifteen" are one phoneme apart in the position where recognisers
+ * are least reliable. Undo only helps someone who notices, and the question is
+ * the thing that makes them notice. It is also cheap: nobody logs forty
+ * expenses in a sitting, so the interruption is rare in a way a question on
+ * `task_add` would not be.
+ *
+ * `never` still means never — see the note there. This raises the floor inside
+ * a policy the user chose, it does not overrule the policy.
+ */
+const ALWAYS_ASKS: ReadonlySet<ToolName> = new Set<ToolName>(['ledger_add']);
+
+/**
+ * Below this, a write is shown before it lands even when undo could take it
+ * back.
+ *
+ * **Deliberately not `settings.voiceConfidenceThreshold`**, which is a
+ * different question with a different consequence. That one (0.7 by default,
+ * `DEFAULT_MIN_CONFIDENCE` in `@/voice/types`) is *should I even try* — below
+ * it `evaluateTranscript` rejects the utterance outright and the user is asked
+ * to say it again. This one is *should I check first* — above it the sentence
+ * was legible enough to interpret, and the only question left is whether to
+ * write it without looking.
+ *
+ * Which is why reusing that setting would not have worked, and why a *lower*
+ * constant would not either: every voice turn reaching this gate has already
+ * cleared the hearing floor, so a review threshold at or below it can never
+ * fire and would be dead code that reads like a safety feature. It has to sit
+ * above. 0.85 leaves a real 0.70–0.85 band — heard well enough to parse, not
+ * well enough to bet a row on — and still lets a clean capture through
+ * untouched, which is the whole point of a voice-first app.
+ *
+ * It is a constant and not a setting for the reason on the Settings screen: a
+ * stranger setting this to its worst value (1) would put a question in front of
+ * every single write, and to its other worst value (0) would silently remove
+ * the guard entirely. Neither is a dial worth shipping. The *hearing* floor is
+ * already exposed on the developer screen, and lowering it there widens this
+ * band rather than escaping it.
+ */
+export const REVIEW_CONFIDENCE_THRESHOLD = 0.85;
+
+/**
+ * Which question a "yes" answered.
+ *
+ * Two questions reach the user through the same yes/no envelope and they are
+ * not the same question, which cost a double-booking before it was written
+ * down:
+ *
+ *  - `review` — "is this what you said?", asked by the gate in `executor.ts`
+ *    before anything runs. It shows the *fields* and knows nothing about the
+ *    data they will land in.
+ *  - `details` — "is this what you meant?", asked by a handler that has already
+ *    looked: a clash with an existing event, an overwrite, a delete.
+ *
+ * A yes to the first cannot stand in for the second, because the first was
+ * asked before anybody had looked. A yes to the second *can* stand in for the
+ * first: the handler question is downstream of the gate, so reaching it at all
+ * means the gate was already released. So the ordering is one-way, and the two
+ * flags on `ExecuteOptions` say which grant is in hand rather than one boolean
+ * standing for both.
+ */
+export type ConfirmScope = 'review' | 'details';
+
 /** Whether this tool writes at all. Queries never ask. */
 export function isWrite(tool: ToolName): boolean {
   return WRITES.has(tool);
@@ -97,21 +187,84 @@ export function isReversible(tool: ToolName): boolean {
 }
 
 /**
+ * Whether a wrong value here is the kind nobody notices, so its question leads.
+ *
+ * The dock has room for exactly one question, and when an utterance blocks more
+ * than one action the others are folded into a count. Which one gets to be the
+ * question therefore decides what the user actually reads before saying yes —
+ * and "add milk to the shopping list and log fifty on groceries" blocks two,
+ * with the money second. Read as source order, the sentence spoken is about
+ * milk and the amount never appears, which is the one thing `ALWAYS_ASKS`
+ * exists to make impossible.
+ */
+export function alwaysAsks(tool: ToolName): boolean {
+  return ALWAYS_ASKS.has(tool);
+}
+
+/**
+ * Whether the recogniser told us it struggled with this utterance.
+ *
+ * Three-valued on purpose, and the middle value is the interesting one. `null`
+ * — typed text, Whisper, and most Android engines, which report nothing at all
+ * — is **not** low and **not** high: it is *no evidence*, and this returns
+ * false so the decision falls back to the tool-identity rule alone.
+ *
+ * Reading null as low would ask about every typed turn, which is the one input
+ * path with no mis-hearing to protect against; the user looked at the words as
+ * they wrote them. Reading it as high would be the worse mistake — but note
+ * that it is not what "false" means here. False does not release anything: it
+ * declines to *add* a question, and everything the gate asked before still
+ * asks. That is what makes null safe to treat as no evidence, and it is why
+ * `ledger_add` is on `ALWAYS_ASKS` rather than relying on a number that the
+ * whole Android fleet reports as nothing.
+ *
+ * A non-positive or non-finite value is the same "no evidence": Android returns
+ * 0 or -1 for "unavailable" and iOS returns 0 on partials, and `stt.ts` and
+ * `vad.ts` both already read those as unknown. Treating a 0 as "0 < 0.85, so
+ * ask" would put a question in front of every write on those devices.
+ */
+export function wasPoorlyHeard(confidence: number | null | undefined): boolean {
+  if (typeof confidence !== 'number' || !Number.isFinite(confidence)) return false;
+  if (confidence <= 0) return false;
+  return confidence < REVIEW_CONFIDENCE_THRESHOLD;
+}
+
+/**
  * Whether this action should be shown to the user before it runs.
  *
  * `timer_start` and `timer_control` are writes and are not on the undoable
  * list, and they are still not worth a question: the mistake is visible the
  * instant it happens, on the screen you are already looking at, and costs one
  * tap. A confirmation there would be the app asking permission to do the thing
- * you just asked it to do.
+ * you just asked it to do. That argument does not weaken when the words were
+ * heard badly — a mis-heard timer is wrong in front of you either way — so this
+ * list sits above the confidence check rather than under it.
  */
 const NEVER_ASKS: ReadonlySet<ToolName> = new Set<ToolName>(['timer_start', 'timer_control']);
 
-export function needsConfirmation(tool: ToolName, mode: ConfirmMode): boolean {
+/**
+ * @param confidence How well the recogniser heard the utterance these actions
+ *   came from, on 0..1. `null`/omitted when nothing measured it — see
+ *   `wasPoorlyHeard`, which is where that case is decided.
+ */
+export function needsConfirmation(
+  tool: ToolName,
+  mode: ConfirmMode,
+  confidence?: number | null,
+): boolean {
+  // `never` is a policy the user chose, and it is the one answer nothing below
+  // may raise: a user who turned the gate off and then met a question anyway
+  // would reasonably conclude the setting is broken.
   if (mode === 'never') return false;
+  // A mis-heard query reads a row and writes none: it costs a wrong answer the
+  // user can see, not a wrong row they cannot. Low confidence does not change
+  // that, so this stays above the confidence check too.
   if (!isWrite(tool)) return false;
   if (NEVER_ASKS.has(tool)) return false;
-  return mode === 'always' ? true : !isReversible(tool);
+  if (mode === 'always') return true;
+  if (ALWAYS_ASKS.has(tool)) return true;
+  if (wasPoorlyHeard(confidence)) return true;
+  return !isReversible(tool);
 }
 
 /* ------------------------------------------------------------- describing -- */
