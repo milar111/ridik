@@ -119,12 +119,21 @@ const WIDE = (reason: PickReason, domains: ToolDomain[] = []): ToolPick => ({
  * patterns below can be written as plain words. Apostrophes go rather than
  * becoming breaks, the same way `classifyConfirmation` treats them: "what's"
  * has to stay one token or "whats my day" never matches.
+ *
+ * The comma and the semicolon are **kept**, and that is not cosmetic:
+ * `pickTools` normalises before it splits, so stripping them here deleted the
+ * `,` and `;` alternatives out of `CLAUSE_BREAK` before the split ever saw
+ * them. "Remind me about the dentist tomorrow, put the drill back in the van"
+ * came through as one clause and was judged fully explained by the half of it
+ * we understood — which is the precise failure `unexplained_clause` exists to
+ * catch. They are punctuation to the triggers either way: every pattern below
+ * is anchored on `\b`, and a comma is a word boundary.
  */
 export function normaliseUtterance(text: string): string {
   return text
     .toLowerCase()
     .replace(/['’]/g, '')
-    .replace(/[^\p{L}\p{N}\s:]+/gu, ' ')
+    .replace(/[^\p{L}\p{N}\s:,;]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -147,8 +156,18 @@ const TRIGGERS: Record<ToolDomain, RegExp> = {
   // duration counts as evidence. Without it "spent two hours on the firmware"
   // matches only the money domain, and a report of *time* is decoded against a
   // tool that writes a *transaction*.
+  //
+  // A time of day counts for exactly the same reason, and it has to, because
+  // the calendar claims one too. "Vacuumed the flat today" names no domain but
+  // `today`, which narrowed to the calendar alone and *deleted* `activity_log`
+  // from the enum — leaving `calendar_add` as the only write the decoder could
+  // reach and a future agenda event titled "Vacuumed the flat" as the receipt.
+  // The same three words without "today" offered all 28 tools and filed it
+  // correctly. Whatever a bare time word is evidence of, it is at least as much
+  // evidence of a thing that happened at that time as of a thing scheduled for
+  // it, so both domains answer to it and the model picks between them.
   habits:
-    /\b(?:habit|habits|streak|streaks|ran|run|running|jog|jogged|walk|walked|workout|work out|worked out|exercise|exercised|gym|meditate|meditated|meditation|practise|practised|practice|practiced|swim|swam|cycled|cycling|pushups|steps|drank|log|logged|did my|hour|hours|minute|minutes|mins)\b/,
+    /\b(?:habit|habits|streak|streaks|ran|run|running|jog|jogged|walk|walked|workout|work out|worked out|exercise|exercised|gym|meditate|meditated|meditation|practise|practised|practice|practiced|swim|swam|cycled|cycling|pushups|steps|drank|log|logged|did my|hour|hours|minute|minutes|mins)\b|__TIME__/,
   timer:
     /\b(?:timer|timers|pomodoro|focus|session|sessions|stopwatch|countdown|pause|paused|resume|skip|break)\b/,
   ledger:
@@ -202,7 +221,10 @@ const CLAUSE_BREAK =
 export function splitClauses(text: string): string[] {
   return text
     .split(CLAUSE_BREAK)
-    .map((clause) => clause.trim())
+    // A break taken on a conjunction can leave the comma that preceded it
+    // hanging off the end of the clause before ("remind me at 4, and call
+    // ivo"). Harmless to the triggers, ugly in a log line.
+    .map((clause) => clause.replace(/^[,;\s]+|[,;\s]+$/g, ''))
     .filter((clause) => clause.length > 0);
 }
 

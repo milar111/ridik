@@ -194,7 +194,9 @@ describe('developer screen', () => {
 
     // The value, not the label: the label is static and the row renders before
     // the settings read lands on it.
-    expect(await screen.findByText(describeTrial(18))).toBeTruthy();
+    expect(
+      await screen.findByText(describeTrial({ requestsUsed: 18, tokensUsed: 0 })),
+    ).toBeTruthy();
     expect(screen.getByText('Free trial')).toBeTruthy();
   });
 });

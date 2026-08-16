@@ -45,7 +45,7 @@ import {
   type AssistantConsent,
 } from '@/llm/consent';
 import { defaultSettings } from '@/repositories/settings';
-import { describeTrial } from '@/services/billing/allowance';
+import { describeTrial, trialSpent } from '@/services/billing/allowance';
 import { isStoreBuild } from '@/services/billing/entitlement';
 import { HeatField } from '@/ui/HeatField';
 import { useTheme } from '@/ui/ThemeProvider';
@@ -176,6 +176,10 @@ export function ConsentScreen({ onDone }: ConsentScreenProps) {
   const plan = entitlement.data;
   const showTrial =
     plan !== undefined && !plan.active && (isStoreBuild() || values.simulateStoreBuild);
+  const trialLedger = {
+    requestsUsed: values.llmTrialRequestsUsed,
+    tokensUsed: values.llmTrialTokensUsed,
+  };
 
   const legal = (Constants.expoConfig?.extra ?? {}) as { legal?: { privacy?: string } };
   const privacy = legal.legal?.privacy;
@@ -262,7 +266,14 @@ export function ConsentScreen({ onDone }: ConsentScreenProps) {
               number of them matters. */}
           {showTrial ? (
             <Txt variant="micro" tone="tertiary">
-              {describeTrial(values.llmTrialRequestsUsed)}, then Ridik asks you to pick a plan.
+              {/* Both ceilings. The counter alone cannot say whether the
+                  assistant is still on — the token allowance is spendable in
+                  a handful of long turns — and "19 of 25 free requests left"
+                  above a model that refuses every one of them is the same
+                  hidden-trial complaint in a different place. */}
+              {trialSpent(trialLedger)
+                ? 'The free assistant allowance for this install is spent. Ridik asks you to pick a plan before it sends anything to the model.'
+                : `${describeTrial(trialLedger)}, then Ridik asks you to pick a plan.`}
             </Txt>
           ) : null}
           {/* Both of the other recipients, by name. "The optional Whisper

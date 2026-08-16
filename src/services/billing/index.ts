@@ -70,6 +70,7 @@ export {
 
 export {
   describeTrial,
+  trialSpent,
   resolveAssistantBudget,
   TRIAL_LIMIT_MESSAGE,
   TRIAL_SPENT_MESSAGE,

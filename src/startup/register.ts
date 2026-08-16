@@ -15,5 +15,9 @@ import '@/services/billing';
 // same way billing falls back without a store key.
 import '@/services/notifications/push';
 import '@/features/voice/pipeline';
+// The unsent-transcript slot, restored from disk. In-memory it survived every
+// failure it was written for and not the ordinary one — the OS reclaiming a
+// backgrounded app while the phone is in a pocket.
+import '@/features/voice/keep';
 
 export {};

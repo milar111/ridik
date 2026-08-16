@@ -63,6 +63,15 @@ export type VoiceOutcome = {
   feedback?: string;
   items: VoiceOutcomeItem[];
   clarification?: { question: string; pending?: string };
+  /**
+   * The turn never ran — a transport failure, a 401, a timeout, an internal
+   * throw. See `TurnOutcome.failed`.
+   *
+   * `process()` resolves for these, with a sentence to say and no items, so
+   * without this the store cannot tell "asked and answered with nothing" from
+   * "never asked at all". Only the second one still owes the user their words.
+   */
+  failed?: boolean;
 };
 
 /**
@@ -169,7 +178,18 @@ type VoiceState = {
   draftSeed: string | null;
 
   open: () => void;
-  close: () => void;
+  /**
+   * Dismiss the sheet.
+   *
+   * `draft` is whatever was still in the text box, and it **outranks** the
+   * transcript rather than being kept beside it. The dock used to call
+   * `keepDraft(draft)` and then `close()`, and `close()` recomputed the slot
+   * from `state.transcript` — so a user who pressed "Put it back", edited the
+   * sentence and then tapped the backdrop got the *pre-edit* words handed back
+   * and their correction destroyed by the one feature whose entire job is not
+   * losing typed words. One call, one decision, newest wins.
+   */
+  close: (draft?: string) => void;
   /** Opens the sheet with the text box up — the visible alternative to talking. */
   startTyping: () => void;
   setTyping: (typing: boolean) => void;
@@ -180,7 +200,13 @@ type VoiceState = {
   recoverTranscript: () => string | null;
   /** The explicit "no, throw it away" — the only other way this slot empties. */
   discardRecovered: () => void;
-  /** Keeps an unsent draft when the sheet goes away with words still in it. */
+  /**
+   * Puts text straight into the keeping place.
+   *
+   * The primitive under `close(draft)`, and the way anything outside the sheet
+   * sets a sentence aside. The sheet itself goes through `close()` instead:
+   * two calls let `close()`'s own recomputation win over what was just kept.
+   */
   keepDraft: (text: string) => void;
   consumeDraftSeed: () => void;
   reset: () => void;
@@ -198,9 +224,16 @@ type VoiceState = {
 function unanswered(state: VoiceState): RecoveredTranscript | null {
   const text = (state.transcript || state.partial).trim();
   if (!text) return state.recovered;
-  const answered = state.outcome?.transcript.trim() === text && state.error === null;
+  // A resolved outcome is not the same thing as an answer. A turn whose model
+  // call never landed comes back resolved, carrying an apology and no items,
+  // and reading only `transcript === transcript` counted that as answered.
+  const failed = state.outcome?.failed === true;
+  const answered = state.outcome?.transcript.trim() === text && state.error === null && !failed;
   if (answered) return state.recovered;
-  return { text, at: now(), reason: state.error ? 'failed' : 'unsent' };
+  // Already kept, and keeping it again would only move its timestamp — which
+  // is what the "NOT SENT — KEPT" card sorts and ages by.
+  if (state.recovered?.text.trim() === text) return state.recovered;
+  return { text, at: now(), reason: state.error || failed ? 'failed' : 'unsent' };
 }
 
 export const useVoiceStore = create<VoiceState>((set, get) => ({
@@ -220,10 +253,11 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   draftSeed: null,
 
   open: () => set({ expanded: true }),
-  close: () => {
+  close: (draft?: string) => {
     session += 1;
     void pipeline?.stopListening().catch(() => {});
     void pipeline?.stopSpeaking().catch(() => {});
+    const typed = draft?.trim();
     set({
       expanded: false,
       typing: false,
@@ -233,9 +267,20 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       needsRetry: false,
       sttUnavailable: false,
       heardNothing: false,
+      // Dismissing a question is how a user abandons it — there is no "forget
+      // it" control, and there cannot be a second door for something this
+      // destructive. Left parked, the envelope was echoed back on the *next*
+      // utterance, so a `note_delete` the user walked away from could be fired
+      // hours later by an unrelated "sounds good"; the abandoned question also
+      // re-opened the sheet on home every turn and was injected into the next
+      // request as history. Only `close()` clears it: `startListening()` must
+      // not, or answering a clarification out loud would stop working.
+      pendingClarification: null,
       // Closing the sheet is not an answer. Whatever was in it is set aside
       // rather than dropped — the whole point of `recovered`.
-      recovered: unanswered(get()),
+      recovered: typed
+        ? { text: typed, at: now(), reason: 'unsent' as const }
+        : unanswered(get()),
     });
   },
 
@@ -324,9 +369,22 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     // walked past by firing the batch before the last increment landed. The
     // counters are atomic now too; this is the half that stops the calls being
     // made at all.
-    if (get().status === 'thinking') return;
+    //
+    // Refusing is not the same as discarding. The dock clears its box on Send
+    // and the box stays mounted through a turn whenever a clarification is
+    // pending, so a user correcting themselves while the model was slow
+    // watched the sentence vanish with no error, no receipt and nothing kept.
+    // The refusal puts it in the one place that survives.
+    if (get().status === 'thinking') {
+      set({ recovered: { text: trimmed, at: now(), reason: 'unsent' } });
+      return;
+    }
     if (!impl) {
-      set({ status: 'error', error: 'Voice is still starting up.' });
+      set({
+        status: 'error',
+        error: 'Voice is still starting up.',
+        recovered: { text: trimmed, at: now(), reason: 'unsent' },
+      });
       return;
     }
     const pending = get().pendingClarification?.pending;
@@ -344,11 +402,20 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         status: 'idle',
         outcome,
         pendingClarification: outcome.clarification ?? null,
-        // Cleared only by the sentence itself going through. A *different*
-        // utterance succeeding says nothing about the one still waiting, and
-        // clearing on any success is how the kept text would quietly vanish
-        // the next time the user said anything at all.
-        recovered: s.recovered?.text.trim() === trimmed ? null : s.recovered,
+        // A turn that resolved without ever reaching the model has not answered
+        // anything — see `VoiceOutcome.failed`. It keeps the sentence exactly
+        // as the `catch` below does; the only difference is that this one came
+        // back with an apology to say rather than an Error to translate.
+        //
+        // Otherwise: cleared only by the sentence itself going through. A
+        // *different* utterance succeeding says nothing about the one still
+        // waiting, and clearing on any success is how the kept text would
+        // quietly vanish the next time the user said anything at all.
+        recovered: outcome.failed
+          ? { text: trimmed, at: now(), reason: 'failed' as const }
+          : s.recovered?.text.trim() === trimmed
+            ? null
+            : s.recovered,
       }));
       const toSpeak =
         outcome.speak === false ? undefined : (outcome.clarification?.question ?? outcome.feedback);
@@ -375,8 +442,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     const kept = state.recovered;
     if (!kept) return null;
     // Out of the slot and into the composer in one move: it is no longer lost,
-    // and if the sheet is dismissed with it still unsent `keepDraft` puts it
-    // straight back.
+    // and if the sheet is dismissed with it still unsent `close(draft)` puts it
+    // straight back — including any edit made to it in between, which is why
+    // the dock hands the text to `close()` rather than keeping it separately.
     //
     // The failure is cleared with it, but only if that is what the store is
     // showing: this card outlives its own turn, so it can be pressed while a

@@ -541,10 +541,66 @@ describe('orchestrator', () => {
 
     expect(outcome.items).toEqual([]);
     expect(outcome.feedback).toBe('Something went wrong on my side. Please try that again.');
+    expect(outcome.failed).toBe(true);
     const rows = await auditRows();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.status).toBe('error');
     expect(rows[0]!.error).toContain('the client broke its own contract');
+  });
+
+  /**
+   * The turn that never ran has to *say* it never ran.
+   *
+   * `interpretAndExecute` is designed never to throw, so a dead network comes
+   * back as a resolved outcome with an apology in it and no items — which is
+   * byte-identical to a turn that ran and decided to do nothing. The voice
+   * store was reading exactly that difference to decide whether the sentence
+   * had been answered, so a long dictation that timed out was filed as answered
+   * and the words were dropped on the next mic tap. The flag is the only thing
+   * that tells the two apart.
+   */
+  it('says outright when the model was never reached', async () => {
+    const provider = createMockProvider({
+      // Unauthorised rather than a retryable code: one call, no ladder, and the
+      // shape a dead key or a dropped connection actually takes.
+      failTimes: 1,
+      failWith: new LlmProviderError('unauthorized', 'the request never landed', { status: 401 }),
+    });
+    const orchestrator = createOrchestrator({
+      repos,
+      zone: ZONE,
+      client: createLlmClient({ provider, sleep: async () => {} }),
+    });
+
+    const outcome = await orchestrator.interpretAndExecute({
+      transcript: 'note that the lab needs 10k resistors and a new soldering tip',
+    });
+
+    expect(outcome.items).toEqual([]);
+    expect(outcome.failed).toBe(true);
+    // Still audited, and still carrying a sentence to say — the flag is about
+    // what happened, not about going quiet.
+    expect(outcome.feedback).toBeTruthy();
+    const rows = await auditRows();
+    expect(rows[0]!.status).toBe('error');
+  });
+
+  /* And a turn that genuinely ran and wrote nothing must not claim it failed,
+     or the recovery card would appear over work that was understood. */
+  it('does not flag a turn that ran and simply had nothing to do', async () => {
+    const provider = createMockProvider({
+      responses: [JSON.stringify({ conversational_feedback: 'Nothing to do.', actions: [] })],
+    });
+    const orchestrator = createOrchestrator({
+      repos,
+      zone: ZONE,
+      client: createLlmClient({ provider, sleep: async () => {} }),
+    });
+
+    const outcome = await orchestrator.interpretAndExecute({ transcript: 'thanks' });
+
+    expect(outcome.items).toEqual([]);
+    expect(outcome.failed).toBeUndefined();
   });
 
   it('keeps the turn alive when the audit table cannot be written', async () => {

@@ -393,6 +393,30 @@ describe('process', () => {
     });
   });
 
+  /* The one bit of the outcome the store reads to decide whether the sentence
+     is still owed an answer. Dropped here, it would be as if the turn had run
+     — and the words would be gone on the next mic tap. */
+  it('carries "the model was never reached" through to the dock', async () => {
+    mockInterpret.mockResolvedValue({
+      transcript: 'note the resistors',
+      feedback: 'I could not reach the assistant just now.',
+      items: [],
+      failed: true,
+    });
+
+    const outcome = await createVoicePipeline().process('note the resistors');
+
+    expect(outcome.failed).toBe(true);
+  });
+
+  it('does not invent a failure for a turn that simply wrote nothing', async () => {
+    mockInterpret.mockResolvedValue({ transcript: 'thanks', feedback: 'Nothing to do.', items: [] });
+
+    const outcome = await createVoicePipeline().process('thanks');
+
+    expect(outcome.failed).toBeUndefined();
+  });
+
   it('reads the assistant key from the keychain on every turn, never from SQLite', async () => {
     const pipeline = createVoicePipeline();
     await pipeline.process('one');

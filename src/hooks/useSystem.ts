@@ -39,6 +39,7 @@ import {
   LLM_API_KEY_STORE_KEY,
   WHISPER_API_KEY_STORE_KEY,
 } from '@/features/voice/pipeline';
+import { clearKeptTranscript } from '@/features/voice/keep';
 import { getRepositories } from '@/repositories';
 import type { Coords } from '@/repositories/places';
 import * as calendarService from '@/services/calendar';
@@ -466,6 +467,12 @@ export function useEraseAllData(): UseMutationResult<number, Error, void> {
   return useMutation({
     mutationFn: async () => {
       const cleared = wipeAllTables(getRepositories().db.$client);
+
+      // The unsent-transcript slot is the user's own words and it is a *file*,
+      // so no amount of emptying tables reaches it. Saved backups are files
+      // too and deliberately survive — but the user asked for those and can
+      // see them; nobody asked for this one.
+      clearKeptTranscript();
 
       // Best effort, and in this order: a region still armed after the trigger
       // behind it is gone would fire a reminder nobody can explain.

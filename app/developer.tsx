@@ -39,7 +39,11 @@ import {
 } from '@/hooks';
 import { useAssistantMode } from '@/hooks/useAssistant';
 import { formatCostMicros, type UsageWindow } from '@/llm/usage';
-import { describeTrial, TRIAL_TOTAL_REQUESTS } from '@/services/billing/allowance';
+import {
+  describeTrial,
+  TRIAL_TOTAL_REQUESTS,
+  TRIAL_TOTAL_TOKENS,
+} from '@/services/billing/allowance';
 import {
   useBackgroundStatus,
   useCalendarConnection,
@@ -183,6 +187,10 @@ function AssistantGroup() {
   const dailyCap = useSetting('llmDailyRequestCap');
   const monthlyCap = useSetting('llmMonthlyRequestCap');
   const trialUsed = useSetting('llmTrialRequestsUsed');
+  // The trial's other ceiling. The request counter alone cannot say whether the
+  // assistant is still on: a handful of very large turns spends the token
+  // allowance while the counter still reads most of 25 left.
+  const trialTokens = useSetting('llmTrialTokensUsed');
   const simulateStore = useSetting('simulateStoreBuild');
   const usage = useAssistantUsage(dailyCap.value, monthlyCap.value).data;
   const latency = useTurnLatency().data;
@@ -276,8 +284,8 @@ function AssistantGroup() {
       <Row
         icon="hourglass-outline"
         label="Free trial"
-        value={describeTrial(trialUsed.value)}
-        hint={`${TRIAL_TOTAL_REQUESTS} requests for the life of the install, and nothing refills them — not a date, not erasing your data, not reinstalling. Counted only while a store is present and nothing is subscribed.`}
+        value={describeTrial({ requestsUsed: trialUsed.value, tokensUsed: trialTokens.value })}
+        hint={`${TRIAL_TOTAL_REQUESTS} requests for the life of the install, and nothing refills them — not a date, not erasing your data, not reinstalling. There is a second ceiling under it: ${TRIAL_TOTAL_TOKENS.toLocaleString('en-GB')} tokens, of which ${Math.max(0, Math.trunc(trialTokens.value)).toLocaleString('en-GB')} are gone, and whichever runs out first ends the trial. Counted only while a store is present and nothing is subscribed.`}
       />
 
       {/* Outside the hosted branch on purpose: the hosted build is the one

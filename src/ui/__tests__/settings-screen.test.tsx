@@ -3,7 +3,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { defaultSettings } from '@/repositories/settings';
-import { describeTrial, TRIAL_TOTAL_REQUESTS } from '@/services/billing/allowance';
+import {
+  describeTrial,
+  TRIAL_TOTAL_REQUESTS,
+  TRIAL_TOTAL_TOKENS,
+} from '@/services/billing/allowance';
 import { emberChoice, setEmberChoice } from '@/hooks/useEmber';
 import { DEFAULT_EMBER, embers } from '@/ui/theme';
 
@@ -286,7 +290,9 @@ describe('settings screen', () => {
     });
     await wrap(<SettingsScreen />);
 
-    expect(await screen.findByText(describeTrial(18))).toBeTruthy();
+    expect(
+      await screen.findByText(describeTrial({ requestsUsed: 18, tokensUsed: 0 })),
+    ).toBeTruthy();
     expect(screen.getByText(/life of this install/)).toBeTruthy();
     // The developer screen's row stays where it is; this is the same fact in
     // the profile's own words.
@@ -303,8 +309,38 @@ describe('settings screen', () => {
     });
     await wrap(<SettingsScreen />);
 
-    expect(await screen.findByText(describeTrial(TRIAL_TOTAL_REQUESTS))).toBeTruthy();
+    expect(
+      await screen.findByText(
+        describeTrial({ requestsUsed: TRIAL_TOTAL_REQUESTS, tokensUsed: 0 }),
+      ),
+    ).toBeTruthy();
     expect(screen.getByText(/still listens/)).toBeTruthy();
+  });
+
+  /**
+   * The trial has two ceilings, and this row knew about one of them.
+   *
+   * `resolveAssistantBudget` refuses on the lifetime *token* tripwire
+   * independently of the request counter, so six long dictations — two of them
+   * repaired — spend the whole allowance in six requests. Every turn then
+   * answers "This install has used its free assistant allowance" while the one
+   * row that exists so a free user is not misled about the limit reads "19 of
+   * 25 free requests left", with a hint saying they last the life of the
+   * install. That is the hidden-trial review, earned twice.
+   */
+  it('does not offer requests that the token allowance has already spent', async () => {
+    mockStoreBuild = true;
+    mockRepos.settings.getAll.mockResolvedValue({
+      ...defaultSettings(),
+      llmTrialRequestsUsed: 6,
+      llmTrialTokensUsed: TRIAL_TOTAL_TOKENS,
+    });
+    await wrap(<SettingsScreen />);
+
+    expect(await screen.findByText('Free assistant allowance spent')).toBeTruthy();
+    expect(screen.queryByText(/free requests left/)).toBeNull();
+    // And the hint agrees with the refusal the next turn will get.
+    expect(screen.getByText(/They are spent/)).toBeTruthy();
   });
 
   /* Three ways this line would be a lie, and each is somebody it would be a lie
@@ -344,7 +380,7 @@ describe('settings screen', () => {
       const view = await wrap(<SettingsScreen />);
 
       await screen.findByText('PREFERENCES');
-      expect(screen.queryByText(describeTrial(18))).toBeNull();
+      expect(screen.queryByText(describeTrial({ requestsUsed: 18, tokensUsed: 0 }))).toBeNull();
       expect(screen.queryByText(/free requests left/)).toBeNull();
       await view.unmount();
     }
@@ -482,6 +518,30 @@ describe('settings screen', () => {
     await fireEvent.changeText(field, 'ERASE');
     await fireEvent.press(confirm());
     expect(mockErase).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * What the confirmation is allowed to promise.
+   *
+   * It read "This deletes everything on this phone. There is no backup and no
+   * undo." Both halves stopped being true the day Backup and restore shipped:
+   * `wipeAllTables` empties SQLite tables and nothing else, the saved JSON sits
+   * in the documents directory untouched, and the row two lines above says so
+   * outright — "The copy kept on this phone survives “Delete all data”". Two
+   * screens in one app stating opposite facts about the same button, and the
+   * person it costs is the one who types ERASE before handing the phone on and
+   * leaves a plaintext copy of every note, contact and transaction behind.
+   */
+  it('does not promise that erasing takes the backups with it', async () => {
+    await wrap(<SettingsScreen />);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Delete' }));
+
+    await screen.findByPlaceholderText('ERASE');
+    expect(screen.queryByText(/no backup/i)).toBeNull();
+    // And it says what actually happens to them, on the screen where the
+    // decision is made rather than on the one the user is not looking at.
+    expect(screen.getByText(/Backup files you have already saved are not touched/)).toBeTruthy();
+    expect(screen.getByText(/no undo/i)).toBeTruthy();
   });
 
   /* The escape hatch for everything the screen hides. Seven taps is enough that

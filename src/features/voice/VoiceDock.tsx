@@ -70,7 +70,6 @@ export function VoiceDock() {
   const recovered = useVoiceStore((s) => s.recovered);
   const draftSeed = useVoiceStore((s) => s.draftSeed);
   const consumeDraftSeed = useVoiceStore((s) => s.consumeDraftSeed);
-  const keepDraft = useVoiceStore((s) => s.keepDraft);
   const outcome = useVoiceStore((s) => s.outcome);
   const clarification = useVoiceStore((s) => s.pendingClarification);
   const startListening = useVoiceStore((s) => s.startListening);
@@ -230,15 +229,20 @@ export function VoiceDock() {
    * the same thing to the person who wrote them, and the backdrop is a very
    * easy tap to make by accident. The draft goes into the store's one keeping
    * place; `UnsentTranscript` is the way back to it.
+   *
+   * Handed to `close()` rather than stashed with `keepDraft()` first: `close()`
+   * recomputes the slot from the store's own `transcript`, so two calls meant
+   * the older, un-edited sentence won and the correction the user had just
+   * typed was thrown away. One call, and the newest words outrank the rest.
    */
   const dismiss = useCallback(() => {
-    if (draft.trim()) keepDraft(draft);
+    const kept = draft.trim();
     setDraft('');
     // `close()` owns `typing` now that it lives in the store, so there is one
     // place deciding what a dismissed sheet leaves behind. The *text* is still
-    // local to this component, which is why it is stashed here first.
-    close();
-  }, [close, draft, keepDraft]);
+    // local to this component, which is why it is passed in.
+    close(kept || undefined);
+  }, [close, draft]);
 
   /**
    * Drag the sheet away by its handle.
@@ -290,7 +294,18 @@ export function VoiceDock() {
     startTyping();
   };
 
+  /**
+   * Send, and empty the box — but only for a send that will actually be taken.
+   *
+   * `submitText` refuses while a turn is still in flight, and the box stays
+   * mounted through one whenever a clarification is pending, so "answer, model
+   * is slow, retype, press Send" cleared the field and dropped the sentence
+   * with nothing said about it. Holding the text here is the visible half; the
+   * store keeps a refused sentence in `recovered` as well, because the keyboard
+   * return key reaches this by a path no `disabled` can cover.
+   */
   const send = () => {
+    if (status === 'thinking') return;
     const text = draft;
     setDraft('');
     setTyping(false);
@@ -626,7 +641,16 @@ export function VoiceDock() {
                   testID="voice-text-input"
                 />
                 <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                  <Button label="Send" variant="primary" icon="arrow-up" onPress={send} disabled={!draft.trim()} />
+                  <Button
+                    label="Send"
+                    variant="primary"
+                    icon="arrow-up"
+                    onPress={send}
+                    // A turn is already in flight and a second one is refused,
+                    // so the button says so rather than looking live and
+                    // swallowing the sentence.
+                    disabled={!draft.trim() || status === 'thinking'}
+                  />
                   <Button label="Speak instead" icon="mic" onPress={() => { setTyping(false); void startListening(); }} />
                 </View>
               </View>

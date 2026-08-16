@@ -177,6 +177,58 @@ describe('the prompt\'s own examples', () => {
   );
 });
 
+/**
+ * A bare time of day is the weakest evidence there is, and for a while it was
+ * treated as the strongest.
+ *
+ * "Today", "this morning", "tonight" all matched the calendar trigger's
+ * `__TIME__` alternative and nothing else, which did two things at once: it
+ * narrowed a report of something that *happened* down to the domain that
+ * schedules things, and it converted a clause explaining nothing into an
+ * explained one so the bail never fired. On the strict rung the narrowing
+ * physically deletes `activity_log` from the decoder's enum, so the model's
+ * only remaining write was `calendar_add` — a future agenda event titled
+ * "Vacuumed the flat", which is the plausible-receipt-over-the-wrong-row this
+ * whole module exists to prevent. Removing the word entirely fixed it.
+ */
+describe('a bare time of day', () => {
+  const REPORTS = [
+    'Sanded the table this afternoon',
+    'Vacuumed the flat today',
+    'Fixed the bike this evening',
+    'Weighed 82 kilos this morning',
+    'Blood pressure was 130 over 80 this morning',
+    'I read forty pages today',
+    'My back is sore today',
+  ];
+
+  it.each(REPORTS)('leaves the "I did a thing" catch-all reachable for %s', (utterance) => {
+    const pick = pickTools(utterance);
+    if (pick.tools === null) return;
+
+    expect(pick.tools).toContain('activity_log');
+    expect(pick.tools).toContain('note_create');
+  });
+
+  /* Adding "today" to a sentence must not be able to *remove* a tool the same
+     sentence would otherwise have been offered. */
+  it('never narrows further than the same words without it', () => {
+    for (const utterance of REPORTS) {
+      const bare = pickTools(utterance.replace(/ (?:this|today)[a-z ]*$/i, ''));
+      const timed = pickTools(utterance);
+      if (bare.tools === null || timed.tools === null) continue;
+      for (const tool of bare.tools) expect(timed.tools).toContain(tool);
+    }
+  });
+
+  /* And it still reaches the calendar, because "dentist tomorrow at three"
+     names no calendar word at all. Both domains answer to it; the model
+     chooses. */
+  it('still reaches the calendar it was added for', () => {
+    expect(pickTools('Dentist tomorrow at 3').tools).toContain('calendar_add');
+  });
+});
+
 describe('reading the words', () => {
   it('keeps a contraction in one piece', () => {
     expect(normaliseUtterance("What's on today?")).toBe('whats on today');
@@ -194,5 +246,40 @@ describe('reading the words', () => {
     expect(
       splitClauses('remind me to call ivo at 4 and note that the lab needs resistors'),
     ).toHaveLength(2);
+  });
+
+  /**
+   * The comma, which `CLAUSE_BREAK` has always listed and never once seen.
+   *
+   * `normaliseUtterance` deleted `,` and `;` three lines above the split, and
+   * `pickTools` normalises *before* it splits — so the only breaks that could
+   * ever fire were `and|then|also|plus`, and a comma-joined utterance was
+   * judged fully explained if any word anywhere matched any domain. The unit
+   * test above never caught it because it only ever fed `splitClauses` an
+   * "and". Asserted through the normaliser, not around it, so the two cannot
+   * drift apart again.
+   */
+  it('breaks on a comma, through the normaliser the picker actually uses', () => {
+    expect(splitClauses(normaliseUtterance('Remind me at 4, call Ivo'))).toEqual([
+      'remind me at 4',
+      'call ivo',
+    ]);
+    // And the dictated list still survives it: what follows the comma is a
+    // bare noun, not a new instruction.
+    expect(
+      splitClauses(normaliseUtterance('Add milk, eggs and bread to the shopping list')),
+    ).toHaveLength(1);
+  });
+
+  /* The whole point of the split: an unrecognised second instruction has to
+     make the picker give up, whichever punctuation introduced it. */
+  it('bails on a comma-joined clause it cannot explain', () => {
+    const pick = pickTools('Remind me about the dentist tomorrow, put the drill back in the van');
+
+    expect(pick.tools).toBeNull();
+    expect(pick.reason).toBe('unexplained_clause');
+    // Said alone, that second half is exactly what `no_evidence` is for — so
+    // narrowing around the half we did read would have dropped its tool.
+    expect(pickTools('put the drill back in the van').reason).toBe('no_evidence');
   });
 });

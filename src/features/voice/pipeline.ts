@@ -678,6 +678,10 @@ export function createVoicePipeline(): VoicePipeline {
         ...(outcome.feedback ? { feedback: outcome.feedback } : {}),
         items: toOutcomeItems(outcome),
         ...(outcome.clarification ? { clarification: outcome.clarification } : {}),
+        // The turn never ran. Carried through so the store can keep the words:
+        // a resolved outcome with an apology in it looks exactly like a turn
+        // that ran and wrote nothing.
+        ...(outcome.failed ? { failed: true as const } : {}),
       };
     },
 

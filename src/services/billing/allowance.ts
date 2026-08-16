@@ -354,8 +354,34 @@ export function resolveAssistantBudget(input: BudgetInput): AssistantBudget {
   };
 }
 
-/** One line for a read-out: "7 of 25 free requests left". */
-export function describeTrial(trialUsed: number): string {
-  const used = Math.min(TRIAL_TOTAL_REQUESTS, Math.max(0, Math.trunc(trialUsed)));
+/**
+ * Whether the next ordinary turn would be refused, by **either** ceiling.
+ *
+ * The trial has two, and a screen that knows about one of them is a screen that
+ * lies. `resolveAssistantBudget` cuts the assistant off on the token tripwire
+ * independently of the request counter, so six very long dictations can spend
+ * the whole allowance while the counter still reads 19 left — and the row that
+ * exists so a free user is not misled about the limit became the thing
+ * misleading them, in the exact words of the review it was written to answer.
+ *
+ * Measured against one ordinary turn's worth of headroom rather than against
+ * zero, because that is the condition the *next* utterance will actually meet.
+ */
+export function trialSpent(trial: TrialLedger): boolean {
+  if (spent(trial.requestsUsed, TRIAL_TOTAL_REQUESTS) >= TRIAL_TOTAL_REQUESTS) return true;
+  return spent(trial.tokensUsed, TRIAL_TOTAL_TOKENS) + TYPICAL_TURN_TOKENS > TRIAL_TOTAL_TOKENS;
+}
+
+/**
+ * One line for a read-out: "7 of 25 free requests left".
+ *
+ * Requests are the unit the user was sold and the only one worth counting out
+ * loud — nobody was told about a token, and a number of them means nothing to
+ * anyone. But once *either* ceiling is gone the count is no longer the fact, so
+ * the line stops counting and says what is true instead.
+ */
+export function describeTrial(trial: TrialLedger): string {
+  if (trialSpent(trial)) return 'Free assistant allowance spent';
+  const used = Math.min(TRIAL_TOTAL_REQUESTS, Math.max(0, Math.trunc(trial.requestsUsed)));
   return `${TRIAL_TOTAL_REQUESTS - used} of ${TRIAL_TOTAL_REQUESTS} free requests left`;
 }

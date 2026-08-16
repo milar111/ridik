@@ -23,6 +23,7 @@ import {
   resolveAssistantBudget,
   TRIAL_TOTAL_REQUESTS,
   TRIAL_TOTAL_TOKENS,
+  trialSpent,
   type AssistantBudget,
   type BudgetInput,
 } from '../allowance';
@@ -335,9 +336,46 @@ describe('a free user on a store build', () => {
 });
 
 describe('describeTrial', () => {
-  it('counts down and stops at zero', () => {
-    expect(describeTrial(0)).toBe(`${TRIAL_TOTAL_REQUESTS} of ${TRIAL_TOTAL_REQUESTS} free requests left`);
-    expect(describeTrial(TRIAL_TOTAL_REQUESTS)).toBe(`0 of ${TRIAL_TOTAL_REQUESTS} free requests left`);
-    expect(describeTrial(TRIAL_TOTAL_REQUESTS + 9)).toBe(`0 of ${TRIAL_TOTAL_REQUESTS} free requests left`);
+  it('counts down and stops counting once there is nothing to count', () => {
+    expect(describeTrial(used(0))).toBe(
+      `${TRIAL_TOTAL_REQUESTS} of ${TRIAL_TOTAL_REQUESTS} free requests left`,
+    );
+    expect(describeTrial(used(TRIAL_TOTAL_REQUESTS))).toBe('Free assistant allowance spent');
+    expect(describeTrial(used(TRIAL_TOTAL_REQUESTS + 9))).toBe('Free assistant allowance spent');
+  });
+
+  /**
+   * The trial has two ceilings and either one ends it, so a read-out that
+   * knows about the request counter alone is a read-out that lies exactly when
+   * it matters. Six long dictations spend the token allowance in six requests;
+   * `resolveAssistantBudget` then refuses every turn with `TRIAL_LIMIT_MESSAGE`
+   * while the counter still reads nineteen left, and the row that exists so a
+   * free user is not misled about the limit becomes the thing misleading them.
+   */
+  it('stops counting requests once the token allowance is what ran out', () => {
+    const ledger = used(6, TRIAL_TOTAL_TOKENS - 10);
+
+    // The gate and the sentence agree, which is the whole point.
+    expect(resolve({ trial: ledger }).allowed).toBe(false);
+    expect(trialSpent(ledger)).toBe(true);
+    expect(describeTrial(ledger)).toBe('Free assistant allowance spent');
+    expect(describeTrial(ledger)).not.toMatch(/free requests left/);
+  });
+
+  /* An unreadable counter reads as spent everywhere else; it must not read as
+     19 requests of credit here. */
+  it('reads an unreadable counter as spent', () => {
+    expect(trialSpent({ requestsUsed: Number.NaN, tokensUsed: 0 })).toBe(true);
+    expect(trialSpent({ requestsUsed: 0, tokensUsed: Number.NaN })).toBe(true);
+    expect(describeTrial({ requestsUsed: Number.NaN, tokensUsed: Number.NaN })).toBe(
+      'Free assistant allowance spent',
+    );
+  });
+
+  it('still counts down while both ceilings have room', () => {
+    expect(trialSpent(used(6, 1_000))).toBe(false);
+    expect(describeTrial(used(6, 1_000))).toBe(
+      `${TRIAL_TOTAL_REQUESTS - 6} of ${TRIAL_TOTAL_REQUESTS} free requests left`,
+    );
   });
 });

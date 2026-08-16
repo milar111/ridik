@@ -37,7 +37,7 @@ import {
 import { useEmber, useSetting } from '@/hooks';
 import { useEntitlement } from '@/hooks/useBilling';
 import { ASSISTANT_PROVIDER, type AssistantConsent } from '@/llm/consent';
-import { describeTrial, TRIAL_TOTAL_REQUESTS } from '@/services/billing/allowance';
+import { describeTrial, trialSpent } from '@/services/billing/allowance';
 import {
   describePlan,
   describeRenewal,
@@ -120,6 +120,13 @@ function PlanGroup() {
   // build if anything in the app can write a trial counter. The number is
   // monotonic by design — nothing here may lower it.
   const trialUsed = useSetting('llmTrialRequestsUsed');
+  // The trial's *other* ceiling, and the row is a lie without it. Six long
+  // dictations, two of them repaired, spend the token allowance in six requests
+  // — `resolveAssistantBudget` then refuses every turn with "this install has
+  // used its free assistant allowance" while this row cheerfully reads "19 of
+  // 25 free requests left". The one row that exists so a free user is not
+  // misled about the limit has to know about both of them.
+  const trialTokens = useSetting('llmTrialTokensUsed');
   const simulateStore = useSetting('simulateStoreBuild');
 
   if (entitlement.isLoading && !entitlement.data) return <GroupSkeleton title="Plan" rows={1} />;
@@ -152,20 +159,26 @@ function PlanGroup() {
     plan.known &&
     !plan.active &&
     (isStoreBuild() || simulateStore.value);
-  const trialSpent = trialUsed.value >= TRIAL_TOTAL_REQUESTS;
+  const ledger = { requestsUsed: trialUsed.value, tokensUsed: trialTokens.value };
+  const spent = trialSpent(ledger);
 
   return (
     <Group title="Plan">
       <Row
         icon={plan.active ? 'checkmark-circle-outline' : 'sparkles-outline'}
         label={plan.active ? `${describePlan(plan)} · the assistant` : 'Free'}
-        value={showTrial ? describeTrial(trialUsed.value) : undefined}
+        value={showTrial ? describeTrial(ledger) : undefined}
         hint={
           !showTrial
             ? renewal
-            : trialSpent
+            : spent
               ? 'They are spent, and nothing refills them. Ridik still listens and still files simple phrases on its own; a plan turns the full assistant back on.'
-              : 'They are for the life of this install, not per month. Everything else in Ridik stays free and unlimited.'
+              : // The second ceiling, said in the one sentence a person reads
+                // rather than left to surprise them. Not as a token count —
+                // nobody was sold a token and the number means nothing — but
+                // the fact that a very long dictation is not the same size as
+                // a short one, which is what actually spends it early.
+                'They are for the life of this install, not per month, and very long dictations use more of the allowance than short ones. Everything else in Ridik stays free and unlimited.'
         }
         right={
           <Button
@@ -457,7 +470,21 @@ function DataGroup() {
       {confirming ? (
         <View style={{ padding: spacing.md, gap: spacing.sm }}>
           <Txt variant="body" tone="danger">
-            This deletes everything on this phone. There is no backup and no undo.
+            This empties every note, task, event, list and record Ridik keeps. There is no undo.
+          </Txt>
+          {/*
+            The sentence this replaces said "there is no backup", which stopped
+            being true the day Backup and restore shipped — and the row directly
+            above says the opposite in as many words. Two screens in one app
+            disagreeing about the same button is bad enough; the harm is
+            somebody typing ERASE before selling the phone and leaving a
+            plaintext JSON of every note, contact and transaction in the
+            documents directory, because the button promised it went too.
+            `wipeAllTables` only empties SQLite; it has never touched a file.
+          */}
+          <Txt variant="caption" tone="secondary">
+            Backup files you have already saved are not touched — they are files, not rows. Delete
+            those from “Backup and restore” above if this phone is leaving your hands.
           </Txt>
           <Input
             label="Type ERASE to confirm"

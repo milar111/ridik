@@ -90,6 +90,21 @@ export type TurnOutcome = {
   feedback?: string;
   items: TurnItem[];
   clarification?: { question: string; pending?: string };
+  /**
+   * The turn did not run. Set only where nothing was interpreted and nothing
+   * was written — a transport failure, a 401, a timeout, or an internal throw.
+   *
+   * It exists because `interpretAndExecute` is designed never to *throw*: a
+   * dead network comes back as a resolved outcome carrying a spoken apology and
+   * an empty `items`, which is indistinguishable from a turn that ran and
+   * decided to do nothing. The voice store was reading exactly that difference
+   * to decide whether the sentence had been answered, so a twenty-word
+   * dictation that timed out on a train was filed as *answered* and dropped —
+   * the one failure `recovered` exists to prevent, arriving through the door
+   * nobody watched. A flag rather than a thrown error because the feedback is
+   * still a sentence to say and the audit row has already been written.
+   */
+  failed?: boolean;
 };
 
 export type TurnInput = {
@@ -419,7 +434,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
         latencyMs: elapsed(startedAt),
         model: null,
       });
-      return { transcript, feedback, items: [] };
+      return { transcript, feedback, items: [], failed: true };
     }
   }
 
@@ -468,7 +483,11 @@ export function createOrchestrator(options: OrchestratorOptions) {
         latencyMs: elapsed(startedAt),
         model: null,
       });
-      return { transcript, feedback, items: [] };
+      // Nothing was interpreted, so nothing was written and the sentence is
+      // still owed an answer — see `failed` on `TurnOutcome`. The offline
+      // fallback does not cover this: it only catches a reply that arrived and
+      // was unusable, never a call that never landed.
+      return { transcript, feedback, items: [], failed: true };
     }
 
     const { response, raw, model, usage, calls, degraded } = interpretation.value;
