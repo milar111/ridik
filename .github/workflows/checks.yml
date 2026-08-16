@@ -1,0 +1,104 @@
+# The cheap half of CI: everything that needs no Xcode and no Gradle.
+#
+# This runs on every push and every pull request because it costs about two
+# minutes on a free runner. The expensive half — the actual iOS and Android
+# compiles — is a separate, manually-triggered workflow (`build.yml`), because a
+# native build is twenty minutes of runner time to prove something that a
+# developer with the simulators open already knows.
+#
+# Nothing here needs a secret. The app reads its keys from `EXPO_PUBLIC_*`
+# variables at build time, and none of these steps build.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run pointless.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: typecheck · lint · tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` and not `npm install`: it installs exactly the lock file and
+      # fails if package.json and the lock have drifted, which is the whole
+      # reason to run installs on a machine that is not the author's.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Reports, does not gate — for now.
+      #
+      # `npm run lint` came from the template and had never run once: eslint
+      # itself was not a dependency, so the script failed with "Cannot find
+      # module 'eslint'". Installing it surfaced ~160 findings across a codebase
+      # that has never been linted, and a good half are the React Compiler's
+      # newer rules (`set-state-in-effect`, `purity`, `immutability`) firing on
+      # working, tested code that would need real refactors rather than tidying.
+      #
+      # Gating on that would mean a public repository whose first CI run is red,
+      # which says less about the code than the badge implies. The count is
+      # printed so it can be driven down deliberately; flip `continue-on-error`
+      # off once it reaches zero.
+      - name: Lint
+        continue-on-error: true
+        run: npm run lint
+
+      # The `logic` project runs under plain Node against real SQLite and the
+      # `ui` project under jest-expo. Neither needs a simulator, which is what
+      # makes the whole suite runnable here.
+      - name: Tests
+        run: npm test -- --ci --runInBand
+
+      # The config plugins rewrite the native projects, and a plugin that throws
+      # only surfaces at prebuild — long after the commit that broke it. This
+      # generates both native projects and throws them away: it is the cheapest
+      # thing that can catch a broken plugin, and it needs no toolchain.
+      - name: Prebuild both platforms
+        run: npx expo prebuild --no-install --clean
+
+      # Two invariants the repo states in prose and can therefore lose quietly.
+      - name: Nothing secret is tracked
+        run: |
+          set -e
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "::error::.env is tracked. It holds provider keys."
+            exit 1
+          fi
+          if git ls-files | grep -qE '^credentials/'; then
+            echo "::error::credentials/ is tracked. The Android upload key cannot be rotated."
+            exit 1
+          fi
+          echo "no secrets tracked"
+
+      # The Android manifest points at backup rules a config plugin generates.
+      # They were deleted on every prebuild by another plugin's resource sweep,
+      # the manifest kept naming them, and Android silently backed up nothing —
+      # so losing a phone lost every note. Nothing else fails when this breaks.
+      - name: The database is in the Android backup set
+        run: |
+          set -e
+          rules=android/app/src/main/res/xml/ridik_backup_rules.xml
+          test -f "$rules" || { echo "::error::$rules was not generated"; exit 1; }
+          grep -q 'domain="file" path="SQLite"' "$rules" \
+            || { echo "::error::the database is not in the backup rules"; exit 1; }
+          grep -q 'ridik_backup_rules' android/app/src/main/AndroidManifest.xml \
+            || { echo "::error::the manifest does not point at the generated rules"; exit 1; }
+          echo "database is backed up"

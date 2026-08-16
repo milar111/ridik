@@ -1,0 +1,152 @@
+# The expensive half: actual compiled apps, on demand.
+#
+# Deliberately NOT on every push. A native build is ~20 minutes of macOS runner
+# time per platform to prove something the author already knows from the
+# simulators sitting open on their desk — and macOS minutes bill at ten times
+# the Linux rate. The cheap checks live in `checks.yml` and run on every push;
+# this runs when somebody actually wants an artefact:
+#
+#   * manually, from the Actions tab (choose one platform or both), or
+#   * automatically on a `v*` tag, which is the moment a build stops being a
+#     curiosity and becomes a candidate for a store.
+#
+# What comes out are **debug** builds unless the release inputs are supplied.
+# A debug APK installs on any device and is what you want for "send it to a
+# friend"; it cannot be uploaded to Play or App Store Connect. Shippable
+# artefacts come from `npm run release`, which needs the upload key in
+# `credentials/` — that key is gitignored and is the one credential that cannot
+# be rotated, so it is deliberately not available to CI.
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Which platform to build
+        type: choice
+        options: [both, android, ios]
+        default: both
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android APK
+    # A tag builds everything; a manual run builds what was asked for.
+    if: >-
+      github.event_name == 'push' ||
+      inputs.platform == 'both' ||
+      inputs.platform == 'android'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # JDK 21, not the runner's default. 25 fails `configureCMakeDebug` with
+      # "A restricted method in java.lang.System has been called" — the same
+      # trap AGENTS.md records for local builds, and it costs a full build to
+      # rediscover.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install
+        run: npm ci
+
+      - name: Prebuild
+        run: npx expo prebuild --platform android --no-install --clean
+        env:
+          EXPO_PUBLIC_REVENUECAT_ANDROID_KEY: ${{ secrets.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY }}
+          EXPO_PUBLIC_REVENUECAT_ENTITLEMENT: ${{ secrets.EXPO_PUBLIC_REVENUECAT_ENTITLEMENT }}
+          EXPO_PUBLIC_ONESIGNAL_APP_ID: ${{ secrets.EXPO_PUBLIC_ONESIGNAL_APP_ID }}
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Assemble
+        run: ./android/gradlew -p android assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ridik-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: iOS simulator app
+    if: >-
+      github.event_name == 'push' ||
+      inputs.platform == 'both' ||
+      inputs.platform == 'ios'
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # `--no-install` skips CocoaPods, which deletes `ios/Ridik.xcworkspace`
+      # and leaves xcodebuild reporting only that the workspace "does not
+      # exist". `pod install` has to follow every iOS prebuild.
+      - name: Prebuild
+        run: npx expo prebuild --platform ios --no-install --clean
+        env:
+          EXPO_PUBLIC_REVENUECAT_IOS_KEY: ${{ secrets.EXPO_PUBLIC_REVENUECAT_IOS_KEY }}
+          EXPO_PUBLIC_REVENUECAT_ENTITLEMENT: ${{ secrets.EXPO_PUBLIC_REVENUECAT_ENTITLEMENT }}
+          EXPO_PUBLIC_ONESIGNAL_APP_ID: ${{ secrets.EXPO_PUBLIC_ONESIGNAL_APP_ID }}
+
+      - name: Pods
+        run: pod install --project-directory=ios
+
+      # A simulator build, so no signing identity is needed. A device build
+      # would need the Apple developer account and its certificates, which is
+      # the point at which this stops being free.
+      - name: Build
+        run: |
+          xcodebuild \
+            -workspace ios/Ridik.xcworkspace \
+            -scheme Ridik \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios/build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package
+        run: |
+          cd ios/build/Build/Products/Debug-iphonesimulator
+          zip -ryq Ridik-simulator.zip Ridik.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ridik-ios-simulator
+          path: ios/build/Build/Products/Debug-iphonesimulator/Ridik-simulator.zip
+          if-no-files-found: error
+          retention-days: 14

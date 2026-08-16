@@ -97,7 +97,9 @@ const PANELS: Panel[] = [
     title: 'Stays on this phone',
     body:
       'Your calendar, tasks, notes, lists, spending and the people you keep track of live in one ' +
-      'file on this device. There is no account, nothing to sign in to, and no analytics.',
+      'file on this device. There is no account, nothing to sign in to, and no analytics. That ' +
+      "file is included in your phone's own backup, so if you have iCloud or Google backup " +
+      'switched on, a copy sits in your account — and comes back when you restore a new phone.',
   },
   {
     icon: 'paper-plane-outline',

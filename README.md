@@ -1,63 +1,193 @@
+<!--
+  IMAGES ARE NOT IN YET.
+
+  Every picture below is written out and commented out, waiting for a
+  screenshot. The interface is still moving and a screenshot of a screen that
+  is about to change is worse than none.
+
+  docs/media/SHOTS.md is the shot list: what each image must contain, how to
+  set the simulator up, and which pairs have to be shot at matching sizes.
+  When a shot exists, save it at the path in the image line and delete the two
+  comment markers around it. Nothing else needs editing.
+-->
+
 # Ridik
 
-A voice-first personal operating system for iOS and Android. You talk; it files.
+**A voice-first personal organiser for iOS and Android. You talk; it files.**
 
-One utterance can create a calendar event, cancel another, append a bullet to a note and add three
-items to a shopping list — in one pass, offline-first, on-device.
+One sentence can create a calendar event, cancel another, append a bullet to a note and add three
+items to a shopping list — in one pass, on-device, with no account.
+
+<!-- SHOT: hero
+![Ridik's home screen: a single microphone on a warm ember field](docs/media/hero.png)
+-->
 
 ```
 "Remind me to call Ivo at 4, cancel my Math homework reminder for Sunday,
  and note down that the robotics lab needs 10k resistors."
-    -> calendar_add      { title: "Call Ivo", start: "…T16:00" }
-    -> calendar_delete   { target: { query: "Math homework", on_date: "…" } }
-    -> note_update       { target: { query: "robotics lab" }, append_bullets: ["10k resistors"] }
+
+    → calendar_add      { title: "Call Ivo", start: "…T16:00" }
+    → calendar_delete   { target: { query: "Math homework", on_date: "…" } }
+    → note_update       { target: { query: "robotics lab" }, append_bullets: ["10k resistors"] }
 ```
 
-## What it does
+Three actions, one breath, three separate results — and if one of them fails the other two still
+land.
 
-- **Multi-intent voice capture.** One utterance can create, cancel and note at the same time; every
-  action is applied independently and reported separately, so a failure in one does not lose the rest.
-- **Calendar with judgement.** Events sync to Google and mirror to the phone's own calendar. Anything
-  with a location or classified as an exam gets a 20-minute travel/prep block in front of it, and the
-  block follows the event when it moves and disappears when it is cancelled. Booking — or moving —
-  onto an occupied slot asks first and offers the next free slot.
-- **Schedule inference.** Ridik knows your weekly timetable, so "homework for Math, page 42" lands
-  the day before your next Math class without being told when that is.
-- **Dependency-chain tasks.** "I can't start assembly until the frame is printed and the servos
-  arrive" builds a real DAG. Blocked work is hidden from the daily list until it unlocks, and
-  cycles are refused rather than deadlocked.
-- **Projects, events and trips.** Say "for my Japan trip, remind me to pack slippers" and it lands as
-  a checkbox in the right section. Tasks, notes, lists and spending filed anywhere against a project
-  show up on it.
-- **Structured notes**, deliberately never sorted or searchable by date, with FTS5 search.
-- **Micro-ledger, habits with streaks, transient checklists, a micro-CRM** of people and the promises
-  you made them, **background geofence reminders**, and **focus sessions** that survive the app being
-  killed.
-- **A 15-second spoken morning briefing** built from all of it, plus markdown / PDF / clipboard /
-  email export of your week.
-- **A backup that can come back.** Settings → Your data → Backup writes every row to one JSON file
-  and can restore it onto any install. Restoring **merges**: it adds what is missing and never
-  deletes or overwrites what is already there, and it says so before it runs.
-- Long-press the home-screen icon to start talking without opening a screen.
+---
 
-## Stack
+## The whole app is one screen
+
+A microphone, the next thing on your calendar, and a receipt for the last thing it did. Everything
+else is behind the hamburger. There is no tab bar, no feed, and nothing to scroll on the screen you
+open forty times a day.
+
+| Listening | The receipt |
+| --- | --- |
+| <!-- SHOT: home-listening ![The mic listening, caption replaced by a live partial transcript](docs/media/home-listening.png) --> | <!-- SHOT: receipt ![One sentence, three actions, three separate results, each undoable](docs/media/receipt.png) --> |
+
+**The receipt is the safety model.** Speaking is fast because you do not have to look — which is
+exactly why a misheard word would otherwise land silently and stay wrong. Every turn reports what it
+actually wrote, and anything that created exactly one row can be undone from the card.
+
+Speaking is not always possible, so holding the microphone opens a keyboard instead. The hold draws
+its own progress, and the sheet squares off against the keyboard so the two read as one surface.
+
+| Hold to type | Typing |
+| --- | --- |
+| <!-- SHOT: hold-to-type ![A ring closing onto the mic disc partway through a long press](docs/media/hold-to-type.png) --> | <!-- SHOT: sheet-typing ![The compose sheet flush against the keyboard](docs/media/sheet-typing.png) --> |
+
+---
+
+## It knows enough to be useful
+
+<!-- SHOT: today
+![The day as one scroll: classes, calendar, a travel block sitting in front of an event, what is due](docs/media/today.png)
+-->
+
+**Travel time is blocked before anything you have to get to.** Anything with a location — or
+classified as an exam — gets a 20-minute block in front of it. The block follows the event when it
+moves and disappears when it is cancelled.
+
+**Your timetable is context.** "Homework for Math, page 42" lands the day before your next Math
+class, without being told when that is.
+
+**Double-booking asks first.** Booking or moving onto an occupied slot offers the next free one
+rather than quietly stacking two things at 15:00.
+
+<!-- SHOT: tasks-graph
+![A dependency chain: blocked work hidden behind what unlocks it](docs/media/tasks-graph.png)
+-->
+
+**Work that depends on other work.** "I can't start assembly until the frame is printed and the
+servos arrive" builds a real graph. Blocked tasks stay out of today's list until they unlock, and a
+cycle is refused rather than deadlocked.
+
+<!-- SHOT: notes
+![Structured notes with a checklist section, tags, and full-text search](docs/media/notes.png)
+-->
+
+Notes, lists and checklists with FTS5 search, a micro-ledger, habits with streaks, a small CRM of
+people and the promises you made them, geofenced reminders, and focus sessions that survive the app
+being killed.
+
+<!-- SHOT: menu
+![Every destination in the app, on one page](docs/media/menu.png)
+-->
+
+---
+
+## A briefing, spoken
+
+<!-- SHOT: briefing
+![Today, tomorrow and this week, with a fifteen-second spoken summary](docs/media/briefing.png)
+-->
+
+Fifteen seconds, built from everything above, waiting the first time you open the app each day.
+
+---
+
+## On your home screen
+
+Five widget faces per platform — Today, Agenda, Tasks, Habits and a List — and a microphone on the
+medium and large ones that starts a recording without opening the app.
+
+| iOS | Android |
+| --- | --- |
+| <!-- SHOT: widgets-ios ![WidgetKit faces on an iOS home screen](docs/media/widgets-ios.png) --> | <!-- SHOT: widgets-android ![The same faces on an Android home screen](docs/media/widgets-android.png) --> |
+
+Each widget runs in its own process and can only read what the app published, so one payload feeds
+all ten faces. `WIDGETS.md` is the contract.
+
+---
+
+## Your data stays yours
+
+<!-- SHOT: consent
+![The first-run screen naming every service that receives anything](docs/media/consent.png)
+-->
+
+Everything lives in **one SQLite file on your phone**. No account, nothing to sign in to, no
+analytics.
+
+Turning speech into filed data needs a language model, so the words of your request and a short
+index of your own labels go to Google. **What is inside a note never leaves.** Nothing is sent until
+you have read that screen and agreed to it, and declining leaves a working app — the offline matcher
+still files a plain sentence.
+
+Every outbound path is named on that one screen: the model, the speech recogniser, optional Whisper
+transcription, and the briefing notification. Adding a fifth means adding a sentence there, and a
+test fails if it is missing.
+
+**A backup that can come back.** Settings → Your data writes every row to one JSON file and restores
+it onto any install. Restoring **merges** — it adds what is missing and never deletes or overwrites
+what is already there — and it tells you which it is going to do before it runs.
+
+---
+
+## Plans
+
+| The paywall | Once you have one |
+| --- | --- |
+| <!-- SHOT: paywall ![Two tiers, a billing toggle, and the per-month price of each](docs/media/paywall.png) --> | <!-- SHOT: plan-active ![The subscribed screen, stating the allowance the plan buys](docs/media/plan-active.png) --> |
+
+Everything local is free and unlimited — notes, tasks, timers, the timetable, the widgets. What is
+metered is the part that costs money to run: a request to the model.
+
+| | Monthly | Yearly | Included |
+| --- | --- | --- | --- |
+| **Ridik** | $5 | $4.17/mo | 250 requests a month |
+| **Ridik Pro** | $10 | $8.33/mo | 1,000 requests a month |
+
+A $3 top-up adds 100 requests that never expire and are spent only after your plan or trial has run
+out. Prices come from the store, in your own currency; the numbers above are the US ones.
+
+---
+
+## Dark mode is designed, not inverted
+
+| Light | Dark |
+| --- | --- |
+| <!-- SHOT: hero-light ![The home screen in light mode](docs/media/hero.png) --> | <!-- SHOT: dark ![The same screen in dark mode, re-solved rather than flipped](docs/media/dark.png) --> |
+
+The palette is a warm ground lit as though the microphone were the heat source. Every "black" is a
+warm brown and every "white" is linen; a true grey next to it reads as a bug. A test measures the
+palette as a set — contrast on both grounds, a saturation ceiling, hue separation — because the
+failure mode of a colour system is that each colour is defensible and the set is not.
+
+---
+
+## How it is built
 
 | Layer | Choice | Why |
 | --- | --- | --- |
 | App | Expo SDK 57, React Native 0.86, React 19, TypeScript strict | Native modules via prebuild, one codebase |
-| Routing | expo-router (typed routes) | File-based, deep-linkable from notifications |
-| Storage | expo-sqlite + Drizzle ORM | Everything reads/writes locally and instantly |
+| Routing | expo-router (typed routes) | File-based, deep-linkable from a notification or a widget |
+| Storage | expo-sqlite + Drizzle | Everything reads and writes locally, instantly |
 | Server state | TanStack Query | Optimistic mutations, precise invalidation |
-| UI state | Zustand | The voice session is global, not tree-shaped |
-| LLM | Google Gemini via a provider abstraction | Swappable for an on-device model later |
-| Validation | Zod v4 | Nothing the model emits reaches the database unvalidated |
-| Time | Luxon | Every stored instant is UTC epoch ms; zones resolve at the edges |
-| Speech | expo-speech-recognition (on-device) + Whisper fallback + expo-speech | Works in a quiet room and a noisy lab |
-
-## Architecture
-
-The app is one screen — a microphone, what is next, and a receipt for the last thing it did.
-Everything else lives behind the hamburger in `app/menu.tsx`.
+| Motion | Reanimated 4 | Spring physics, interruptible, reduced-motion aware |
+| Model | Gemini, behind a provider interface | Swappable; the tool contract is the app's, not the vendor's |
+| Billing | RevenueCat, behind a provider interface | One entitlement means the same thing on both stores |
 
 ```
 app/                    expo-router routes (screens only)
@@ -69,119 +199,90 @@ src/
   repositories/         one typed repository per domain; no native imports, fully testable
   llm/                  tool contract (Zod), prompt builder, provider clients, executor, orchestrator
   voice/                STT, VAD, TTS, Whisper fallback
-  services/             calendar sync, focus timers, geofencing, notifications, background tasks
-  features/             home, briefing, export, voice dock
-  hooks/                TanStack Query hooks — the only way screens touch data
+  services/             calendar sync, billing, focus timers, geofencing, notifications, widgets
+  features/             home, briefing, consent, export, voice dock
+  hooks/                TanStack Query hooks — the only way a screen touches data
   ui/                   design tokens and primitives
   startup/              bootstrap sequence
 ```
 
-Three rules hold the whole thing together:
+Four rules hold it together:
 
 1. **Every timestamp crossing a boundary is UTC epoch milliseconds.** Wall-clock strings exist only
    where the model speaks and where the screen renders. `src/core/time.ts` owns every conversion, so
-   a DST transition can never move a stored instant.
-2. **The model never sees an id.** It refers to things the way the user said them; resolution happens
-   in the executor, where a near-tie becomes a spoken question instead of a wrong write.
+   a DST transition cannot move a stored instant.
+2. **The model never sees an id.** It refers to things the way you said them; resolution happens in
+   the executor, where a near-tie becomes a spoken question instead of a wrong write.
 3. **Repositories are pure.** No `expo-*` import anywhere under `src/repositories`, so the test suite
-   drives the real Drizzle driver against a real SQLite engine (`node:sqlite`) — the same code path
-   that ships to the device, not a mock.
+   drives the real Drizzle driver against real SQLite — the code path that ships, not a mock.
+4. **A fuzzy match may answer "I don't know."** `resolveOne()` returns `none | unique | ambiguous`,
+   and an ambiguous match becomes a question. A wrong resolve destroys data silently, which is the
+   one failure this app is built to make impossible.
 
-### The database
+`AGENTS.md` records the rest — every invariant, and every trap that has already cost a debugging
+session.
 
-`src/db/migrations.ts` owns the DDL as hand-written, versioned SQL keyed on `PRAGMA user_version`.
-`src/db/schema.ts` mirrors it for type-safe queries. Migrations run inside a transaction each, and
-the FTS5 migration is skipped (not failed) when the runtime lacks FTS5, with notes search falling
-back to `LIKE`.
+---
 
-## Prerequisites
-
-- Node 20+ (developed on 25)
-- Xcode 26+ with an iOS 26 simulator
-- CocoaPods — `brew install cocoapods`
-- Android SDK with platform 36, build-tools 36, an arm64 system image and an AVD
-- **JDK 21** for the Android build. JDK 25 fails the CMake configure step with
-  `A restricted method in java.lang.System has been called`. A copy is installed at
-  `~/.jdks/temurin-21`:
-
-  ```bash
-  export JAVA_HOME="$HOME/.jdks/temurin-21/Contents/Home"
-  ```
-
-## Running
+## Running it
 
 ```bash
 npm install
 npx expo prebuild            # regenerates ios/ and android/ from app.config.ts
-(cd ios && pod install)
+(cd ios && pod install)      # prebuild --no-install skips this and deletes the workspace
 
 npx expo start               # Metro
 
-# iOS
 npm run ios
 
-# Android — JAVA_HOME must point at JDK 21
-export JAVA_HOME="$HOME/.jdks/temurin-21/Contents/Home"
+export JAVA_HOME="$HOME/.jdks/temurin-21/Contents/Home"   # JDK 25 fails the CMake step
 npm run android
 ```
 
-This is a bare debug build, not Expo Go: the app loads its bundle straight from Metro at
-`localhost:8081`. `expo-dev-client` is deliberately **not** installed — its launcher screen requires
-a manual tap that blocks automated verification, and a plain debug build loads the packager
-directly.
+Requires Node 20+, Xcode 26+ with an iOS 26 simulator, the Android SDK with platform 36, and **JDK
+21**. This is a bare debug build rather than Expo Go — `expo-dev-client` is deliberately absent
+because its launcher needs a manual tap that blocks automated verification.
 
-## Configuration
+### Configuration
 
-Nothing secret is committed. Voice needs a Gemini API key, entered in **Settings → Voice** and stored
-in `expo-secure-store` (never in the database). Without a key the app still works: the mock provider
-falls back to pattern matching for the common commands, and every non-voice surface is unaffected.
-
-Google Calendar sync needs OAuth client ids, read from the environment at build time:
+**Nothing secret is committed.** The Gemini key is entered in the app and stored in the device
+keychain, never in the database and never in the bundle — anything prefixed `EXPO_PUBLIC_` is
+readable inside the shipped `.apk`. Everything below is a publishable identifier, and every
+subsystem no-ops when its value is missing rather than failing:
 
 ```bash
-EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=…
+EXPO_PUBLIC_REVENUECAT_IOS_KEY=appl_…      # unset → a local sandbox that sells nothing
+EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=goog_…
+EXPO_PUBLIC_REVENUECAT_ENTITLEMENT=…       # unset → `assistant`
+EXPO_PUBLIC_ONESIGNAL_APP_ID=…             # unset → no remote push
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=…         # unset → no calendar sync
 EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=…
 EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=…
 ```
 
-Subscriptions and remote push are the same shape — publishable identifiers, read
-from the environment, and each subsystem no-ops when its value is missing rather
-than failing. `DEPLOY.md` §2 has the dashboard steps.
+`DEPLOY.md` has the dashboard steps.
+
+### Testing
 
 ```bash
-EXPO_PUBLIC_REVENUECAT_IOS_KEY=appl_…      # unset → the sandbox billing provider
-EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=goog_…
-EXPO_PUBLIC_REVENUECAT_ENTITLEMENT=…       # unset → `assistant`
-EXPO_PUBLIC_ONESIGNAL_APP_ID=…             # unset → no remote push
-ONESIGNAL_MODE=production                  # build-time only; store builds need it
-```
-
-## Testing
-
-Two Jest projects:
-
-```bash
-npm test              # both
-npm run test:logic    # plain Node — repositories, migrations, LLM engine, services
+npm test              # 117 suites, 2,180+ tests
+npm run test:logic    # plain Node — repositories, migrations, the LLM engine, services
 npm run test:ui       # jest-expo — component tests
 npm run typecheck
+npm run seed          # a realistic database, written through the real repositories
 ```
 
-`logic` runs in plain Node against real SQLite through a `node:sqlite` shim of expo-sqlite's
-synchronous surface, so repository tests exercise the shipped Drizzle driver rather than a fake.
+`logic` runs under plain Node against real SQLite via a `node:sqlite` shim of expo-sqlite's
+synchronous surface, so repository tests exercise the driver that ships. `npm run seed` builds a
+populated database and pushes it into whichever simulators are running — it is both a demo and an
+end-to-end exercise of the data layer.
 
-### Demo data
+CI runs typecheck, lint, the full suite and a prebuild of both platforms on every push; compiled
+apps are a separate, manually-triggered workflow, because a native build is twenty minutes to prove
+something the simulators already showed.
 
-```bash
-npm run seed
-```
+---
 
-Builds a realistic database — a timetable, a trip and a robotics project, a dependency chain, a
-buffered meeting, streaks, spending, people and promises — by writing through the *real*
-repositories, then pushes the file into whichever simulators are running. It is both a way to see
-the app populated and an end-to-end exercise of the data layer. `RIDIK_SEED_PUSH=0` builds the file
-without installing it.
+## Licence
 
-Note: `@testing-library/react-native` v14 is fully async — `render`, `rerender`, `unmount` and
-`fireEvent` all return promises and must be awaited, or act() scopes leak and every query silently
-returns nothing.
+MIT. See `LICENSE`.

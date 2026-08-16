@@ -340,6 +340,20 @@ on their behalf.
   "I didn't quite catch that" over a microphone that captured a whole paragraph
   of silence is how somebody finds out days later.
 
+## Where a file goes
+
+**This repository is public.** Anything an agent writes that is not shipped
+code, shipped docs or a test goes in `notes/`, which is gitignored — working
+lists, audits, research write-ups, migration plans, exit strategies. They are
+genuinely useful and none of them are things a stranger reading the source
+should have to wade through; several also name prices, keys by variable, or
+decisions that have not been taken yet. `BACKLOG.txt` and
+`REMOVING-ONESIGNAL.md` predate the convention and are ignored by name.
+
+The same rule in the other direction: `README.md`, `AGENTS.md`, `WIDGETS.md`
+and `DEPLOY.md` *are* shipped, and are read by people deciding whether to trust
+this app with their calendar.
+
 ## Environment gotchas
 
 - **Android needs JDK 21.** JDK 25 fails `configureCMakeDebug` with

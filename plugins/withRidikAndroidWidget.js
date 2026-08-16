@@ -2521,9 +2521,21 @@ function resourceFiles() {
  * `android/` is not wiped between prebuilds unless `--clean` is passed, so a
  * layout that was renamed leaves its predecessor behind — still compiling,
  * still referencing ids nothing sets, and still the file the launcher inflates
- * if a stale provider XML happens to name it. Every generated file is prefixed
- * `ridik_`, which is what makes this safe to sweep.
+ * if a stale provider XML happens to name it.
+ *
+ * The sweep matches `ridik_*.xml`, and that prefix names the **app**, not this
+ * plugin — which made this function delete another plugin's resources the first
+ * time a second one wrote to `res/`. `withRidikAndroidBackup.js` writes the
+ * device-backup rules the manifest points at; they were removed on every
+ * prebuild, the manifest kept naming them, and Android silently fell back to
+ * backing up nothing. Anything owned elsewhere has to be named here.
  */
+const FOREIGN_RESOURCES = new Set(
+  ['xml/ridik_backup_rules.xml', 'xml/ridik_data_extraction_rules.xml'].map((relative) =>
+    path.normalize(relative),
+  ),
+);
+
 function prune(res, generated) {
   const keep = new Set(Object.keys(generated).map((relative) => path.normalize(relative)));
   if (!fs.existsSync(res)) return;
@@ -2533,6 +2545,7 @@ function prune(res, generated) {
     for (const file of fs.readdirSync(directory)) {
       if (!/^ridik_.*\.xml$/.test(file)) continue;
       const relative = path.normalize(`${folder}/${file}`);
+      if (FOREIGN_RESOURCES.has(relative)) continue;
       if (!keep.has(relative)) fs.unlinkSync(path.join(directory, file));
     }
   }

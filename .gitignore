@@ -80,3 +80,22 @@ BACKLOG.txt
 # code so it is found when it is needed, and out of history so it can be
 # rewritten as the coupling changes.
 REMOVING-ONESIGNAL.md
+
+# -----------------------------------------------------------------------------
+# Anything an agent writes that is not the product.
+#
+# This repository is public. Working notes, audits, research write-ups, plans,
+# migration checklists and exit strategies are all genuinely useful and none of
+# them are things a stranger reading the source should have to wade through —
+# several also name prices, keys by variable, or plans that have not been
+# decided yet.
+#
+# The rule for every future agent, stated in AGENTS.md as well so it is read
+# before it is broken: **a file that is not shipped code, shipped docs or a
+# test goes in `notes/`.** It is kept beside the code so it is found when it is
+# needed, and out of history so it can be rewritten without a commit.
+#
+# BACKLOG.txt and REMOVING-ONESIGNAL.md above predate the convention and are
+# named individually rather than moved, because both are referenced by name in
+# conversations and in AGENTS.md.
+notes/

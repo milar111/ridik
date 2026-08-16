@@ -233,6 +233,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // the template's debug key, which Play rejects. Does nothing until
     // `npm run release keystore` has created one.
     './plugins/withRidikAndroidSigning',
+    './plugins/withRidikAndroidBackup',
   ],
   experiments: {
     typedRoutes: true,
