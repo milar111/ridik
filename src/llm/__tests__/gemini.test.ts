@@ -318,6 +318,48 @@ describe('gemini provider', () => {
     expect(completion.usage).toEqual({ input: 7_300, cached: 6_900, output: 90 });
   });
 
+  /**
+   * Reasoning tokens bill at the output rate — six times input on this family —
+   * and Gemini reports them SEPARATELY from `candidatesTokenCount`, which counts
+   * only the reply a caller can see. Reading just the visible number made every
+   * thinking token invisible to the meter, the cost cap and the free trial, so
+   * the more the model thought the further the estimate drifted below the bill.
+   */
+  it('counts what the model thought as well as what it said', async () => {
+    const { impl } = stubFetch(() =>
+      jsonResponse({
+        candidates: [{ content: { parts: [{ text: '{"actions":[]}' }] }, finishReason: 'STOP' }],
+        usageMetadata: {
+          promptTokenCount: 3_240,
+          candidatesTokenCount: 120,
+          thoughtsTokenCount: 480,
+        },
+      }),
+    );
+    const completion = await createGeminiProvider({ apiKey: 'k', fetchImpl: impl }).complete(
+      request,
+    );
+
+    expect(completion.usage).toEqual({ input: 3_240, output: 600 });
+  });
+
+  /* A model that reported no thinking must not become a model that reported
+     none of anything: undefined means "the provider said nothing", which the
+     meter treats differently from zero. */
+  it('leaves output alone when nothing was thought', async () => {
+    const { impl } = stubFetch(() =>
+      jsonResponse({
+        candidates: [{ content: { parts: [{ text: '{"actions":[]}' }] }, finishReason: 'STOP' }],
+        usageMetadata: { promptTokenCount: 3_240, candidatesTokenCount: 120 },
+      }),
+    );
+    const completion = await createGeminiProvider({ apiKey: 'k', fetchImpl: impl }).complete(
+      request,
+    );
+
+    expect(completion.usage).toEqual({ input: 3_240, output: 120 });
+  });
+
   it.each([
     [429, 'rate_limited', true],
     [500, 'server', true],

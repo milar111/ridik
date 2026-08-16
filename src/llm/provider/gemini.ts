@@ -130,8 +130,26 @@ type GeminiPayload = {
     candidatesTokenCount?: number;
     /** Tokens of `promptTokenCount` that were served from a prompt cache. */
     cachedContentTokenCount?: number;
+    /**
+     * Reasoning tokens, on a thinking-capable model. Billed at the OUTPUT rate
+     * — six times input on this family — and NOT included in
+     * `candidatesTokenCount`, which counts only the reply the caller can see.
+     */
+    thoughtsTokenCount?: number;
   };
 };
+
+/**
+ * Adds two optional counts, staying `undefined` when neither was reported.
+ *
+ * Undefined is not zero here: `usage` being absent means "the provider said
+ * nothing", which the meter treats differently from "it said none". Collapsing
+ * them would record a free turn for a call that billed.
+ */
+function sumTokens(a: number | undefined, b: number | undefined): number | undefined {
+  if (a === undefined && b === undefined) return undefined;
+  return (a ?? 0) + (b ?? 0);
+}
 
 const FINISH_MESSAGES: Record<string, string> = {
   SAFETY: 'Gemini refused that request on safety grounds.',
@@ -279,7 +297,21 @@ export function createGeminiProvider(options: GeminiProviderOptions): GeminiProv
           latencyMs: now() - startedAt,
           usage: {
             input: payload.usageMetadata?.promptTokenCount,
-            output: payload.usageMetadata?.candidatesTokenCount,
+            /**
+             * The reply plus whatever the model thought on the way to it.
+             *
+             * `candidatesTokenCount` is only the visible answer. A thinking
+             * model also returns `thoughtsTokenCount`, billed at the same
+             * output rate, and reading just the first number made every
+             * reasoning token invisible — to the meter, to the cost cap, to
+             * the free trial, and to every estimate built on top of them.
+             * Spend that cannot be seen is spend that cannot be capped, which
+             * is the one failure this whole meter exists to prevent.
+             */
+            output: sumTokens(
+              payload.usageMetadata?.candidatesTokenCount,
+              payload.usageMetadata?.thoughtsTokenCount,
+            ),
             // Only when Google actually reported it. Recorded rather than
             // ignored because it is the one number that says whether prompt
             // caching is doing anything; see the note above `body`.
