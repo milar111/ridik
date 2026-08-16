@@ -99,3 +99,10 @@ REMOVING-ONESIGNAL.md
 # named individually rather than moved, because both are referenced by name in
 # conversations and in AGENTS.md.
 notes/
+
+# Scratch tests an agent writes to reproduce a bug and then forgets to remove.
+# Two of these reached a commit during the August audits. A repro case is a
+# good thing to write and a bad thing to ship: it is named for the bug rather
+# than the behaviour, and it fails as soon as the bug is fixed.
+**/__tests__/zz*.test.ts
+**/__tests__/zz*.test.tsx

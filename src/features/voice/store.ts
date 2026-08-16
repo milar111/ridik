@@ -28,7 +28,15 @@ export type RecoveredTranscript = {
   /** When it was set aside, epoch ms. */
   at: number;
   /** `failed` — the turn errored. `unsent` — it was never sent at all. */
-  reason: 'failed' | 'unsent';
+  /**
+   * Why it is being kept, which decides what the card says.
+   *
+   * `unanswered` is its own reason and not a flavour of `unsent`: walking away
+   * from a question is a different event from a sentence that never left, and
+   * telling somebody their words were "not sent" when what actually happened is
+   * that they dismissed a question describes the wrong half of it.
+   */
+  reason: 'failed' | 'unsent' | 'unanswered';
 };
 
 export type VoiceOutcomeItem = {
@@ -228,12 +236,26 @@ function unanswered(state: VoiceState): RecoveredTranscript | null {
   // call never landed comes back resolved, carrying an apology and no items,
   // and reading only `transcript === transcript` counted that as answered.
   const failed = state.outcome?.failed === true;
-  const answered = state.outcome?.transcript.trim() === text && state.error === null && !failed;
+  // A parked question is not an answer either.
+  //
+  // This conjunct was missing and it lost whole utterances. On the default
+  // `irreversible` confirm mode, "add milk to my shopping list" opens a
+  // question; dismissing it — by the backdrop, which this file's own comment
+  // calls an easy tap to make by accident, or the grabber, or a drag, or
+  // Android Back — left an idle microphone and nothing whatsoever on screen.
+  // Milk was not added and there was no evidence the sentence had ever been
+  // spoken. All three of the other conditions hold on a clarification turn:
+  // the outcome carries the transcript, there is no error, and nothing failed.
+  const parked = state.pendingClarification !== null;
+  const answered =
+    state.outcome?.transcript.trim() === text && state.error === null && !failed && !parked;
   if (answered) return state.recovered;
   // Already kept, and keeping it again would only move its timestamp — which
   // is what the "NOT SENT — KEPT" card sorts and ages by.
   if (state.recovered?.text.trim() === text) return state.recovered;
-  return { text, at: now(), reason: state.error || failed ? 'failed' : 'unsent' };
+  const reason: RecoveredTranscript['reason'] =
+    state.error || failed ? 'failed' : parked ? 'unanswered' : 'unsent';
+  return { text, at: now(), reason };
 }
 
 export const useVoiceStore = create<VoiceState>((set, get) => ({

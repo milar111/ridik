@@ -314,6 +314,31 @@ function str(value: unknown): string | null {
   return trimmed === '' ? null : trimmed;
 }
 
+/**
+ * The thing an action is about, whether it arrived as a string or a target.
+ *
+ * Every entity-targeted tool in the contract takes `target: entityQuerySchema`,
+ * which is an OBJECT — `{ query, on_date?, near_time? }`. `str()` returns null
+ * for an object, and the fallbacks these call sites used (`params.title`,
+ * `params.title_summary`) are fields those tools do not have. So every line
+ * came back null, `compact()` yielded an empty array, and `previewSentence`
+ * degraded to just the title.
+ *
+ * The result was a spoken yes/no question that named nothing: "Delete an
+ * event?" over a fuzzy resolve the user could not see, with no undo underneath
+ * it. The worst instance asked "Curriculum add?" and a yes ran
+ * `DELETE FROM curriculum_schedule` — a whole term, untombstoned, recoverable
+ * only from a JSON backup.
+ */
+function subject(value: unknown): string | null {
+  const direct = str(value);
+  if (direct) return direct;
+  if (value && typeof value === 'object') {
+    return str((value as { query?: unknown }).query);
+  }
+  return null;
+}
+
 function num(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -338,8 +363,35 @@ function when(value: unknown, clock: Clock): string | null {
 
 function list(value: unknown): string | null {
   if (!Array.isArray(value)) return null;
-  const items = value.map(str).filter((line): line is string => line !== null);
+  // Items are strings in some tools and `{ text, quantity }` objects in others
+  // — `checklist_add` sends the latter, and reading only strings dropped every
+  // item from the question that was asked about them.
+  const items = value
+    .map((item) => str(item) ?? str((item as { text?: unknown } | null)?.text))
+    .filter((line): line is string => line !== null);
   return items.length === 0 ? null : items.join(' · ');
+}
+
+/**
+ * Any scalar, as words. Used only by the fallback below.
+ *
+ * Booleans are spelled out rather than printed: `replace_existing: true` is the
+ * difference between adding two classes and deleting a whole term, and "true"
+ * is not what that means to somebody being asked to approve it.
+ */
+function scalar(key: string, value: unknown): string | null {
+  // `subject` first: an entity `target` is an object, and the fallback exists
+  // precisely for tools whose case did not read one — `task_complete` reaches
+  // here with nothing else to say.
+  const text = subject(value);
+  if (text) return text;
+  const n = num(value);
+  if (n !== null) return String(n);
+  if (typeof value === 'boolean') {
+    if (!value) return null;
+    return key === 'replace_existing' ? 'Replaces everything already there' : 'Yes';
+  }
+  return list(value);
 }
 
 /** Present only when there is something to say. */
@@ -360,6 +412,33 @@ function compact(...lines: (string | null)[]): string[] {
  * question with nothing to read and the user will simply press yes.
  */
 export function describeAction(action: LlmAction, clock: Clock): ActionPreview {
+  const preview = describeKnownAction(action, clock);
+  if (preview.lines.length > 0) return preview;
+
+  /*
+   * A blank question is structurally impossible from here down.
+   *
+   * Every case below builds its lines from named fields, and a contract change
+   * that renames one — or a tool whose parameters are a shape the case did not
+   * expect — silently produced a preview with no lines at all. `previewSentence`
+   * then degraded to just the title, so the user was asked "Delete an event?"
+   * and "Curriculum add?" with nothing to judge, on the two tools with the
+   * largest blast radius in the app.
+   *
+   * So a preview that says nothing falls back to every scalar parameter. It can
+   * be ugly — "Replace existing: Replaces everything already there, Classes: …"
+   * is not a sentence anybody wrote — and ugly is strictly better than blank,
+   * because the thing being protected is the user's ability to say no.
+   */
+  const params = (action.parameters ?? {}) as Params;
+  const everything = Object.entries(params)
+    .map(([key, value]) => line(label(key), scalar(key, value)))
+    .filter((entry): entry is string => entry !== null)
+    .slice(0, 5);
+  return { ...preview, lines: everything };
+}
+
+function describeKnownAction(action: LlmAction, clock: Clock): ActionPreview {
   const params = (action.parameters ?? {}) as Params;
 
   switch (action.tool_name) {
@@ -380,14 +459,20 @@ export function describeAction(action: LlmAction, clock: Clock): ActionPreview {
       return {
         title: 'Change an event',
         lines: compact(
-          line('Event', str(params.title) ?? str(params.query)),
+          line('Event', subject(params.target) ?? str(params.title) ?? str(params.query)),
           line('New time', when(params.start, clock)),
           line('New place', str(params.location)),
         ),
       };
 
     case 'calendar_delete':
-      return { title: 'Delete an event', lines: compact(line('Event', str(params.query) ?? str(params.title))) };
+      return {
+        title: 'Delete an event',
+        lines: compact(
+          line('Event', subject(params.target) ?? str(params.query) ?? str(params.title)),
+          line('On', when(params.on_date, clock)),
+        ),
+      };
 
     case 'note_create':
       return {
@@ -403,14 +488,14 @@ export function describeAction(action: LlmAction, clock: Clock): ActionPreview {
       return {
         title: 'Change a note',
         lines: compact(
-          line('Note', str(params.target) ?? str(params.title_summary)),
+          line('Note', subject(params.target) ?? str(params.title_summary)),
           line('Adding', list(params.append_bullets)),
           line('New title', str(params.new_title_summary)),
         ),
       };
 
     case 'note_delete':
-      return { title: 'Delete a note', lines: compact(line('Note', str(params.target) ?? str(params.title_summary))) };
+      return { title: 'Delete a note', lines: compact(line('Note', subject(params.target) ?? str(params.title_summary))) };
 
     case 'habit_log':
       return {
@@ -456,7 +541,7 @@ export function describeAction(action: LlmAction, clock: Clock): ActionPreview {
         title: 'Add a commitment',
         lines: compact(
           line('Who', str(params.person_name) ?? str(params.entity_name)),
-          line('What', str(params.description) ?? str(params.title)),
+          line('What', str(params.commitment_text) ?? str(params.description) ?? str(params.title)),
           line('By', when(params.due ?? params.at, clock)),
         ),
       };
@@ -474,7 +559,7 @@ export function describeAction(action: LlmAction, clock: Clock): ActionPreview {
       return {
         title: words.charAt(0).toUpperCase() + words.slice(1),
         lines: Object.entries(params)
-          .map(([key, value]) => line(label(key), str(value) ?? list(value)))
+          .map(([key, value]) => line(label(key), scalar(key, value)))
           .filter((entry): entry is string => entry !== null)
           .slice(0, 5),
       };

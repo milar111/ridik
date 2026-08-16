@@ -158,8 +158,40 @@ export async function initialisePush(): Promise<Result<PushState>> {
   }
 
   try {
+    /*
+     * Consent BEFORE the SDK's first network call.
+     *
+     * `initialize()` registers this device with OneSignal — onesignal_id, a
+     * subscription record, device model, OS version, timezone, language and an
+     * IP-derived country — and it did so on every cold start, before the
+     * first-run screen had been answered. The briefing's *content* was gated
+     * correctly through `mayPublishBriefing`; the registration itself was not
+     * gated at all, which is precisely the ordering Apple's 5.1.2(i) guidance
+     * rejects for, and it made `ConsentScreen`'s claim that the model and the
+     * briefing "are the only other things that can leave this phone" untrue on
+     * the very first launch.
+     *
+     * `setConsentRequired(true)` makes the SDK hold everything until told
+     * otherwise, so `initialize()` stays where it is — skipping it would break
+     * the notification-tap route and the Android channel setup, both of which
+     * are local. Nothing leaves until `setConsentGiven(true)`.
+     *
+     * The row is read directly rather than through the React gate: this runs
+     * in the bootstrap sequence, and importing the hook would pull React into
+     * a module that has to load before the tree mounts.
+     */
+    if (typeof OneSignal.setConsentRequired !== 'function') {
+      // Fail closed, loudly. An SDK that cannot be told to hold its traffic
+      // must not be initialised at all: registering the device is the thing
+      // consent gates, and doing it anyway because a method was missing is
+      // exactly the silent ungated path this block exists to remove.
+      log.warn('push SDK cannot gate consent; not initialising');
+      return ok(pushStatus());
+    }
+    OneSignal.setConsentRequired(true);
     OneSignal.initialize(id);
     state.configured = true;
+    await syncPushConsent();
 
     // `initialize` does not prompt — the v3 SDK did, the v5 one does not — and
     // nothing in this file asks either. Permission is granted through the
@@ -290,6 +322,32 @@ export async function setPushEnabled(enabled: boolean): Promise<Result<PushState
  *
  * Fails closed: an answer that could not be read is not a yes.
  */
+/**
+ * Tells the SDK whether it may talk to anyone yet.
+ *
+ * Called at init, whenever a briefing is published, and when the app comes back
+ * to the foreground — the three moments the answer can have changed. Revoking
+ * consent takes effect on the next one of those, which is also when the tags
+ * are cleared.
+ */
+export async function syncPushConsent(): Promise<void> {
+  const OneSignal = load();
+  if (!OneSignal) return;
+  let granted = false;
+  try {
+    granted = mayReachProvider(await getRepositories().settings.get('assistantConsent'));
+  } catch (error) {
+    // Unreadable is not a yes — the same rule the rest of the consent path uses.
+    log.warn('could not read assistant consent; holding push', error);
+    granted = false;
+  }
+  try {
+    OneSignal.setConsentGiven(granted);
+  } catch (error) {
+    log.warn('could not set push consent', error);
+  }
+}
+
 async function mayPublishBriefing(): Promise<boolean> {
   if (!state.optedIn) return false;
   try {
@@ -336,8 +394,13 @@ export async function refreshBriefingTags(
   // agreed to share should be read, let alone composed into a sentence.
   if (!(await mayPublishBriefing())) {
     withdrawTags(OneSignal);
+    // And stop the SDK talking at all, not just stop it carrying a briefing:
+    // revoking consent has to reach the registration, not only the payload.
+    await syncPushConsent();
     return ok(null);
   }
+  // The other direction — a grant that arrived since init.
+  await syncPushConsent();
   withdrawn = false;
 
   const at = now();
@@ -383,6 +446,9 @@ export async function refreshBriefingTags(
 
 function onAppStateChange(status: AppStateStatus): void {
   if (status === 'active') {
+    // Consent may have been granted — or revoked — on the screen the user was
+    // just on, so the SDK is told before anything is uploaded.
+    void syncPushConsent();
     // The grant may have happened in system settings while we were away.
     void reconcileSubscription();
     void refreshBriefingTags();

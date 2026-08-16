@@ -50,6 +50,7 @@ import {
   type Plan,
   type PlanTier,
 } from '@/services/billing/entitlement';
+import { privacyPolicyUrl, termsUrl } from '@/services/legal';
 import {
   annualPitch,
   annualSaving,
@@ -573,6 +574,66 @@ function Offer() {
         Billed through your app store account and renewed automatically until you cancel there.
         Ridik never sees your card.
       </Txt>
+
+      <LegalLinks />
     </>
+  );
+}
+
+/**
+ * The privacy policy and the terms, on the screen that sells the subscription.
+ *
+ * Required, not decorative: Apple's Developer Program Licence Agreement,
+ * Schedule 2 §3.8(b) makes both a condition of selling an auto-renewing
+ * subscription, and 3.1.2 review rejects paywalls that omit them. They existed
+ * in Settings → About, which is where the developer sees them every day and the
+ * buyer never does.
+ *
+ * Rendered as text buttons rather than a card: they are a legal footer, and
+ * anything with a border here would compete with the plan cards above.
+ */
+function LegalLinks() {
+  const { colors, spacing } = useTheme();
+  const toast = useToast();
+  const privacy = privacyPolicyUrl();
+  const terms = termsUrl();
+
+  const open = (url: string | null, what: string) => {
+    if (!url) {
+      // Said rather than silently ignored. A row that opens nothing is the
+      // failure this replaces.
+      toast.show({ message: `No ${what} is set up yet.`, tone: 'warning' });
+      return;
+    }
+    void Linking.openURL(url).catch(() =>
+      toast.show({ message: `Could not open the ${what}.`, tone: 'danger' }),
+    );
+  };
+
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: spacing.lg }}>
+      <Pressable
+        testID="plans-privacy"
+        accessibilityRole="link"
+        accessibilityLabel="Privacy policy"
+        onPress={() => open(privacy, 'privacy policy')}
+        hitSlop={10}
+      >
+        <Txt variant="caption" style={{ color: colors.accent }}>
+          Privacy policy
+        </Txt>
+      </Pressable>
+      <Pressable
+        testID="plans-terms"
+        accessibilityRole="link"
+        accessibilityLabel="Terms of use"
+        onPress={() => open(terms, 'terms of use')}
+        hitSlop={10}
+      >
+        <Txt variant="caption" style={{ color: colors.accent }}>
+          Terms of use
+        </Txt>
+      </Pressable>
+    </View>
   );
 }

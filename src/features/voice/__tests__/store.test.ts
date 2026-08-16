@@ -119,3 +119,67 @@ describe('voice store', () => {
     expect(useVoiceStore.getState().needsRetry).toBe(false);
   });
 });
+
+/**
+ * Walking away from a question must not lose the sentence.
+ *
+ * The default confirm mode parks ordinary utterances behind a yes/no, and the
+ * sheet is dismissible by a backdrop tap this file's own source calls easy to
+ * make by accident. Dismissing it used to leave an idle microphone and nothing
+ * on screen at all — no receipt, no kept transcript, no toast — because a
+ * clarification turn satisfies every test for "answered": the outcome carries
+ * the transcript, there is no error, and nothing failed.
+ */
+describe('a dismissed question keeps the words', () => {
+  // `reset()` deliberately does NOT clear `recovered` — a kept transcript
+  // outliving a reset is the whole point of it — so each case clears it
+  // explicitly rather than leaking the previous one's.
+  beforeEach(() => {
+    useVoiceStore.getState().reset();
+    useVoiceStore.getState().discardRecovered();
+  });
+
+  it('keeps the transcript when the sheet is closed on a parked question', () => {
+    useVoiceStore.setState({
+      transcript: 'add milk to my shopping list',
+      outcome: { transcript: 'add milk to my shopping list', items: [] },
+      pendingClarification: { question: 'Add to a list?' } as never,
+      error: null,
+    });
+
+    useVoiceStore.getState().close();
+
+    const kept = useVoiceStore.getState().recovered;
+    expect(kept?.text).toBe('add milk to my shopping list');
+    expect(kept?.reason).toBe('unanswered');
+  });
+
+  /* And the question itself is still dropped — a parked envelope echoed back on
+     the next utterance is how a walked-away-from delete fires hours later. */
+  it('still forgets the question', () => {
+    useVoiceStore.setState({
+      transcript: 'delete my dentist appointment',
+      outcome: { transcript: 'delete my dentist appointment', items: [] },
+      pendingClarification: { question: 'Delete an event?' } as never,
+    });
+
+    useVoiceStore.getState().close();
+
+    expect(useVoiceStore.getState().pendingClarification).toBeNull();
+  });
+
+  /* An ordinary answered turn is still not kept — otherwise every successful
+     sentence would pile up a card saying it had not been dealt with. */
+  it('keeps nothing when the turn was actually answered', () => {
+    useVoiceStore.setState({
+      transcript: 'log gym',
+      outcome: { transcript: 'log gym', items: [{ toolName: 'habit_log', ok: true, summary: 'Logged Gym.' }] },
+      pendingClarification: null,
+      error: null,
+    });
+
+    useVoiceStore.getState().close();
+
+    expect(useVoiceStore.getState().recovered).toBeNull();
+  });
+});

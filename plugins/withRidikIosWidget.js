@@ -339,7 +339,10 @@ function withWidgetTarget(config, { targetBundleIdentifier }) {
       SKIP_INSTALL: 'YES',
       // Unset at project level, and Xcode refuses to compile Swift without it.
       SWIFT_VERSION: '5.0',
-      TARGETED_DEVICE_FAMILY: '"1,2"',
+      // Must match the host app's `ios.supportsTablet` in app.config.ts.
+      // A host declaring "1" beside an extension declaring "1,2" fails upload
+      // validation, and the error names neither file.
+      TARGETED_DEVICE_FAMILY: '"1"',
       ...(developmentTeam ? { DEVELOPMENT_TEAM: developmentTeam } : {}),
     };
 

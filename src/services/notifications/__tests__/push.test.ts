@@ -39,12 +39,21 @@ const mockAddTags = jest.fn();
 const mockRemoveTags = jest.fn();
 const mockOptedIn = jest.fn(async () => true);
 const mockInitialize = jest.fn();
+const mockSetConsentRequired = jest.fn();
+const mockSetConsentGiven = jest.fn();
 
 jest.mock(
   'react-native-onesignal',
   () => ({
     OneSignal: {
       initialize: (...args: unknown[]) => mockInitialize(...args),
+      // The v5 consent gate. `initialize()` registers the device with OneSignal
+      // — onesignal_id, device model, OS, timezone, IP-derived country — and
+      // used to do so on the first cold start, before the consent screen had
+      // been answered. `setConsentRequired(true)` makes the SDK hold all of
+      // that until `setConsentGiven(true)`.
+      setConsentRequired: (...args: unknown[]) => mockSetConsentRequired(...args),
+      setConsentGiven: (...args: unknown[]) => mockSetConsentGiven(...args),
       Notifications: { addEventListener: () => {} },
       User: {
         addTags: (...args: unknown[]) => mockAddTags(...args),
@@ -121,7 +130,61 @@ beforeEach(() => {
   mockAddTags.mockClear();
   mockRemoveTags.mockClear();
   mockInitialize.mockClear();
+  mockSetConsentRequired.mockClear();
+  mockSetConsentGiven.mockClear();
   mockOptedIn.mockResolvedValue(true);
+});
+
+/**
+ * The SDK itself, not just the payload.
+ *
+ * `mayPublishBriefing` correctly gated the briefing's *content* — no event
+ * title or person's name was ever uploaded without consent. What was not gated
+ * was `initialize()`, which registers the device with OneSignal on the first
+ * cold start: onesignal_id, a subscription record, device model, OS version,
+ * timezone, language and an IP-derived country, before the first-run screen
+ * had been answered.
+ *
+ * That is the ordering Apple's 5.1.2(i) guidance rejects for, and it made the
+ * consent screen's claim that the model and the briefing "are the only other
+ * things that can leave this phone" untrue on launch one.
+ */
+describe('the SDK is held until consent is answered', () => {
+  it.each(['unset', 'declined'] as const)('holds everything while consent is %p', async (consent) => {
+    await boot(consent);
+
+    // Still initialised: the tap route and the Android notification channel are
+    // local, and skipping init would break both. Nothing may LEAVE, which is a
+    // different thing from nothing may run.
+    expect(mockInitialize).toHaveBeenCalledWith('an-app-id');
+    expect(mockSetConsentRequired).toHaveBeenCalledWith(true);
+    expect(mockSetConsentGiven).toHaveBeenCalledWith(false);
+  });
+
+  it('lets it speak once consent is granted', async () => {
+    await boot('granted');
+
+    expect(mockSetConsentRequired).toHaveBeenCalledWith(true);
+    expect(mockSetConsentGiven).toHaveBeenCalledWith(true);
+  });
+
+  /* Ordering matters and is the whole fix: told to hold BEFORE it is started,
+     never after. A gate applied a tick late is a gate the first request beat. */
+  it('requires consent before it initialises, not after', async () => {
+    await boot('granted');
+
+    const required = mockSetConsentRequired.mock.invocationCallOrder[0] ?? Infinity;
+    const initialised = mockInitialize.mock.invocationCallOrder[0] ?? -Infinity;
+    expect(required).toBeLessThan(initialised);
+  });
+
+  /* Unreadable is not a yes — the rule the whole consent path uses. */
+  it('holds when the answer cannot be read at all', async () => {
+    mockConsentUnreadable = true;
+    await boot('granted');
+
+    expect(mockSetConsentGiven).toHaveBeenCalledWith(false);
+  });
 });
 
 describe('the briefing tags', () => {

@@ -17,7 +17,24 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   userInterfaceStyle: 'automatic',
   assetBundlePatterns: ['**/*'],
   ios: {
-    supportsTablet: true,
+    /*
+     * iPhone only, deliberately.
+     *
+     * `orientation: 'portrait'` above and the Android manifest's own
+     * `screenOrientation="portrait"` say what this app is: a one-handed
+     * instrument with a microphone under the thumb. Nothing in it is designed
+     * for a 13-inch landscape canvas, and an iPad-capable binary obliges a full
+     * set of 13" screenshots at upload.
+     *
+     * Kept in step with `TARGETED_DEVICE_FAMILY` in
+     * `plugins/withRidikIosWidget.js`: a host app declaring "1" while its
+     * widget extension declares "1,2" fails upload validation, and the error
+     * names neither file.
+     *
+     * Dropping iPad AFTER a release is treated as removing device support, so
+     * this is a decision to take before the first upload rather than after.
+     */
+    supportsTablet: false,
     bundleIdentifier: 'ai.raisen.ridik',
     // Every upload needs a build number higher than the last one App Store
     // Connect accepted, even when `version` has not moved. `npm run release
@@ -28,7 +45,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     infoPlist: {
       NSSupportsLiveActivities: true,
       NSSupportsLiveActivitiesFrequentUpdates: true,
-      UIBackgroundModes: ['location', 'fetch', 'processing', 'audio', 'remote-notification'],
+      /*
+       * `audio` is deliberately absent. Nothing plays in the background: the
+       * focus ticker is off while backgrounded and phase changes are OS-held
+       * local notifications. An unused background mode is a 2.5.4 rejection,
+       * and it is also re-appended by expo-audio unless that plugin is told
+       * not to — see `enableBackgroundPlayback` below. Removing it here alone
+       * does nothing.
+       */
+      UIBackgroundModes: ['location', 'fetch', 'processing', 'remote-notification'],
       NSMicrophoneUsageDescription:
         'Ridik listens to your voice so you can capture tasks, notes and reminders hands-free.',
       NSSpeechRecognitionUsageDescription:
@@ -74,9 +99,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'android.permission.ACCESS_COARSE_LOCATION',
       'android.permission.ACCESS_FINE_LOCATION',
       'android.permission.ACCESS_BACKGROUND_LOCATION',
-      'android.permission.FOREGROUND_SERVICE',
-      'android.permission.FOREGROUND_SERVICE_LOCATION',
-      'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+      /*
+       * FOREGROUND_SERVICE, _LOCATION and _SPECIAL_USE were declared and
+       * unreachable. No service declares `foregroundServiceType="specialUse"`
+       * and there is no PROPERTY_SPECIAL_USE_FGS_SUBTYPE, so Android 14+ would
+       * reject `startForeground` anyway; the location wake path returns early
+       * off iOS and never sets the `foregroundService` key the task consumer
+       * requires. Play's permissions policy treats an unused foreground-service
+       * declaration as grounds for manual review, and `specialUse` in
+       * particular invites it. `isAndroidForegroundServiceEnabled: false` below
+       * stops expo-location re-adding them.
+       */
       'android.permission.POST_NOTIFICATIONS',
       'android.permission.READ_CALENDAR',
       'android.permission.WRITE_CALENDAR',
@@ -136,7 +169,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
           'Ridik uses your location to trigger place-based reminders.',
         isIosBackgroundLocationEnabled: true,
         isAndroidBackgroundLocationEnabled: true,
-        isAndroidForegroundServiceEnabled: true,
+        // Geofencing does not need one — the OS holds the regions. See the note
+        // on the removed permissions above.
+        isAndroidForegroundServiceEnabled: false,
       },
     ],
     [
@@ -150,8 +185,31 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       'expo-audio',
       {
+        /*
+         * This is the string iOS actually shows.
+         *
+         * `applyPermissions` resolves `permissions[p] || infoPlist[p] || default`,
+         * so this plugin's value beats the `ios.infoPlist` one above and
+         * expo-speech-recognition's identical one — regardless of plugin order.
+         * It used to describe only the optional Whisper fallback ("short audio
+         * clips when on-device transcription is unavailable"), which omits the
+         * app's primary and constant use of the microphone: the entire product.
+         * 5.1.1(ii) requires the purpose string to be complete, and setting
+         * `microphonePermission: false` deletes the key, which is a worse
+         * rejection than a poor sentence.
+         *
+         * It also discloses that audio can leave the device, because it can:
+         * the recogniser streams to Apple or Google when the phone has no
+         * offline voice, and Whisper posts to OpenAI.
+         */
         microphonePermission:
-          'Ridik records short audio clips when on-device transcription is unavailable.',
+          'Ridik listens to your voice so you can capture tasks, notes and reminders ' +
+          'hands-free. When your phone cannot transcribe offline, the recording is sent ' +
+          'to a speech service to be turned into text.',
+        // Nothing plays or records in the background; both default to true and
+        // re-add the iOS `audio` background mode when they do.
+        enableBackgroundPlayback: false,
+        enableBackgroundRecording: false,
       },
     ],
     [

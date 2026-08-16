@@ -57,7 +57,22 @@ export type AddDependencyByTitlesInput = {
   childDue?: number | null;
   projectId?: string | null;
 };
-export type AddDependencyByTitlesResult = AddDependenciesResult & { created: Task[] };
+export type AddDependencyByTitlesResult = AddDependenciesResult & {
+  created: Task[];
+  /**
+   * Whether the *child* is one of the newly created tasks.
+   *
+   * `resolveOrCreate` fuzzy-matches the child title against every existing task
+   * at `REUSE_THRESHOLD`, so "I can't paint the shed until I've bought the
+   * paint" reuses a "Paint the shed" that already exists — which is the correct
+   * behaviour and was reported as a creation. The receipt said `Added "Paint
+   * the shed"` and handed undo that task's id; undo hard-deletes, and
+   * `onDelete: 'cascade'` took its dependency edges with it. A month of notes
+   * and a due date, gone, from a card that offered to take back something it
+   * had not done.
+   */
+  childCreated: boolean;
+};
 
 export type CompleteTaskResult = { task: Task; unlocked: Task[] };
 export type UncompleteTaskResult = { task: Task; relocked: Task[] };
@@ -426,7 +441,16 @@ export function createTasksRepository(db: RidikDatabase) {
 
         const refreshedChild = await requireTask(child.id);
         await linkParents(refreshedChild, parents);
-        return { child: await requireTask(child.id), parents, created };
+        // `childCreated` is the difference between "Added X" and "Blocked X",
+        // and between an undo that is safe and one that hard-deletes a task the
+        // user has had for a month. `resolveOrCreate` is the only thing that
+        // knows, and it knew silently — every caller had to assume.
+        return {
+          child: await requireTask(child.id),
+          parents,
+          created,
+          childCreated: created.some((t) => t.id === child.id),
+        };
       });
     },
 

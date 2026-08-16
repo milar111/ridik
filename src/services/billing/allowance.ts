@@ -165,6 +165,66 @@ export type AssistantBudget =
       action: BudgetAction | null;
     };
 
+/**
+ * A meter refusal a bought top-up is allowed to overturn.
+ *
+ * The second half of the credits decision, and it lives here rather than in the
+ * pipeline for the reason the invariant gives: one decision, then one
+ * measurement. `resolveAssistantBudget` says who may spend; the meter says how
+ * much has been spent; and when the meter refuses, the question "may this be
+ * paid for out of the balance instead" is the *first* decision again, not a new
+ * one taken somewhere else.
+ *
+ * It was missing entirely. `fromCredits()` is reachable only through `refuse()`,
+ * which covers a spent trial and an oversized turn — but a subscriber who runs
+ * out of their monthly allowance is refused by the *meter*, downstream, and
+ * that path never looked at the balance. So the one person the top-up was
+ * built for, who bought it for exactly this moment, was told to wait until next
+ * month while their 100 paid requests sat untouched.
+ *
+ * Two things it will not overturn:
+ *
+ *   the daily window   — a rate limit on the operator's key, not an allowance
+ *                        anybody bought. Buying a top-up does not buy the right
+ *                        to spend it all in one afternoon.
+ *   a developer cap    — the sliders on the developer screen. A store build
+ *                        applies none, so in practice this only matters on a
+ *                        personal build, where `state` is 'personal' and there
+ *                        is nothing to buy anyway.
+ *
+ * Returns null when the refusal stands.
+ */
+export function creditsCoverBreach(input: {
+  budget: AssistantBudget;
+  credits: CreditLedger | undefined;
+  /** Which window the meter refused on. */
+  window: 'today' | 'month';
+}): AssistantBudget | null {
+  const { budget, window } = input;
+  if (window !== 'month') return null;
+  if (!budget.allowed) return null;
+  // Only a bought allowance may be topped up. 'personal' is the developer's own
+  // key and 'unknown' is a store that could not be asked — neither is a state
+  // in which somebody's purchase should be quietly consumed.
+  if (budget.state !== 'subscribed') return null;
+
+  const ledger = input.credits ?? NO_CREDITS;
+  if (creditsRemaining(ledger) <= 0) return null;
+
+  return {
+    allowed: true,
+    state: 'credits',
+    // No further ceiling: the meter has already refused this window, and
+    // handing it the same caps would refuse again. The balance is the ceiling,
+    // and it is drawn down one request at a time by `chargeCredits`.
+    caps: { daily: { requests: UNLIMITED }, monthly: { requests: UNLIMITED } },
+    metersTrial: false,
+    metersCredits: true,
+    notice: creditsNotice(ledger),
+    action: PLANS,
+  };
+}
+
 /** The one route that sells anything. */
 const PLANS: BudgetAction = { label: 'See plans', href: '/plans' };
 

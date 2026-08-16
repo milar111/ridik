@@ -1340,8 +1340,30 @@ export function createExecutor(ctx: ExecutionContext) {
 
       const parents = linked.value.parents;
       const child = (await repos.tasks.getTask(linked.value.child.id)) ?? linked.value.child;
-      return done(`Added ${quote(child.title)}, blocked until ${joinNatural(parents.map((p) => p.title))} ${parents.length === 1 ? 'is' : 'are'} done.`, {
-        entityId: child.id,
+      const blockedBy = `${joinNatural(parents.map((p) => p.title))} ${parents.length === 1 ? 'is' : 'are'} done`;
+
+      /*
+       * "Added" only when something was added.
+       *
+       * The child title is fuzzy-matched against existing tasks, so this branch
+       * routinely *reuses* a task the user already had — and said "Added" about
+       * it, with the reused id as `entityId`. `undo.ts` maps `task_add` to a
+       * task delete on the premise that the tool always creates exactly one row
+       * and reports it, which is true only of the branch below. So tapping Undo
+       * on "Added \"Paint the shed\"" hard-deleted a month-old task and, by
+       * cascade, its dependency edges.
+       *
+       * Omitting `entityId` on the reuse path is what removes the button:
+       * `undoableAction` returns null without one. That is correct rather than
+       * merely safe — undo here would have to mean "delete the parents I
+       * created and the edges I drew", which is not something this receipt can
+       * express, and offering a button that does something else is the bug.
+       */
+      const summary = linked.value.childCreated
+        ? `Added ${quote(child.title)}, blocked until ${blockedBy}.`
+        : `${quote(child.title)} is now blocked until ${blockedBy}.`;
+      return done(summary, {
+        ...(linked.value.childCreated ? { entityId: child.id } : {}),
         href: '/tasks',
         detail: joinDetail([
           reason,

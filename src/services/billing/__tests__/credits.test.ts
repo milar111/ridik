@@ -15,7 +15,7 @@
  * and it is the reason credits are reached through `refuse()` rather than
  * checked up front.
  */
-import { resolveAssistantBudget } from '../allowance';
+import { creditsCoverBreach, resolveAssistantBudget } from '../allowance';
 import {
   NO_CREDITS,
   TOPUP_REQUESTS,
@@ -235,6 +235,86 @@ describe('when a top-up is spent', () => {
     });
 
     expect(budget.allowed).toBe(false);
+  });
+
+  /**
+   * The moment the top-up was actually sold for.
+   *
+   * A 250-a-month subscriber speaks their 251st utterance. That refusal does
+   * not come from `resolveAssistantBudget` — the plan is active and the trial
+   * is irrelevant — it comes from the *meter*, downstream. The only path to the
+   * balance ran through `refuse()` inside the first decision, so the person who
+   * bought a top-up for exactly this was told to wait until next month with
+   * 100 paid requests untouched, on a screen that promises the opposite.
+   */
+  it('covers a subscriber whose month has run out', () => {
+    const budget = resolveAssistantBudget({
+      storeBuild: true,
+      entitlement: SUBSCRIBED,
+      trial: FRESH_TRIAL,
+      credits: { purchased: 100, used: 0 },
+      caps: NO_CAPS,
+    });
+
+    const covered = creditsCoverBreach({
+      budget,
+      credits: { purchased: 100, used: 0 },
+      window: 'month',
+    });
+
+    expect(covered?.allowed).toBe(true);
+    expect(covered?.allowed && covered.state).toBe('credits');
+    expect(covered?.allowed && covered.metersCredits).toBe(true);
+  });
+
+  /**
+   * The daily window is the operator's rate limit, not an allowance anybody
+   * bought. A top-up buys 100 requests; it does not buy the right to spend
+   * them all this afternoon on somebody else's key.
+   */
+  it('does not buy out the daily rate limit', () => {
+    const budget = resolveAssistantBudget({
+      storeBuild: true,
+      entitlement: SUBSCRIBED,
+      trial: FRESH_TRIAL,
+      credits: { purchased: 100, used: 0 },
+      caps: NO_CAPS,
+    });
+
+    expect(
+      creditsCoverBreach({ budget, credits: { purchased: 100, used: 0 }, window: 'today' }),
+    ).toBeNull();
+  });
+
+  /* A personal build's ceilings are the developer's own sliders, and there is
+     nothing to buy on it anyway. */
+  it('does not overturn a developer cap on a personal build', () => {
+    const budget = resolveAssistantBudget({
+      storeBuild: false,
+      entitlement: FREE,
+      trial: FRESH_TRIAL,
+      credits: { purchased: 100, used: 0 },
+      caps: { daily: 5, monthly: 50 },
+    });
+
+    expect(budget.allowed && budget.state).toBe('personal');
+    expect(
+      creditsCoverBreach({ budget, credits: { purchased: 100, used: 0 }, window: 'month' }),
+    ).toBeNull();
+  });
+
+  it('still refuses when the balance is empty', () => {
+    const budget = resolveAssistantBudget({
+      storeBuild: true,
+      entitlement: SUBSCRIBED,
+      trial: FRESH_TRIAL,
+      credits: { purchased: 100, used: 100 },
+      caps: NO_CAPS,
+    });
+
+    expect(
+      creditsCoverBreach({ budget, credits: { purchased: 100, used: 100 }, window: 'month' }),
+    ).toBeNull();
   });
 
   /* Said on every turn a top-up pays for, not only at the end: it is the one

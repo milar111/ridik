@@ -50,7 +50,7 @@ import type { ExecutorEffects } from '@/llm/executor';
 import { createGeminiProvider, createHostedProvider, createMockProvider } from '@/llm/provider';
 import { getRepositories } from '@/repositories';
 import { defaultSettings, type SettingsValues } from '@/repositories/settings';
-import { resolveAssistantBudget, type BudgetAction } from '@/services/billing/allowance';
+import { creditsCoverBreach, resolveAssistantBudget, type BudgetAction } from '@/services/billing/allowance';
 import { currentEntitlement, isStoreBuild } from '@/services/billing/entitlement';
 import { NO_CREDITS, purchasedFrom } from '@/services/billing/credits';
 import { chargeCredits, readCreditsUsed } from '@/services/billing/creditsLedger';
@@ -447,6 +447,35 @@ async function assistantBudget(options: BudgetOptions): Promise<TurnBudget> {
         estimate: { tokens: estimatedTokens },
       });
       if (!verdict.ok) {
+        /*
+         * Before the door shuts: can this be paid for out of a top-up?
+         *
+         * The decision is `creditsCoverBreach`, in allowance.ts, and not an
+         * `if` written here — the invariant is one decision then one
+         * measurement, and this is the same decision being asked again with
+         * the measurement in hand. A subscriber who bought a top-up for
+         * exactly this moment used to be refused anyway, because the only path
+         * to the balance ran through `refuse()` inside the first decision and
+         * a spent monthly allowance is refused by the meter, downstream of it.
+         */
+        const breach = (verdict.error.details as { breach?: { window?: string } } | undefined)
+          ?.breach;
+        const covered = creditsCoverBreach({
+          budget,
+          credits,
+          window: breach?.window === 'today' ? 'today' : 'month',
+        });
+        if (covered?.allowed) {
+          return {
+            blocked: null,
+            notice: covered.notice,
+            action: covered.action,
+            trial: false,
+            credits: true,
+            estimatedTokens,
+          };
+        }
+
         const message = verdict.error.userMessage;
         return {
           blocked: message,

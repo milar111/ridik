@@ -57,7 +57,11 @@ export function UnsentTranscript({ maxWidth }: { maxWidth?: number }) {
             a flex row short and clips it rather than wrapping it. */}
         <View style={{ flex: 1, gap: 2 }}>
           <Txt variant="micro" tone="warning" weight="600">
-            {recovered.reason === 'failed' ? 'NOT SENT — KEPT' : 'UNSENT — KEPT'}
+            {recovered.reason === 'failed'
+              ? 'NOT SENT — KEPT'
+              : recovered.reason === 'unanswered'
+                ? 'NOT ANSWERED — KEPT'
+                : 'UNSENT — KEPT'}
           </Txt>
           <Txt variant="caption" numberOfLines={3}>
             {recovered.text}
