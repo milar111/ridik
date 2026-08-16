@@ -52,3 +52,12 @@ credentials/
 
 # Release artefacts: `npm run release` writes the APK, AAB, archive and IPA here.
 dist/
+
+# Skill caches fetched by editor plugins (Stripe's, currently). Vendored copies
+# of somebody else's documentation, re-fetched on demand and pinned by a lock
+# file that records a remote digest — committing them would put a third party's
+# docs in this repo's history and diff them on every refresh.
+.agents/
+.bob/
+.claude/skills/
+skills-lock.json
