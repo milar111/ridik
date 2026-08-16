@@ -2365,7 +2365,7 @@ function resourceFiles() {
       ground: TILE.light,
       ink: '#2E1508',
       inkSoft: '#BD2E1508',
-      danger: '#BE2A18',
+      danger: '#A34133',
       heat: defaultHeat('light'),
     }),
 
@@ -2375,7 +2375,7 @@ function resourceFiles() {
       ground: TILE.dark,
       ink: '#FFEEDF',
       inkSoft: '#A8FFEEDF',
-      danger: '#FF6F5C',
+      danger: '#EB8070',
       // Dark only: a hairline inside the hot cell so emission reads as glow,
       // and a tile border, because a near-black tile on a dark photo wallpaper
       // otherwise dissolves into it. Both are furniture and neither follows the

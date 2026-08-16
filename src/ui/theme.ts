@@ -272,14 +272,36 @@ export const lightColors: Colors = {
   // Deep enough to clear 4.5:1 on the sand ground; `heat.core` is the vivid one.
   accent: '#C7360F',
   accentMuted: 'rgba(199, 54, 15, 0.12)',
-  success: '#0F7A55',
-  successMuted: 'rgba(15, 122, 85, 0.12)',
-  warning: '#9C5300',
-  warningMuted: 'rgba(156, 83, 0, 0.14)',
-  danger: '#BE2A18',
-  dangerMuted: 'rgba(190, 42, 24, 0.12)',
-  info: '#0B6A8F',
-  infoMuted: 'rgba(11, 106, 143, 0.12)',
+  /**
+   * The four semantics, at about two thirds of the chroma they used to carry.
+   *
+   * They were picked one at a time, each judged only against the ground, and
+   * every one came out at 78–100% saturation. Individually defensible;
+   * together they read as four stickers on a warm, pale room — the palette's
+   * own rule is that nothing is neutral grey, and the overcorrection was
+   * nothing being *quiet* either.
+   *
+   * The fix is proportional rather than a redesign: hue keeps the meaning and
+   * lightness keeps the contrast, so only chroma was cut, and the lightness
+   * was then walked away from the ground until the contrast lost came back.
+   * All four ended up *higher* against both grounds than they started
+   * (4.51–5.11:1 before, 5.28–5.60:1 now) — a calmer colour is not a weaker
+   * one, and treating saturation as if it were legibility is what produced
+   * the bright red button in the first place.
+   *
+   * `success` and `info` also moved a few degrees warmer. Only a few: they are
+   * the two hues in this file that cannot join the 7–34° family without
+   * ceasing to mean green and blue, and a "success" that reads orange is a
+   * worse bug than one that clashes. 26° still separates the closest pair.
+   */
+  success: '#206945',
+  successMuted: 'rgba(32, 105, 69, 0.12)',
+  warning: '#835519',
+  warningMuted: 'rgba(131, 85, 25, 0.14)',
+  danger: '#A34133',
+  dangerMuted: 'rgba(163, 65, 51, 0.12)',
+  info: '#20677A',
+  infoMuted: 'rgba(32, 103, 122, 0.12)',
   overlay: 'rgba(46, 21, 8, 0.40)',
 };
 
@@ -295,14 +317,14 @@ export const darkColors: Colors = {
   textTertiary: 'rgba(255, 238, 223, 0.44)',
   accent: '#FF8253',
   accentMuted: 'rgba(255, 130, 83, 0.16)',
-  success: '#3FD8A0',
-  successMuted: 'rgba(63, 216, 160, 0.16)',
-  warning: '#FFB74D',
-  warningMuted: 'rgba(255, 183, 77, 0.16)',
-  danger: '#FF6F5C',
-  dangerMuted: 'rgba(255, 111, 92, 0.16)',
-  info: '#5CC8F5',
-  infoMuted: 'rgba(92, 200, 245, 0.16)',
+  success: '#51C68A',
+  successMuted: 'rgba(81, 198, 138, 0.16)',
+  warning: '#EAB762',
+  warningMuted: 'rgba(234, 183, 98, 0.16)',
+  danger: '#EB8070',
+  dangerMuted: 'rgba(235, 128, 112, 0.16)',
+  info: '#6EC8E3',
+  infoMuted: 'rgba(110, 200, 227, 0.16)',
   overlay: 'rgba(10, 4, 1, 0.68)',
 };
 
@@ -460,9 +482,9 @@ export function makeTheme(scheme: ColorScheme, ember: EmberName = DEFAULT_EMBER)
  */
 const TAG_COLORS = [
   '#C7360F',
-  '#9C5300',
-  '#0F7A55',
-  '#0B6A8F',
+  '#835519',
+  '#206945',
+  '#20677A',
   '#A63668',
   '#6B4E16',
   '#B4471F',
