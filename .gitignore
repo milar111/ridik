@@ -64,3 +64,7 @@ skills-lock.json
 
 # Scratch git worktrees created for isolated parallel work.
 .claude/worktrees/
+
+# A personal working list, not a document the repo ships. Kept beside the code
+# so it is read, and out of history so it can be edited without a commit.
+BACKLOG.txt
