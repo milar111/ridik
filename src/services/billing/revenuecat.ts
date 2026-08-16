@@ -34,6 +34,8 @@ import {
   FREE,
   PLAN_IDS,
   PLAN_PERIOD,
+  tierFor,
+  titleFor,
   type BillingProvider,
   type Entitlement,
   type Plan,
@@ -69,13 +71,6 @@ const DEFAULT_ENTITLEMENT = 'assistant';
 const packageKeyFor = (plan: PlanId): string => plan;
 
 /** What each row is called on the paywall. Two tiers, two durations. */
-const TITLE_FOR: Record<PlanId, string> = {
-  ridik_monthly: 'Ridik',
-  ridik_yearly: 'Ridik',
-  pro_monthly: 'Ridik Pro',
-  pro_yearly: 'Ridik Pro',
-};
-
 type Config = { ios?: string; android?: string; entitlement?: string };
 
 function config(): Config {
@@ -169,17 +164,6 @@ function toEntitlement(info: any): Entitlement {
  * should under-serve and be complained about, never over-serve and be
  * discovered on the invoice.
  */
-const TIER_FOR: Record<PlanId, PlanTier> = {
-  ridik_monthly: 'base',
-  ridik_yearly: 'base',
-  pro_monthly: 'pro',
-  pro_yearly: 'pro',
-};
-
-function tierFor(plan: PlanId): PlanTier {
-  return TIER_FOR[plan] ?? 'base';
-}
-
 /**
  * The plan a store product identifier belongs to, or null.
  *
@@ -210,7 +194,7 @@ function toPlan(pkg: any): Plan | null {
   return {
     id,
     tier,
-    title: TITLE_FOR[id],
+    title: titleFor(id),
     // The store's own localised string, in the user's currency. Never rebuilt
     // from the numeric price: that is how an app ends up showing "$4.99" to
     // someone being charged in leva.

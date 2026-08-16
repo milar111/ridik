@@ -126,8 +126,13 @@ describe('isStoreBuild', () => {
 
 describe('describePlan', () => {
   it('names the three states a subscriber can be in', () => {
-    expect(describePlan(paid())).toBe('Monthly');
-    expect(describePlan(paid({ plan: 'ridik_yearly' }))).toBe('Yearly');
+    /* The tier, because that is what the money bought and what the meter
+       reads. Naming the period here left "Yearly" standing for two plans at
+       different prices with a fourfold difference in allowance. */
+    expect(describePlan(paid())).toBe('Ridik');
+    expect(describePlan(paid({ plan: 'pro_yearly' }))).toBe('Ridik Pro');
+    expect(describePlan(paid({ plan: 'pro_monthly' }))).toBe('Ridik Pro');
+    expect(describePlan(paid({ plan: 'ridik_yearly' }))).toBe('Ridik');
     expect(describePlan(paid({ willRenew: false }))).toBe('Cancelled');
     expect(describePlan(FREE)).toBe('Free');
   });

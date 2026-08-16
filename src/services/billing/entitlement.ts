@@ -106,6 +106,39 @@ export const TIER_ALLOWANCE: Record<PlanTier, number> = {
   pro: 1_000,
 };
 
+/**
+ * The tier a plan belongs to, and the name that tier is sold under.
+ *
+ * These live here rather than in the RevenueCat adapter because they are facts
+ * about what this app sells, not about the shop it sells through: a native
+ * billing provider would need the same two tables, and the tier is what the
+ * meter reads to decide how many requests a subscriber has bought.
+ *
+ * Closed maps, because a missing entry has to fail at compile time. Sniffing
+ * `plan.startsWith('pro')` would answer for a plan called `promo_yearly` and
+ * hand it four times the allowance it was paid for.
+ */
+export const PLAN_TIER: Record<PlanId, PlanTier> = {
+  ridik_monthly: 'base',
+  ridik_yearly: 'base',
+  pro_monthly: 'pro',
+  pro_yearly: 'pro',
+};
+
+export const TIER_TITLE: Record<PlanTier, string> = {
+  base: 'Ridik',
+  pro: 'Ridik Pro',
+};
+
+export function tierFor(plan: PlanId): PlanTier {
+  return PLAN_TIER[plan] ?? 'base';
+}
+
+/** What the store calls a plan on the paywall. */
+export function titleFor(plan: PlanId): string {
+  return TIER_TITLE[tierFor(plan)];
+}
+
 /** One line for the paywall, in the units the user is actually buying. */
 export function describeAllowance(tier: PlanTier): string {
   return `${TIER_ALLOWANCE[tier].toLocaleString()} requests a month`;
@@ -396,7 +429,24 @@ export function describePlan(entitlement: Entitlement): string {
   if (!entitlement.active) return 'Free';
   if (entitlement.inGracePeriod) return 'Payment failed';
   if (!entitlement.willRenew) return 'Cancelled';
-  return entitlement.plan !== null && isYearly(entitlement.plan) ? 'Yearly' : 'Monthly';
+  // The tier, not the billing period. This said "Yearly" for one commit after
+  // the catalogue grew to four plans, which named the only half that does not
+  // matter: "Yearly" is both the £49.99 Ridik and the £99.99 Pro, and the tier
+  // is what decides whether the meter allows 250 requests a month or 1,000.
+  // A subscriber could not tell from this screen which one they had bought.
+  return entitlement.plan === null ? 'Subscribed' : titleFor(entitlement.plan);
+}
+
+/** "Yearly" / "Monthly", or null when nothing is being billed. */
+export function describeBillingPeriod(entitlement: Entitlement): string | null {
+  if (!entitlement.known || !entitlement.active || entitlement.plan === null) return null;
+  return isYearly(entitlement.plan) ? 'Yearly' : 'Monthly';
+}
+
+/** What this entitlement buys per month, or null when nothing does. */
+export function describePlanAllowance(entitlement: Entitlement): string | null {
+  if (!entitlement.known || !entitlement.active || entitlement.plan === null) return null;
+  return describeAllowance(tierFor(entitlement.plan));
 }
 
 /**

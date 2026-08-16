@@ -29,8 +29,11 @@ import {
   PLAN_IDS,
   PLAN_PERIOD,
   TIER_ALLOWANCE,
+  TIER_TITLE,
   describeAllowance,
   isYearly,
+  tierFor,
+  titleFor,
   type PlanId,
 } from '../entitlement';
 
@@ -105,6 +108,45 @@ describe('the ladder gets cheaper the longer you commit', () => {
   it('says what you get in the units you are buying', () => {
     expect(describeAllowance('base')).toBe('250 requests a month');
     expect(describeAllowance('pro')).toBe('1,000 requests a month');
+  });
+});
+
+describe('a subscriber can tell which plan they are on', () => {
+  /**
+   * The subscribed screen showed "Yearly".
+   *
+   * That was correct while a plan *was* a duration, and became a bug the moment
+   * the catalogue grew a second tier: two plans share every billing period, at
+   * different prices, and the tier is the half that decides whether the meter
+   * allows 250 requests a month or 1,000. Someone paying $99.99 saw the same
+   * word as someone paying $49.99, on the one screen that exists to tell them
+   * what they bought. The period is still shown — beside the title, not as it.
+   */
+  it('names the tier, never the billing period', () => {
+    for (const plan of PLAN_IDS) {
+      const title = titleFor(plan);
+      expect(title).not.toMatch(/^(yearly|monthly)$/i);
+      expect(TIER_TITLE[tierFor(plan)]).toBe(title);
+    }
+  });
+
+  it('gives the two tiers different names', () => {
+    expect(titleFor('pro_yearly')).not.toBe(titleFor('ridik_yearly'));
+    expect(titleFor('pro_monthly')).not.toBe(titleFor('ridik_monthly'));
+  });
+
+  /* Same tier, either duration, one name — the title answers "what did I buy",
+     and the badge next to it answers "how often does it charge". */
+  it('gives both durations of one tier the same name', () => {
+    expect(titleFor('pro_yearly')).toBe(titleFor('pro_monthly'));
+    expect(titleFor('ridik_yearly')).toBe(titleFor('ridik_monthly'));
+  });
+
+  /* The allowance the paywall promised has to be the one the meter grants, or
+     the Included row on the subscribed screen is a second source of truth. */
+  it('reads the allowance from the tier the plan belongs to', () => {
+    expect(TIER_ALLOWANCE[tierFor('pro_yearly')]).toBe(1_000);
+    expect(TIER_ALLOWANCE[tierFor('ridik_monthly')]).toBe(250);
   });
 });
 

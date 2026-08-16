@@ -54,7 +54,9 @@ registerBootstrapStep({
 export {
   availablePlans,
   currentEntitlement,
+  describeBillingPeriod,
   describePlan,
+  describePlanAllowance,
   describeRenewal,
   isStoreBuild,
   manageSubscriptionUrl,
@@ -65,6 +67,8 @@ export {
   UNKNOWN,
   type Entitlement,
   type Plan,
+  HIGHLIGHTED_PLAN,
+  PLAN_IDS,
   type PlanId,
 } from './entitlement';
 

@@ -27,7 +27,10 @@ import {
 } from '@/hooks/useBilling';
 import {
   describeAllowance,
+  describeBillingPeriod,
   describePlan,
+  describePlanAllowance,
+  HIGHLIGHTED_PLAN,
   describeRenewal,
   manageSubscriptionUrl,
   FREE,
@@ -69,12 +72,17 @@ function Subscribed({ plan }: { plan: Entitlement }) {
   const toast = useToast();
   const manage = manageSubscriptionUrl();
   const at = now();
+  const period = describeBillingPeriod(plan);
+  const allowance = describePlanAllowance(plan);
 
   return (
     <>
       <Card style={{ gap: spacing.sm }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <Txt variant="title">{describePlan(plan)}</Txt>
+          {/* The title names the tier, so the cadence rides alongside it. The
+              two used to be the same word and only the cadence was shown. */}
+          {period ? <Badge label={period} tone="neutral" /> : null}
           {plan.inGracePeriod ? <Badge label="Payment failed" tone="danger" /> : null}
           {plan.store === 'sandbox' ? <Badge label="Sandbox" tone="warning" /> : null}
         </View>
@@ -84,6 +92,15 @@ function Subscribed({ plan }: { plan: Entitlement }) {
       </Card>
 
       <Card padded={false}>
+        {/* What the money actually bought. The paywall promises an allowance
+            and this screen never repeated it, so the one number a subscriber
+            might want to check was only ever visible before paying. */}
+        {allowance ? (
+          <>
+            <Fact label="Included" value={allowance} />
+            <Divider />
+          </>
+        ) : null}
         <Fact
           label={plan.willRenew ? 'Next charge' : 'Access ends'}
           value={plan.renewsAt === null ? 'Unknown' : formatDayHeading(plan.renewsAt, undefined, at)}
@@ -245,7 +262,12 @@ function Offer() {
 
   const available = plans.data ?? [];
   const benefits = marketing.data?.benefits?.length ? marketing.data.benefits : WHAT_YOU_GET;
-  const highlight = marketing.data?.highlight ?? 'yearly';
+  // `HIGHLIGHTED_PLAN`, not a literal. This read `?? 'yearly'` — a plan id that
+  // stopped existing when a plan became a tier AND a duration, so with no
+  // dashboard metadata the badge matched nothing and every row rendered plain.
+  // Typecheck could not catch it: comparing `PlanId` against `PlanId | 'yearly'`
+  // is a legal comparison that is simply never true.
+  const highlight = marketing.data?.highlight ?? HIGHLIGHTED_PLAN;
 
   return (
     <>
