@@ -13,7 +13,7 @@ export { Commitments } from './Commitments';
 export { DueToday } from './DueToday';
 export { FocusCard } from './FocusCard';
 export { HabitStrip } from './HabitStrip';
-export { InlineError, SectionBoundary } from './Fallbacks';
+export { InlineError, SectionBoundary, StaleNotice } from './Fallbacks';
 export { TodayHeaderActions } from './TodayHeaderActions';
 export { TodaySkeleton } from './TodaySkeleton';
 export { useNow } from './useNow';

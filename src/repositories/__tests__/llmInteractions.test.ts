@@ -5,6 +5,7 @@ import { createTestDatabase, type TestDatabase } from '@/db/testing';
 import {
   createLlmInteractionsRepository,
   parseActions,
+  LATENCY_TARGET_P95_MS,
   type LlmInteractionsRepository,
 } from '@/repositories/llmInteractions';
 
@@ -293,6 +294,99 @@ describe('llm interactions', () => {
       await record({ id: 'b', transcript: 'two', createdAt: AT + 3_600_000 });
 
       expect(await repo.stats()).toMatchObject({ oldestAt: AT, newestAt: AT + 3_600_000 });
+    });
+  });
+
+  /*
+   * The number the app has always written and never read.
+   *
+   * A lifetime median is the wrong instrument for "did it get slower?" — a
+   * thousand fast turns bury the hundred slow ones that came after them — so
+   * this is a window, and the window is what the tests are about.
+   */
+  describe('latency', () => {
+    it('reports the middle turn and the slow tail, never a mean', async () => {
+      for (const [i, ms] of [120, 400, 800, 1500, 9000].entries()) {
+        await record({ id: `t${i}`, transcript: `turn ${i}`, latencyMs: ms });
+      }
+
+      const latency = await repo.latency();
+      expect(latency.timed).toBe(5);
+      expect(latency.turns).toBe(5);
+      expect(latency.medianMs).toBe(800);
+      expect(latency.p95Ms).toBe(9000);
+      expect(latency.slowestMs).toBe(9000);
+    });
+
+    /* The whole point of the window: the fast history must not hide the slow
+       present. Fifty 200ms turns and then ten 6s ones is an app that got worse,
+       and a lifetime median calls it 200ms. */
+    it('looks only at the most recent turns', async () => {
+      for (let i = 0; i < 50; i++) {
+        await record({ id: `old${i}`, transcript: 'old', latencyMs: 200, createdAt: AT + i });
+      }
+      for (let i = 0; i < 10; i++) {
+        await record({ id: `new${i}`, transcript: 'new', latencyMs: 6_000, createdAt: AT + 100 + i });
+      }
+
+      expect(await repo.latency({ window: 10 })).toMatchObject({
+        window: 10,
+        turns: 10,
+        timed: 10,
+        medianMs: 6_000,
+        p95Ms: 6_000,
+      });
+      // And the lifetime figures are still there, still saying the other thing.
+      expect((await repo.stats()).medianLatencyMs).toBe(200);
+    });
+
+    /* The window counts turns, not timed turns. Cutting the timed rows instead
+       would reach further back the more turns went untimed, and "lately" would
+       quietly come to mean a fortnight. */
+    it('counts untimed turns against the window rather than reaching past them', async () => {
+      await record({ id: 'a', transcript: 'timed', latencyMs: 5_000, createdAt: AT });
+      for (let i = 0; i < 4; i++) {
+        await record({ id: `n${i}`, transcript: 'untimed', latencyMs: null, createdAt: AT + 1 + i });
+      }
+
+      const latency = await repo.latency({ window: 4 });
+      expect(latency.turns).toBe(4);
+      expect(latency.timed).toBe(0);
+      expect(latency.medianMs).toBeNull();
+      expect(latency.p95Ms).toBeNull();
+    });
+
+    it('says whether the tail clears the target, and never guesses on no data', async () => {
+      expect(await repo.latency()).toMatchObject({
+        turns: 0,
+        timed: 0,
+        medianMs: null,
+        p95Ms: null,
+        // "We did not measure" must never render as "fine".
+        withinTarget: null,
+      });
+
+      await record({ id: 'fast', transcript: 'quick', latencyMs: LATENCY_TARGET_P95_MS - 1 });
+      expect((await repo.latency()).withinTarget).toBe(true);
+
+      await record({ id: 'slow', transcript: 'crawl', latencyMs: LATENCY_TARGET_P95_MS + 1 });
+      expect((await repo.latency()).withinTarget).toBe(false);
+    });
+
+    it('never reports more turns than there are', async () => {
+      await record({ id: 'a', transcript: 'one', latencyMs: 300 });
+
+      expect(await repo.latency({ window: 100 })).toMatchObject({ window: 100, turns: 1 });
+    });
+
+    /* A window of 0 or -1 would be a LIMIT that answers nothing, and the caller
+       would read it as "nothing has been slow". */
+    it('refuses a window that is not at least one turn', async () => {
+      await record({ id: 'a', transcript: 'one', latencyMs: 300 });
+
+      for (const window of [0, -5, 1.7]) {
+        expect(await repo.latency({ window })).toMatchObject({ window: 1, medianMs: 300 });
+      }
     });
   });
 

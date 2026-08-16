@@ -14,6 +14,7 @@ import { formatDayHeading, localDateOf, type LocalDate } from '@/core/time';
 import type { CurriculumEntry } from '@/db/schema';
 import { useCalendarRange } from '@/hooks';
 import { Txt } from '@/ui/components';
+import { inkOn } from '@/ui/ink';
 import { useTheme } from '@/ui/ThemeProvider';
 import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
@@ -35,8 +36,6 @@ import {
 const WEEKS_EACH_WAY = 104;
 const PAGE_COUNT = WEEKS_EACH_WAY * 2 + 1;
 const CELL_HEIGHT = 58;
-/** Foreground on an accent fill; the palette has no "on-accent" token. */
-const ON_ACCENT = '#FFFFFF';
 
 export type WeekStripProps = {
   selected: LocalDate;
@@ -213,8 +212,18 @@ function DayCell({
   const epoch = epochOfDate(date, zone);
   const weekend = isWeekend(date, zone);
 
-  const numberColor = selected ? ON_ACCENT : isToday ? colors.accent : weekend ? colors.textTertiary : colors.text;
-  const dotColor = selected ? ON_ACCENT : isToday ? colors.accent : colors.textTertiary;
+  // Only the number is *inside* the accent pill. The letter above it and the
+  // dots below it sit on the page's own ground, where the on-fill ink would be
+  // linen on sand — which is how a selected day's initial and its density dots
+  // were being drawn in pure white on a near-white field. They take the accent.
+  const numberColor = selected
+    ? inkOn(colors.accent)
+    : isToday
+      ? colors.accent
+      : weekend
+        ? colors.textTertiary
+        : colors.text;
+  const dotColor = selected || isToday ? colors.accent : colors.textTertiary;
   // A seventh of the width: small enough for the full press travel. The cell
   // keeps its `height` and its `flex`, so a scaled cell does not move its
   // neighbours or shrink the target.
@@ -234,7 +243,7 @@ function DayCell({
       {...press.handlers}
       style={[styles.cell, press.style]}
     >
-      <Txt variant="micro" style={{ color: selected ? ON_ACCENT : colors.textTertiary }}>
+      <Txt variant="micro" style={{ color: selected ? colors.accent : colors.textTertiary }}>
         {WEEKDAY_LETTERS[weekdayIndexOf(date, zone)]}
       </Txt>
       <View

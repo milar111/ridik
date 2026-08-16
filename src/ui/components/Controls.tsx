@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useTheme } from '../ThemeProvider';
+import { inkOn } from '../ink';
 import { fade } from '../motion';
 import { AnimatedPressable, useCheckPop, usePressScale } from '../motionHooks';
 import { Txt } from './Text';
@@ -85,7 +86,7 @@ export function Checkbox({
           pop,
         ]}
       >
-        {checked ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
+        {checked ? <Ionicons name="checkmark" size={14} color={inkOn(colors.accent)} /> : null}
       </Animated.View>
       <View style={{ flex: 1, gap: 1 }}>
         {label ? (
@@ -130,6 +131,10 @@ export function Chip({
 }) {
   const { colors, radius } = useTheme();
   const tint = color ?? colors.accent;
+  // A selected chip is the one fill in the app whose colour does not follow the
+  // scheme — `colorForTag()` answers the same dark hue in dark mode, where the
+  // accent has gone pale. One constant ink cannot serve both, so the fill picks.
+  const onTint = inkOn(tint);
   // A chip is small, so it takes the full press travel.
   const press = usePressScale();
   const body = (
@@ -145,8 +150,8 @@ export function Chip({
         },
       ]}
     >
-      {icon ? <Ionicons name={icon} size={size === 'sm' ? 11 : 13} color={selected ? '#FFF' : tint} /> : null}
-      <Txt variant={size === 'sm' ? 'micro' : 'caption'} style={{ color: selected ? '#FFFFFF' : tint }}>
+      {icon ? <Ionicons name={icon} size={size === 'sm' ? 11 : 13} color={selected ? onTint : tint} /> : null}
+      <Txt variant={size === 'sm' ? 'micro' : 'caption'} style={{ color: selected ? onTint : tint }}>
         {label}
       </Txt>
     </View>

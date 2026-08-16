@@ -142,6 +142,84 @@ export function toGeminiSchema(node: unknown): GeminiSchema {
  */
 let cached: GeminiSchema | null = null;
 
+/* ------------------------------------------------------------- narrowing -- */
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/** The literal a strict branch pins `tool_name` to, or null if it is not one. */
+function branchTool(branch: unknown): string | null {
+  const properties = asRecord(asRecord(branch)?.properties);
+  const values = asRecord(properties?.tool_name)?.enum;
+  return Array.isArray(values) && typeof values[0] === 'string' ? values[0] : null;
+}
+
+/**
+ * The same schema with `tool_name` restricted to `tools`.
+ *
+ * This is the whole of the per-call narrowing, and it is done here rather than
+ * by pinning `responseSchema` on the request because pinning would take the
+ * provider off its own ladder and disable the 400-fallback that exists because
+ * no request has ever been made with a real key.
+ *
+ * Both rungs are understood, and neither is assumed: the strict schema carries
+ * one `anyOf` branch per tool (so narrowing deletes branches, and takes ~4,600
+ * tokens of parameter definitions with them), while the envelope carries a
+ * single `enum` of names. Anything this does not recognise is returned
+ * unchanged — a schema we cannot read is one we must not edit, and the full
+ * tool set is always a correct answer.
+ *
+ * Nothing is mutated. `strictResponseSchema()` hands out a cached object that
+ * every other turn will use, and a narrowing that wrote through it would
+ * quietly restrict the next utterance to the tools of the last one.
+ */
+export function narrowToolNames(schema: unknown, tools: readonly string[]): unknown {
+  const allowed = new Set(tools);
+  if (allowed.size === 0) return schema;
+
+  const root = asRecord(schema);
+  const properties = asRecord(root?.properties);
+  const actions = asRecord(properties?.actions);
+  const items = asRecord(actions?.items);
+  if (!root || !properties || !actions || !items) return schema;
+
+  let narrowedItems: Record<string, unknown> | null = null;
+
+  if (Array.isArray(items.anyOf)) {
+    const kept = items.anyOf.filter((branch) => {
+      const tool = branchTool(branch);
+      // A branch we cannot read the tool name off is kept: dropping it would
+      // remove a capability for a reason we cannot state.
+      return tool === null || allowed.has(tool);
+    });
+    if (kept.length > 0 && kept.length < items.anyOf.length) {
+      narrowedItems = { ...items, anyOf: kept };
+    }
+  } else {
+    const itemProperties = asRecord(items.properties);
+    const toolName = asRecord(itemProperties?.tool_name);
+    const names = toolName?.enum;
+    if (itemProperties && toolName && Array.isArray(names)) {
+      const kept = names.filter((name) => typeof name === 'string' && allowed.has(name));
+      if (kept.length > 0 && kept.length < names.length) {
+        narrowedItems = {
+          ...items,
+          properties: { ...itemProperties, tool_name: { ...toolName, enum: kept } },
+        };
+      }
+    }
+  }
+
+  if (!narrowedItems) return schema;
+  return {
+    ...root,
+    properties: { ...properties, actions: { ...actions, items: narrowedItems } },
+  };
+}
+
 export function strictResponseSchema(): GeminiSchema {
   if (!cached) {
     // `io: 'input'` is what the model is being asked to produce: the shape

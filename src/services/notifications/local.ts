@@ -22,6 +22,30 @@ export const CHANNELS = {
 
 export type ChannelId = (typeof CHANNELS)[keyof typeof CHANNELS];
 
+/**
+ * The channels that may break through a Focus mode.
+ *
+ * `app.config.ts` has always declared the entitlement — `time-sensitive` is one
+ * of the few Apple grants that needs no review — and the only place that ever
+ * set the level was the focus service's lock-screen fallback. So the two kinds
+ * of notification whose *entire value* is arriving at a moment ("leave in ten
+ * minutes", "you're at the hardware shop") were delivered at ordinary priority
+ * and silenced by the Do Not Disturb somebody turns on precisely because they
+ * are busy doing the thing they asked to be reminded about. Android says the
+ * same thing through channel importance, which both of these already have.
+ *
+ * Timers are deliberately not here, and that omission is load-bearing: the
+ * running-timer notification is re-posted every phase change on a channel set
+ * to LOW with no sound, and the *one* moment it has to interrupt — the lock
+ * screen fallback in `services/focus/liveActivity.ts` — sets the level itself.
+ * Marking the channel would make a background clock the loudest thing the app
+ * sends.
+ */
+const TIME_SENSITIVE: ReadonlySet<ChannelId> = new Set<ChannelId>([
+  CHANNELS.reminders,
+  CHANNELS.places,
+]);
+
 /** Action categories so a reminder can be dealt with without opening the app. */
 export const CATEGORIES = {
   task: 'ridik.task',
@@ -158,17 +182,33 @@ export async function scheduleAt(input: ScheduleInput): Promise<Result<string>> 
   if (!permission.ok) return permission;
   await configureNotifications();
 
+  // Resolved once: the channel decides where Android delivers it *and* whether
+  // iOS may interrupt for it, and the two used to be worked out in different
+  // places — which is how the immediate path below lost the channel entirely.
+  const channel = input.channel ?? CHANNELS.reminders;
+
   const content: Notifications.NotificationContentInput = {
     title: input.title,
     body: input.body,
     data: input.data ?? {},
     sound: input.sound === false ? undefined : 'default',
     ...(input.categoryIdentifier ? { categoryIdentifier: input.categoryIdentifier } : {}),
+    // iOS only; ignored elsewhere. See `TIME_SENSITIVE`.
+    ...(TIME_SENSITIVE.has(channel) ? { interruptionLevel: 'timeSensitive' as const } : {}),
   };
 
   try {
     if (input.at <= now() + 1000) {
-      const id = await Notifications.scheduleNotificationAsync({ content, trigger: null });
+      const id = await Notifications.scheduleNotificationAsync({
+        content,
+        // A `null` trigger is immediate, and on Android it is also *channelless*
+        // — it lands on the default channel whatever the caller asked for. Every
+        // geofence crossing goes through `presentNow`, so an arriving reminder
+        // was posted to "General" at DEFAULT importance instead of to "Place
+        // reminders" at HIGH, and the channel the user could see in system
+        // settings governed nothing they ever received.
+        trigger: Platform.OS === 'android' ? { channelId: channel } : null,
+      });
       return ok(id);
     }
     const id = await Notifications.scheduleNotificationAsync({
@@ -176,7 +216,7 @@ export async function scheduleAt(input: ScheduleInput): Promise<Result<string>> 
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.DATE,
         date: new Date(input.at),
-        ...(Platform.OS === 'android' ? { channelId: input.channel ?? CHANNELS.reminders } : {}),
+        ...(Platform.OS === 'android' ? { channelId: channel } : {}),
       },
     });
     return ok(id);

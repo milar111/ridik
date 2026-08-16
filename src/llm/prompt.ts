@@ -378,7 +378,26 @@ function renderEvent(event: ContextEvent, zone: string): string {
   return `- ${when} ${clamp(event.title, 80)}${where}${kind}`;
 }
 
-export function buildSystemPrompt(context: LlmContext): string {
+export type SystemPromptOptions = {
+  /**
+   * The tools this turn's decoder will actually accept, when the caller has
+   * narrowed them. Omitted — the normal case — documents and offers all of
+   * them.
+   *
+   * The full TOOLS block is still rendered either way. The model needs to know
+   * what each tool *means* to judge that none of them fits, and the examples
+   * below name tools of their own; a list edited down to the active set would
+   * teach it that a tool it can see in an example does not exist. What the
+   * narrowing adds is one paragraph naming the active set and the way out of
+   * it, so the model is never forced to file something under a tool it can see
+   * is wrong. Without that paragraph the constraint is silent — the decoder
+   * simply cannot emit the missing name, and the nearest wrong tool is what
+   * comes out.
+   */
+  tools?: readonly ToolName[];
+};
+
+export function buildSystemPrompt(context: LlmContext, options: SystemPromptOptions = {}): string {
   const { zone, now } = context;
   const blocks: string[] = [];
 
@@ -471,6 +490,16 @@ export function buildSystemPrompt(context: LlmContext): string {
   blocks.push(
     `TOOLS (* = required)\n${TOOLS.map((t) => `${t.name}(${t.params})`).join('\n')}\nSend only the parameters listed for the tool. There are no others, and an unlisted one is rejected.`,
   );
+
+  const active = options.tools;
+  if (active && active.length > 0 && active.length < TOOLS.length) {
+    blocks.push(
+      [
+        `ACTIVE TOOLS — this turn accepts only these tool names: ${active.join(', ')}.`,
+        'If part of what the user said needs a tool that is not on that list, capture it with note_create in their own words and say so in one clause of conversational_feedback. Never file it under a tool that does not fit: a wrong row looks exactly like a right one afterwards, and a note does not.',
+      ].join('\n'),
+    );
+  }
 
   blocks.push(
     [

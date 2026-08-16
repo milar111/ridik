@@ -8,6 +8,7 @@
  * Providers speak Gemini's two roles ('user' / 'model') because that is the
  * smallest common denominator: every other API can collapse into it.
  */
+import type { ToolName } from '@/llm/contract';
 
 export type LlmMessage = {
   role: 'user' | 'model';
@@ -19,6 +20,22 @@ export type LlmRequest = {
   messages: LlmMessage[];
   /** Provider-specific structured-output schema; ignored by providers without one. */
   responseSchema?: unknown;
+  /**
+   * The tools this call may emit, when the caller has narrowed them for this
+   * utterance. Absent means all of them.
+   *
+   * Deliberately its own field rather than a pinned `responseSchema`. The two
+   * would express the same thing to Gemini, but pinning also says "the caller
+   * knows better than the ladder", which switches off the step-down that exists
+   * because the strict schema has never been sent to Google with a real key.
+   * Narrowing is a statement about this utterance; the ladder is a statement
+   * about this API, and one must not silence the other.
+   *
+   * A provider with no structured output ignores it, exactly as it ignores
+   * `responseSchema` — the prompt still describes every tool, so nothing is
+   * lost, only unconstrained.
+   */
+  tools?: readonly ToolName[];
   temperature?: number;
   maxOutputTokens?: number;
   signal?: AbortSignal;

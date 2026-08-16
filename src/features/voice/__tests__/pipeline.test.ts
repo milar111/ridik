@@ -67,9 +67,27 @@ jest.mock('@/llm/usage', () => ({
   createUsageMeter: () => ({ check: mockCheck, record: mockRecord }),
 }));
 
+/**
+ * What the personal dictionary reads. Empty by default, so every other test in
+ * this file sends the recogniser exactly what it always did; the two that care
+ * fill it in.
+ */
+const mockNames: {
+  people: { entity: { name: string }; aliases: string[]; openCommitments: number; lastInteractionAt: number | null }[];
+  projects: { name: string }[];
+  lists: { name: string; open: number; total: number }[];
+  places: { label: string }[];
+  habits: { name: string }[];
+} = { people: [], projects: [], lists: [], places: [], habits: [] };
+
 jest.mock('@/repositories', () => ({
   getRepositories: () => ({
     db: {},
+    crm: { listEntities: async () => mockNames.people },
+    projects: { listProjects: async () => mockNames.projects },
+    checklists: { listNames: async () => mockNames.lists },
+    places: { listPlaces: async () => mockNames.places },
+    habits: { listHabits: async () => mockNames.habits },
     settings: {
       getAll: async () => ({ ...mockSettings }),
       get: async (key: string) => mockSettings[key],
@@ -185,6 +203,11 @@ beforeEach(() => {
   Object.assign(mockSettings, DEFAULTS);
   mockInterpret.mockResolvedValue({ transcript: '', feedback: 'Done.', items: [] });
   mockCheck.mockResolvedValue({ ok: true as const, value: {} });
+  mockNames.people = [];
+  mockNames.projects = [];
+  mockNames.lists = [];
+  mockNames.places = [];
+  mockNames.habits = [];
   // A personal build unless a test says otherwise: no store was compiled in.
   registerBillingProvider(billing(false));
 });
@@ -200,6 +223,51 @@ describe('listen', () => {
       expect.objectContaining({ minConfidence: 0.7, silenceTimeoutMs: 1500 }),
     );
     expect(onFinal).toHaveBeenCalledWith('note the resistors', 0.91);
+  });
+
+  /**
+   * The user's own proper nouns, handed to the recogniser before it listens.
+   * Everything below this line in the app works from the words it returns, so
+   * a name heard as the nearest common word is the one error nothing
+   * downstream can recover from — the receipt reads perfectly and points at the
+   * wrong row.
+   */
+  it('biases the recogniser towards the names the user actually has', async () => {
+    mockNames.people = [
+      { entity: { name: 'Ivo Petrov' }, aliases: ['Ivo'], openCommitments: 0, lastInteractionAt: null },
+    ];
+    mockNames.lists = [{ name: 'Hardware', open: 2, total: 4 }];
+    mockCapture.mockResolvedValue(heard('note the resistors', 0.91));
+
+    await createVoicePipeline().listen(noHandlers);
+
+    expect(mockCapture.mock.calls[0]![0].contextualStrings).toEqual([
+      'Ivo Petrov',
+      'Ivo',
+      'Hardware',
+    ]);
+  });
+
+  it('opens the microphone anyway when a source cannot be read', async () => {
+    mockNames.people = [
+      { entity: { name: 'Ivo Petrov' }, aliases: [], openCommitments: 0, lastInteractionAt: null },
+    ];
+    Object.defineProperty(mockNames, 'lists', {
+      get() {
+        throw new Error('no such table: checklists');
+      },
+      configurable: true,
+    });
+    mockCapture.mockResolvedValue(heard('hello', null));
+
+    await createVoicePipeline().listen(noHandlers);
+
+    // One unhappy table costs its own names and nothing else — not the other
+    // sources, and certainly not the utterance.
+    expect(mockCapture.mock.calls[0]![0].contextualStrings).toEqual(['Ivo Petrov']);
+    expect(mockCapture.mock.calls[0]![0].minConfidence).toBe(0.7);
+
+    delete (mockNames as Partial<typeof mockNames>).lists;
   });
 
   it('only unlocks Whisper when the user has opted in and a key is stored', async () => {

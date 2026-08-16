@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { defaultSettings } from '@/repositories/settings';
+import { describeTrial, TRIAL_TOTAL_REQUESTS } from '@/services/billing/allowance';
 import { emberChoice, setEmberChoice } from '@/hooks/useEmber';
 import { DEFAULT_EMBER, embers } from '@/ui/theme';
 
@@ -96,6 +97,27 @@ jest.mock('@/features/export', () => ({
   copyToClipboard: jest.fn(async () => ({ ok: true, value: undefined })),
 }));
 
+/* The two facts the Plan row is built out of, supplied here.
+   `currentEntitlement()` waits on a provider that no test registers and then
+   times out after five seconds, which left the Plan group rendering its
+   skeleton in this suite forever; and `isStoreBuild()` is module state that
+   only a real store SDK can move, so it can only be answered from outside. */
+let mockEntitlement: Entitlement;
+let mockStoreBuild: boolean;
+
+jest.mock('@/hooks/useBilling', () => ({
+  useEntitlement: () => ({ data: mockEntitlement, isLoading: false, isError: false }),
+}));
+
+jest.mock('@/services/billing/entitlement', () => ({
+  ...jest.requireActual<typeof import('@/services/billing/entitlement')>(
+    '@/services/billing/entitlement',
+  ),
+  isStoreBuild: () => mockStoreBuild,
+}));
+
+import { FREE, type Entitlement } from '@/services/billing/entitlement';
+
 import SettingsScreen from '../../../app/settings';
 
 /** Without seeded metrics the provider withholds its children until layout. */
@@ -134,6 +156,9 @@ beforeEach(() => {
   // The palette is module state so that the theme can be read above the query
   // client; put it back where a fresh launch finds it.
   setEmberChoice(DEFAULT_EMBER);
+  // A personal build by default: nothing to buy, so nothing to say about a trial.
+  mockStoreBuild = false;
+  mockEntitlement = FREE;
   mockRepos.settings.getAll.mockResolvedValue(defaultSettings());
   mockRepos.settings.set.mockImplementation(async (_k: string, v: unknown) => v);
   mockRepos.syncQueue.listByStatus.mockResolvedValue([]);
@@ -241,6 +266,88 @@ describe('settings screen', () => {
 
     expect(await screen.findByText(/Nothing is sent/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Turn on' })).toBeTruthy();
+  });
+
+  /*
+   * The trial, on the one screen a person looks at to find out what they are
+   * on.
+   *
+   * `describeTrial` has produced exactly the right sentence since the money
+   * path was written and was imported by one file: the developer screen, behind
+   * seven taps. A free user's first news of a 25-request limit therefore
+   * arrived at request twenty, when the warning fired — which is the review
+   * every app with a hidden trial collects.
+   */
+  it('tells a free user what the trial is before they have spent it', async () => {
+    mockStoreBuild = true;
+    mockRepos.settings.getAll.mockResolvedValue({
+      ...defaultSettings(),
+      llmTrialRequestsUsed: 18,
+    });
+    await wrap(<SettingsScreen />);
+
+    expect(await screen.findByText(describeTrial(18))).toBeTruthy();
+    expect(screen.getByText(/life of this install/)).toBeTruthy();
+    // The developer screen's row stays where it is; this is the same fact in
+    // the profile's own words.
+    expect(screen.queryByText('Free trial')).toBeNull();
+  });
+
+  /* A spent trial is not a broken app, and the sentence has to say so — the
+     assistant falls back to the offline matcher rather than stopping. */
+  it('says a spent trial is spent, and that Ridik still works', async () => {
+    mockStoreBuild = true;
+    mockRepos.settings.getAll.mockResolvedValue({
+      ...defaultSettings(),
+      llmTrialRequestsUsed: TRIAL_TOTAL_REQUESTS + 4,
+    });
+    await wrap(<SettingsScreen />);
+
+    expect(await screen.findByText(describeTrial(TRIAL_TOTAL_REQUESTS))).toBeTruthy();
+    expect(screen.getByText(/still listens/)).toBeTruthy();
+  });
+
+  /* Three ways this line would be a lie, and each is somebody it would be a lie
+     to: a build with nothing to sell has no trial at all; a subscriber bought
+     their way past it; and a store that could not be reached is not evidence
+     that anybody is on one. */
+  it('says nothing about a trial where there is not one', async () => {
+    const cases: [string, () => void][] = [
+      [
+        'a personal build',
+        () => {
+          mockStoreBuild = false;
+        },
+      ],
+      [
+        'a subscriber',
+        () => {
+          mockStoreBuild = true;
+          mockEntitlement = { ...FREE, active: true, plan: 'monthly', tier: 'standard', willRenew: true };
+        },
+      ],
+      [
+        'a store that did not answer',
+        () => {
+          mockStoreBuild = true;
+          mockEntitlement = { ...FREE, known: false };
+        },
+      ],
+    ];
+
+    for (const [, arrange] of cases) {
+      arrange();
+      mockRepos.settings.getAll.mockResolvedValue({
+        ...defaultSettings(),
+        llmTrialRequestsUsed: 18,
+      });
+      const view = await wrap(<SettingsScreen />);
+
+      await screen.findByText('PREFERENCES');
+      expect(screen.queryByText(describeTrial(18))).toBeNull();
+      expect(screen.queryByText(/free requests left/)).toBeNull();
+      await view.unmount();
+    }
   });
 
   /* Two preferences now, and both pass the same test: set either one to the

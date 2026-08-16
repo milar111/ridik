@@ -7,6 +7,7 @@ import { now } from '@/core/clock';
 import { dayRange, localDateOf, type LocalDate } from '@/core/time';
 import { useCalendarRange } from '@/hooks';
 import { Button, DialogCard, Txt } from '@/ui/components';
+import { inkOn } from '@/ui/ink';
 import { AnimatedPressable, useMountPop, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
 
@@ -22,9 +23,6 @@ import {
   weekdayInitials,
   type WeekStart,
 } from './dates';
-
-/** Foreground on an accent fill; the palette has no "on-accent" token. */
-const ON_ACCENT = '#FFFFFF';
 
 export type MonthJumpSheetProps = {
   visible: boolean;
@@ -228,7 +226,7 @@ function MonthCell({
           variant="caption"
           style={{
             color: isSelected
-              ? ON_ACCENT
+              ? inkOn(colors.accent)
               : isToday
                 ? colors.accent
                 : inMonth
@@ -239,10 +237,14 @@ function MonthCell({
           {dayNumberOf(date, zone)}
         </Txt>
       </View>
+      {/* Below the pill, on the card — not on the accent fill. The selected
+          day's dot was drawn in the on-fill white, which put linen on linen. */}
       <View
         style={[
           styles.dot,
-          { backgroundColor: busy ? (isSelected ? ON_ACCENT : colors.textTertiary) : 'transparent' },
+          {
+            backgroundColor: busy ? (isSelected ? colors.accent : colors.textTertiary) : 'transparent',
+          },
         ]}
       />
     </AnimatedPressable>

@@ -6,7 +6,7 @@
  * is free of React and of every native module so the `logic` test project can
  * load it under plain Node.
  */
-export { ConsentGate } from './ConsentGate';
+export { ConsentGate, useConsentGateOpen } from './ConsentGate';
 export { ConsentScreen } from './ConsentScreen';
 export type { ConsentScreenProps } from './ConsentScreen';
 export {

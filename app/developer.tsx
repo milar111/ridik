@@ -15,7 +15,7 @@ import { useMemo } from 'react';
 import { View } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 
-import { countLabel } from '@/core/format';
+import { countLabel, formatLatency } from '@/core/format';
 import { formatDateTime, isValidZone } from '@/core/time';
 import { copyToClipboard } from '@/features/export';
 import {
@@ -29,7 +29,14 @@ import {
   ValidatedTextRow,
   formatBytes,
 } from '@/features/settings';
-import { useAssistantUsage, useRebuildNoteSearchIndex, useSetting } from '@/hooks';
+import {
+  LATENCY_TARGET_P95_MS,
+  useAssistantUsage,
+  useRebuildNoteSearchIndex,
+  useSetting,
+  useTurnLatency,
+  type LatencySummary,
+} from '@/hooks';
 import { useAssistantMode } from '@/hooks/useAssistant';
 import { formatCostMicros, type UsageWindow } from '@/llm/usage';
 import { describeTrial, TRIAL_TOTAL_REQUESTS } from '@/services/billing/allowance';
@@ -141,6 +148,34 @@ function spendDetail(month: UsageWindow): string {
   return parts.join(' ');
 }
 
+/**
+ * What the last hundred turns took, and whether that is good.
+ *
+ * `latency_ms` is written on every single turn and, until the history screen,
+ * was read by nothing at all — the app measured how slow it was and then threw
+ * the measurement away. Two figures, because neither alone is honest: the
+ * median is what a turn usually costs, and the 95th is what people actually
+ * complain about. A mean would be neither.
+ *
+ * The sentence names the target. A number with nothing to compare it against
+ * cannot tell anyone whether the assistant got worse, which is the only reason
+ * to put it on a diagnostics screen — and judging a change to the prompt or the
+ * model by feel is exactly how a regression ships.
+ */
+function latencyDetail(latency: LatencySummary): string {
+  const target = formatLatency(LATENCY_TARGET_P95_MS) ?? '—';
+  const over = `Over the last ${countLabel(latency.timed, 'timed turn')} of ${latency.turns}.`;
+  if (latency.withinTarget === false) {
+    const slowest = formatLatency(latency.slowestMs);
+    return (
+      `${over} The slow tail is past the ${target} it is held to` +
+      `${slowest ? `, and the worst was ${slowest}` : ''} — long enough that people repeat ` +
+      'themselves, which costs a second request and usually a second mistake.'
+    );
+  }
+  return `${over} The slow tail is inside the ${target} it is held to.`;
+}
+
 function AssistantGroup() {
   const { spacing } = useTheme();
   const mode = useAssistantMode();
@@ -150,6 +185,7 @@ function AssistantGroup() {
   const trialUsed = useSetting('llmTrialRequestsUsed');
   const simulateStore = useSetting('simulateStoreBuild');
   const usage = useAssistantUsage(dailyCap.value, monthlyCap.value).data;
+  const latency = useTurnLatency().data;
   const key = useSecret('llm');
 
   const hosted = mode.data === 'hosted';
@@ -252,6 +288,22 @@ function AssistantGroup() {
           label="This month"
           value={`${usage.month.requests} requests · ${formatCostMicros(usage.month.costMicros)}`}
           hint={spendDetail(usage.month)}
+        />
+      ) : null}
+
+      {/* Beside the spend, because they are the two halves of one question: what
+          a turn costs in money and what it costs in waiting. Nothing at all is
+          drawn until a turn has been timed — "—" would read as an instrument
+          saying zero rather than as one with nothing to measure. */}
+      {latency && latency.timed > 0 ? (
+        <Row
+          icon="timer-outline"
+          label="Reply time"
+          tone={latency.withinTarget === false ? 'warning' : undefined}
+          value={`${formatLatency(latency.medianMs) ?? '—'} typical · 95% under ${
+            formatLatency(latency.p95Ms) ?? '—'
+          }`}
+          hint={latencyDetail(latency)}
         />
       ) : null}
       {hosted ? null : (

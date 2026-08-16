@@ -53,13 +53,28 @@ function setStore(outcome: Outcome | undefined, overrides: Record<string, unknow
   Object.assign(mockState, {
     status: 'idle',
     expanded: true,
+    // Typing moved into the store so the home mic can ask for the text box from
+    // outside the sheet; the notice path never touches it.
+    typing: false,
+    setTyping: jest.fn(),
+    startTyping: jest.fn(),
     partial: '',
     transcript: '',
     error: null,
     needsRetry: false,
     sttUnavailable: false,
+    heardNothing: false,
     outcome,
     pendingClarification: null,
+    // The transcript-keeping half of the store. Present here because a stub
+    // that is missing an action does not fail as a missing action — it fails
+    // as `undefined is not a function` inside an unrelated effect.
+    recovered: null,
+    draftSeed: null,
+    recoverTranscript: jest.fn(),
+    discardRecovered: jest.fn(),
+    keepDraft: jest.fn(),
+    consumeDraftSeed: jest.fn(),
     startListening: jest.fn(),
     stopListening: jest.fn(),
     submitText: jest.fn(),

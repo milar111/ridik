@@ -212,7 +212,12 @@ export function ConsentScreen({ onDone }: ConsentScreenProps) {
           <Txt variant="eyebrow" tone="tertiary">
             {granted ? 'YOUR WORDS' : 'BEFORE YOU START'}
           </Txt>
-          <Txt variant="display">Where your words go</Txt>
+          {/* Headers, so a screen reader can move through this by heading
+              rather than swiping every paragraph of it. It is the longest
+              screen in the app and the one nobody may skip. */}
+          <Txt variant="display" accessibilityRole="header">
+            Where your words go
+          </Txt>
           <Txt variant="body" tone="secondary">
             Ridik keeps your life on this phone. To turn what you say into events, tasks and notes,
             it sends what you said — and a short index of your own labels — to {ASSISTANT_PROVIDER}.
@@ -233,7 +238,7 @@ export function ConsentScreen({ onDone }: ConsentScreenProps) {
                 </View>
                 {/* `flex: 1` and not its own content: Android measures a Text in
                     a flex row short and clips it rather than wrapping. */}
-                <Txt variant="heading" style={styles.panelTitle}>
+                <Txt variant="heading" accessibilityRole="header" style={styles.panelTitle}>
                   {panel.title}
                 </Txt>
               </View>
@@ -274,9 +279,18 @@ export function ConsentScreen({ onDone }: ConsentScreenProps) {
         </Animated.View>
 
         <Animated.View entering={arrive(5)} style={{ gap: spacing.sm, paddingTop: spacing.sm }}>
+          {/* Both buttons say what they decide, not just what they are called.
+              "Allow" heard on its own is an answer with the question missing,
+              and this is the one decision in the app that cannot be taken back
+              by undoing a row. */}
           <Button
             testID="consent-allow"
             label={granted ? 'Done' : 'Allow'}
+            accessibilityHint={
+              granted
+                ? 'Closes this screen and leaves your answer as it is'
+                : `Lets Ridik send what you say to ${ASSISTANT_PROVIDER}. You can change this later in Settings.`
+            }
             variant="primary"
             size="lg"
             fullWidth
@@ -285,6 +299,7 @@ export function ConsentScreen({ onDone }: ConsentScreenProps) {
           <Button
             testID="consent-decline"
             label={granted ? 'Stop sending' : 'Use Ridik offline'}
+            accessibilityHint={`Nothing is sent to ${ASSISTANT_PROVIDER}. Ridik still files simple phrases on this phone.`}
             variant="ghost"
             size="md"
             fullWidth
@@ -298,6 +313,7 @@ export function ConsentScreen({ onDone }: ConsentScreenProps) {
           {privacy ? (
             <Button
               label="Privacy policy"
+              accessibilityHint="Opens in your browser"
               variant="ghost"
               size="sm"
               fullWidth

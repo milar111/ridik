@@ -64,6 +64,9 @@ import {
   stopListening as stopStt,
   stopSpeaking as stopTts,
 } from '@/voice';
+// The module rather than the barrel: this one is pure, and reaching it through
+// `@/voice` would tie the personal dictionary to the recogniser's own mocks.
+import { readContextualStrings } from '@/voice/dictionary';
 
 const log = createLogger('voice-pipeline');
 
@@ -490,8 +493,26 @@ function toOutcomeItems(outcome: TurnOutcome): VoiceOutcomeItem[] {
     summary: item.summary,
     ...(item.detail ? { detail: item.detail } : {}),
     ...(item.href ? { href: item.href } : {}),
+    ...(item.results?.length ? { results: item.results } : {}),
     ...(item.entityId ? { entityId: item.entityId } : {}),
   }));
+}
+
+/**
+ * The bias list for one listening session, or nothing at all.
+ *
+ * `getRepositories()` opens the database on first use and can throw
+ * synchronously, which is why this is a function rather than a `.catch` on the
+ * call: an unbiased microphone is a working microphone, and a dictionary is
+ * never worth the utterance.
+ */
+async function personalDictionary(): Promise<string[]> {
+  try {
+    return await readContextualStrings(getRepositories());
+  } catch (error) {
+    log.warn('could not read the personal dictionary', error);
+    return [];
+  }
 }
 
 export function createVoicePipeline(): VoicePipeline {
@@ -538,10 +559,22 @@ export function createVoicePipeline(): VoicePipeline {
        */
       const onDeviceOnly = !mayReachProvider(config?.assistantConsent ?? 'unset');
 
+      /**
+       * The user's own proper nouns, handed to the recogniser before it
+       * listens. Nothing leaves the phone for this — a bias list is weighted
+       * into the engine's own language model, on-device or not — and it is the
+       * only fix for the one error the rest of the pipeline cannot recover
+       * from: a name heard as the nearest common word is a plausible receipt
+       * over the wrong row, and every layer below this one is working from the
+       * wrong word by then.
+       */
+      const contextualStrings = await personalDictionary();
+
       const capture = await captureUtterance({
         ...(config ? { minConfidence: config.voiceConfidenceThreshold } : {}),
         ...(config ? { silenceTimeoutMs: config.silenceTimeoutMs } : {}),
         onDeviceOnly,
+        ...(contextualStrings.length > 0 ? { contextualStrings } : {}),
         onPartial: handlers.onPartial,
         whisper: { enabled: Boolean(whisperKey), apiKey: whisperKey },
       });

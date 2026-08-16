@@ -956,6 +956,46 @@ describe('executor', () => {
       expect(result.summary).toContain('resistors');
       expect(result.href).toBeDefined();
     });
+
+    /**
+     * The answer to a question is the list, not a count of it.
+     *
+     * This came back as one sentence — "Found 4 matches: 2 notes and 2 tasks" —
+     * with the labels comma-joined into `detail`, so the one tool in the app
+     * whose whole output is a set of rows was the one tool that could not show
+     * them. Each row carries where it came from and how to open it.
+     */
+    it('brings the rows back, not just a count of them', async () => {
+      await repos.notes.upsertNoteWithBullets({
+        titleSummary: 'Resistor stock',
+        categoryTag: 'electronics',
+        bullets: ['10k resistors running low'],
+      });
+      await repos.tasks.createTask({ title: 'Order resistors' });
+
+      const result = await executor.execute(act('search', { query: 'resistors' }));
+
+      expect(result.results?.length).toBeGreaterThan(1);
+      expect(result.results?.map((hit) => hit.label)).toEqual(
+        expect.arrayContaining(['Resistor stock', 'Order resistors']),
+      );
+      expect(result.results?.map((hit) => hit.scope)).toEqual(
+        expect.arrayContaining(['note', 'task']),
+      );
+      // Best first, and the summary's own link is that same row.
+      expect(result.href).toBe(result.results?.[0]?.href);
+    });
+
+    /* One hit is already named in the sentence; a one-row list under it is the
+       same words twice. */
+    it('says a single match in a sentence and leaves it at that', async () => {
+      await repos.tasks.createTask({ title: 'Order resistors' });
+
+      const result = await executor.execute(act('search', { query: 'resistors' }));
+
+      expect(result.summary).toContain('Order resistors');
+      expect(result.results).toBeUndefined();
+    });
   });
 
   /* ---------------------------------------------------------- the batch -- */

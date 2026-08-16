@@ -1,4 +1,5 @@
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 
@@ -44,6 +45,12 @@ jest.mock('expo-router', () => ({
   },
 }));
 
+/* What the cold-start examples are built from. Empty by default: most of this
+   file is about a screen that already has data, and the generic pool is what a
+   fresh install actually sees. */
+let mockLists: { name: string }[] = [];
+let mockHabits: { name: string }[] = [];
+
 jest.mock('@/hooks', () => ({
   useToday: jest.fn(),
   // Keyed, because home now reads two of them and they mean opposite things:
@@ -56,6 +63,10 @@ jest.mock('@/hooks', () => ({
     error: null,
     set: mockSetSetting,
   }),
+  // The two the examples draw on. A query result, not an array: the component
+  // reads `.data`, and both are allowed to be undefined.
+  useChecklistNames: () => ({ data: mockLists }),
+  useHabits: () => ({ data: mockHabits }),
 }));
 
 /* The undo goes through the same mutations the screens use, so the whole
@@ -147,6 +158,8 @@ beforeEach(() => {
   mockSetSetting.mockReset();
   mockLastBriefingShown = '2026-08-11';
   mockConsent = 'granted';
+  mockLists = [];
+  mockHabits = [];
   useVoiceStore.getState().reset();
   hooks.useToday.mockReturnValue({ data: snapshot(), isPending: false, isError: false });
 });
@@ -238,6 +251,153 @@ describe('home screen', () => {
   it('keeps the receipt out of the way until something has been said', async () => {
     await wrap();
     expect(screen.queryByTestId('last-action-undo')).toBeNull();
+  });
+
+  /**
+   * Typing was a long-press on the disc and nothing else, and on home it did
+   * not even do that: `open()` set `expanded`, the sheet's own rule is that on
+   * home it only opens for something that needs it, and typing was not one of
+   * the things it counted. So the single undocumented gesture into the text box
+   * opened a sheet with every branch false — an invisible affordance that was
+   * also broken.
+   */
+  describe('the way in for somebody who will not talk to a phone', () => {
+    it('puts a visible control beside the caption', async () => {
+      await wrap();
+      expect(screen.getByTestId('home-type')).toBeTruthy();
+      expect(screen.getByText('TYPE')).toBeTruthy();
+    });
+
+    it('opens the sheet with the box up', async () => {
+      await wrap();
+      await fireEvent.press(screen.getByTestId('home-type'));
+
+      expect(useVoiceStore.getState().typing).toBe(true);
+      expect(useVoiceStore.getState().expanded).toBe(true);
+    });
+
+    /* The gesture still works, and now reaches the same state rather than an
+       empty sheet. */
+    it('is what the long press has always meant', async () => {
+      await wrap();
+      await fireEvent(screen.getByTestId('home-mic'), 'longPress');
+
+      expect(useVoiceStore.getState().typing).toBe(true);
+      expect(useVoiceStore.getState().expanded).toBe(true);
+    });
+
+    /**
+     * The one thing this control may not do. The disc is fixed under the thumb
+     * by design — every launch puts it in the same place — so anything added
+     * beside it has to be out of the flow that centres it.
+     */
+    it('takes no part in the layout that holds the disc still', async () => {
+      await wrap();
+      const style = StyleSheet.flatten(screen.getByTestId('home-type').props.style) as {
+        position?: string;
+      };
+      expect(style.position).toBe('absolute');
+    });
+
+    it('gets out of the way once the caption is a transcript', async () => {
+      await wrap();
+      await act(async () => {
+        useVoiceStore.setState({ status: 'listening' });
+      });
+      expect(screen.queryByTestId('home-type')).toBeNull();
+    });
+  });
+
+  /**
+   * The other half of the blank screen. `LastAction` renders nothing until
+   * something has been said, which is every cold start — so a fresh install's
+   * first impression was a microphone and no indication of what to say into it,
+   * or that it takes questions at all.
+   */
+  describe('the cold start', () => {
+    it('suggests things to say, and says that questions count', async () => {
+      await wrap();
+
+      expect(screen.getByText('SAY OR ASK')).toBeTruthy();
+      // Whatever the rotation is showing, one of the three is a question: the
+      // pool alternates, and that is what makes `search` findable at all.
+      expect(screen.getAllByText(/\?”$/).length).toBeGreaterThan(0);
+    });
+
+    it('draws them from what this person actually keeps', async () => {
+      mockLists = [{ name: 'Hardware' }];
+      mockHabits = [{ name: 'Gym' }];
+
+      await wrap();
+
+      expect(screen.getByText('“What’s on my Hardware list?”')).toBeTruthy();
+      expect(screen.getByText('“Log Gym”')).toBeTruthy();
+    });
+
+    /* Examples are for the empty space, not for the space over a receipt. */
+    it('gives the space back the moment there is something to report', async () => {
+      await wrap();
+
+      await act(async () => {
+        useVoiceStore.setState({
+          outcome: {
+            transcript: 'log gym',
+            items: [{ toolName: 'habit_log', ok: true, summary: 'Logged Gym.' }],
+          },
+        });
+      });
+
+      expect(await screen.findByText('Logged Gym.')).toBeTruthy();
+      expect(screen.queryByText('SAY OR ASK')).toBeNull();
+    });
+
+    /* And not under a failure: the sheet is already open saying why, and a list
+       of other things to try reads as the app changing the subject. */
+    it('stays away after a turn that wrote nothing', async () => {
+      await wrap();
+
+      await act(async () => {
+        useVoiceStore.setState({
+          outcome: {
+            transcript: 'delete everything',
+            items: [{ toolName: 'note_delete', ok: false, summary: 'I could not find that note.' }],
+          },
+        });
+      });
+
+      expect(screen.queryByText('SAY OR ASK')).toBeNull();
+    });
+
+    /* And not over a turn that never produced an outcome at all. A turn that
+       *throws* leaves `outcome` null and its transcript in `recovered`, which
+       home draws directly above this — so keying the examples on `outcome`
+       alone would put a list of cheerful suggestions under "NOT SENT — KEPT",
+       which is the same changing-the-subject failure as the case above. */
+    it('stays away over a transcript the app is still holding', async () => {
+      await wrap();
+
+      await act(async () => {
+        useVoiceStore.getState().keepDraft('remind me to renew the parking permit');
+      });
+
+      expect(screen.getByTestId('unsent-transcript')).toBeTruthy();
+      expect(screen.queryByText('SAY OR ASK')).toBeNull();
+    });
+
+    /* The third shape of a failure: a session that heard nothing has no
+       outcome and nothing to recover, only the error the sheet is showing.
+       Two things hold this — the gate in `LastAction` and `HomeExamples`
+       refusing to draw over a status that is not idle — and it is asserted
+       here as the behaviour rather than as either mechanism. */
+    it('stays away over a session that recorded nothing', async () => {
+      await wrap();
+
+      await act(async () => {
+        useVoiceStore.setState({ status: 'error', error: 'I did not catch that.', heardNothing: true });
+      });
+
+      expect(screen.queryByText('SAY OR ASK')).toBeNull();
+    });
   });
 
   it('opens the menu from the corner', async () => {

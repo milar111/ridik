@@ -2,6 +2,7 @@ import { StyleSheet, View, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../ThemeProvider';
+import { inkOn } from '../ink';
 import { AnimatedPressable, usePressScale } from '../motionHooks';
 import { Spinner } from './Spinner';
 import { Txt } from './Text';
@@ -21,6 +22,13 @@ export type ButtonProps = {
   haptic?: boolean;
   style?: ViewStyle;
   accessibilityLabel?: string;
+  /**
+   * What pressing it will do, when the label alone does not say. "Allow" is the
+   * example that made this necessary: it is the word on the button of the
+   * screen that decides whether anything the user says may leave the phone, and
+   * on its own it is an answer with the question missing.
+   */
+  accessibilityHint?: string;
   testID?: string;
 };
 
@@ -42,6 +50,7 @@ export function Button({
   haptic = true,
   style,
   accessibilityLabel,
+  accessibilityHint,
   testID,
 }: ButtonProps) {
   const { colors, radius } = useTheme();
@@ -54,7 +63,9 @@ export function Button({
     danger: colors.dangerMuted,
   };
   const fg: Record<Variant, string> = {
-    primary: '#FFFFFF',
+    // Not a constant white: `accent` is dark in light mode and *light* in dark
+    // mode, so the one ink that works on both is the one the fill picks.
+    primary: inkOn(colors.accent),
     secondary: colors.text,
     ghost: colors.textSecondary,
     danger: colors.danger,
@@ -77,6 +88,7 @@ export function Button({
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
+      {...(accessibilityHint ? { accessibilityHint } : {})}
       accessibilityState={{ disabled: !!inactive, busy: !!loading }}
       disabled={inactive}
       {...press.handlers}

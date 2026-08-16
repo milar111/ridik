@@ -9,6 +9,7 @@ import { formatDuration } from '@/core/time';
 import type { Task } from '@/db/schema';
 import { Card, Divider } from '@/ui/components/Card';
 import { Txt } from '@/ui/components/Text';
+import { inkOn } from '@/ui/ink';
 import { REFLOW_MS } from '@/ui/motion';
 import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
@@ -118,7 +119,7 @@ export function TaskRow({
             pop,
           ]}
         >
-          {done ? <Ionicons name="checkmark" size={13} color="#FFFFFF" /> : null}
+          {done ? <Ionicons name="checkmark" size={13} color={inkOn(colors.success)} /> : null}
           {locked ? <Ionicons name="lock-closed" size={10} color={colors.textTertiary} /> : null}
         </Animated.View>
       </AnimatedPressable>

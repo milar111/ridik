@@ -21,8 +21,9 @@
  */
 import type { Logger } from '@/core/logger';
 import { AppError, err, fail, ok, toAppError, type AppErrorCode, type Result } from '@/core/result';
-import { extractJson, parseLlmResponse, type LlmResponse } from '@/llm/contract';
+import { extractJson, parseLlmResponse, type LlmResponse, type ToolName } from '@/llm/contract';
 import { buildRetryPrompt, buildSystemPrompt, type LlmContext } from '@/llm/prompt';
+import { pickTools } from '@/llm/toolPicker';
 import {
   fallbackInterpret,
   LlmProviderError,
@@ -87,6 +88,15 @@ export type LlmClientOptions = {
   maxOutputTokens?: number;
   /** Overrides the provider's own structured-output schema. */
   responseSchema?: unknown;
+  /**
+   * Whether a self-contained utterance may be offered fewer than all 28 tools.
+   *
+   * On by default. Off is for measuring the difference and for a caller that
+   * would rather pay for the full surface every time; `pickTools` already
+   * refuses on its own whenever it is not sure, so this is a dial rather than
+   * the safety mechanism.
+   */
+  narrowTools?: boolean;
 };
 
 export type InterpretInput = {
@@ -231,11 +241,18 @@ export function createLlmClient(options: LlmClientOptions) {
         return fail('permission_denied', 'The assistant is not set up yet. Add an API key in Settings.');
       }
 
-      const system = buildSystemPrompt(input.context);
       const messages: LlmMessage[] = [
         ...(input.history ?? []),
         { role: 'user', content: input.transcript },
       ];
+      const narrowed = narrowingFor(input);
+      // The prompt and the decoder move together. A narrowed turn says which
+      // tools are live and what to do when none of them fits; leaving that
+      // paragraph in place after the constraint is gone would describe a rule
+      // nothing is enforcing.
+      let system = narrowed
+        ? buildSystemPrompt(input.context, { tools: narrowed })
+        : buildSystemPrompt(input.context);
       const state: CallState = {
         attempts: 0,
         calls: 0,
@@ -250,11 +267,23 @@ export function createLlmClient(options: LlmClientOptions) {
           return giveUp(input, state, ['(root): out of provider calls for this turn'], null);
         }
 
+        // A repair is the app's own admission that the first request did not
+        // work. Whatever the validator objected to, the second ask goes out
+        // with nothing of ours narrowing it — an enum is the one part of a
+        // request the model cannot argue with, so it is the first thing to let
+        // go of rather than the last.
+        const tools = schemaAttempt === 0 ? narrowed : null;
+        if (schemaAttempt === 1 && narrowed) {
+          logger?.info('widening the tool set for the repair');
+          system = buildSystemPrompt(input.context);
+        }
+
         const call = await callProvider(
           {
             system,
             messages: [...messages],
             responseSchema: options.responseSchema,
+            ...(tools ? { tools } : {}),
             temperature: options.temperature,
             maxOutputTokens: options.maxOutputTokens,
             signal: input.signal,
@@ -348,6 +377,32 @@ export function createLlmClient(options: LlmClientOptions) {
       logger?.error('offline fallback failed too', { error });
       return fail('upstream', SCHEMA_GIVE_UP_MESSAGE, details);
     }
+  }
+
+  /**
+   * The tools this turn may use, or `null` for all of them.
+   *
+   * Two guards sit in front of the picker, and both are about what the picker
+   * can actually see:
+   *
+   *  - **Only a self-contained utterance.** With history, the transcript is an
+   *    answer — "the one on Friday", "make it 3pm" — and reading a domain off
+   *    it means reading it off a fragment whose subject is in the previous
+   *    turn. "3pm" looks exactly like a calendar utterance whichever tool the
+   *    parked action belonged to.
+   *  - **Only when the caller wants it.** `narrowTools: false` returns the old
+   *    behaviour exactly, which is what makes the change measurable.
+   */
+  function narrowingFor(input: InterpretInput): readonly ToolName[] | null {
+    if (options.narrowTools === false) return null;
+    if ((input.history?.length ?? 0) > 0) return null;
+    const pick = pickTools(input.transcript);
+    if (pick.tools === null) {
+      logger?.debug('offering every tool', { reason: pick.reason });
+      return null;
+    }
+    logger?.debug('narrowed the tool set', { domains: pick.domains, tools: pick.tools.length });
+    return pick.tools;
   }
 
   return {

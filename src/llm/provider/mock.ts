@@ -112,7 +112,7 @@ function lastUserMessage(req: LlmRequest): string {
 /* ------------------------------------------------- degraded offline engine -- */
 
 /**
- * NOT a language model. Four hand-written patterns so a user with no API key
+ * NOT a language model. Five hand-written patterns so a user with no API key
  * still captures something; everything unrecognised becomes a note, which is
  * lossless even when the classification is wrong.
  */
@@ -144,6 +144,36 @@ const SECOND_INTENT_RE =
   /\s+(?:and|then|also)\s+(?=(?:i|we|you)\s+\w|(?:add|remind|log|start|note|call|book|schedule)\b)/i;
 const CHECKLIST_RE = /\badd\s+(.+?)\s+to\s+(?:my|the)?\s*(.+?)\s+list\b/i;
 
+/**
+ * A question, which is the one thing here that is safe to get wrong.
+ *
+ * Every other pattern writes a row, so this engine's rule is that anything it
+ * is unsure of becomes a note. A question is the exception in both directions:
+ * `search` writes nothing at all, so a bad guess costs "I found nothing for
+ * …" rather than data — and getting it wrong the *other* way is expensive,
+ * because "what did I spend on the parts?" filed as a note is a note nobody
+ * will ever read, and home now tells people out loud that they may ask.
+ *
+ * Checked before the writing patterns for the same reason: `SPENT_RE` matches
+ * "have I paid 50 for the parts?" and would book fifty euros in answer to a
+ * question about whether it had already been booked.
+ */
+const FIND_RE = /^(?:find|search(?:\s+for)?|look\s+(?:up|for)|show\s+me)\b/i;
+const QUESTION_TAIL_RE = /\?\s*$/;
+const QUESTION_LEAD_RE =
+  /^(?:what|where|when|which|who|whose|how|did|do|does|have|has|had|is|are|was|were|can|could|any)\b/i;
+
+/**
+ * Grammar rather than search terms.
+ *
+ * `scoreText` averages over the query's tokens, so every filler word left in
+ * divides the score of the one word that matters: "where did I write about the
+ * lab" scores a note titled "Lab rebuild" at about a fifth of what "lab" does,
+ * which is under the threshold — the search would run and find nothing.
+ */
+const QUERY_NOISE_RE =
+  /\b(?:what|whats|where|when|which|who|whose|why|how|did|do|does|have|has|had|is|are|was|were|can|could|i|we|you|my|our|your|me|the|a|an|of|on|in|at|to|for|about|any|anything|everything|all|got|get|down|said|say|write|wrote|note|noted|put|save|saved|list|lists|there|that|this|it|please)\b/gi;
+
 const CURRENCY_TOKENS = new Set([
   'eur', 'euro', 'euros', '€',
   'usd', 'dollar', 'dollars', 'bucks', '$',
@@ -164,6 +194,23 @@ export function fallbackInterpret(transcript: string): LlmResponse {
 
   const zone = currentZone();
   const at = now();
+
+  // A question, before anything that writes. An empty query after the noise is
+  // stripped is not a question this can answer, so it falls through and is kept
+  // as a note like everything else it does not understand.
+  const asked = (QUESTION_TAIL_RE.test(text) && QUESTION_LEAD_RE.test(text)) || FIND_RE.test(text);
+  const query = asked ? searchQuery(text) : '';
+  if (query) {
+    return llmResponseSchema.parse({
+      // No feedback of its own, unlike every other branch here. `composeFeedback`
+      // prefers the model's sentence over the executor's, and the executor's is
+      // the *answer* — saying "Searching (offline)." out loud instead of "Found
+      // 3 matches for “resistors”" would spend the one honest tag this engine
+      // has on withholding the thing that was asked for.
+      requires_user_input: false,
+      actions: [{ tool_name: 'search', parameters: { query } }],
+    });
+  }
 
   // Every branch below re-checks its own extracted text: `strip` can annihilate
   // an all-punctuation capture ("remind me to . at 5"), and an empty required
@@ -254,6 +301,17 @@ function to24Hour(hour: number, meridiem: string | undefined): number {
   if (m === 'am') return hour === 12 ? 0 : hour;
   // Bare "at 3" is the afternoon far more often than 3am.
   return hour >= 1 && hour <= 7 ? hour + 12 : Math.min(hour, 23);
+}
+
+/** What is left of a question once the grammar is taken out of it. */
+function searchQuery(text: string): string {
+  const body = text
+    .replace(QUESTION_TAIL_RE, '')
+    .replace(FIND_RE, ' ')
+    // Before the noise list, or "What's" leaves a stranded "'s" behind: the
+    // word boundary is at the apostrophe, so `\bwhat\b` takes only the "What".
+    .replace(/['’]s\b/gi, ' ');
+  return clamp(body.replace(QUERY_NOISE_RE, ' '), 300);
 }
 
 function strip(text: string): string {

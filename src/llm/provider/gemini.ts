@@ -6,7 +6,7 @@
  */
 import { now } from '@/core/clock';
 import { TOOL_NAMES } from '@/llm/contract';
-import { strictResponseSchema } from './geminiSchema';
+import { narrowToolNames, strictResponseSchema } from './geminiSchema';
 import {
   LlmProviderError,
   llmErrorFromHttpStatus,
@@ -16,27 +16,34 @@ import {
 } from './types';
 
 /**
- * Pinned, not `gemini-flash-latest`.
+ * Pinned, and pinned to the model the price of this app was built on.
  *
- * That alias is what shipped, and on 16 August 2026 a single call reported
- * `modelVersion: gemini-3.7-flash` — the top of the Flash family, at $0.75/M
- * input and $3.75/M output today and DOUBLE that from 1 January 2027. Google
- * does not price the alias on its own page, and it can move to another model
- * without a deploy on this side: a rate change arriving as a silent 2x is not
- * something a spend cap can defend against, because the cap is denominated in
- * the very number that moved.
+ * `gemini-flash-latest` is what shipped. On 16 August 2026 the first call ever
+ * made with a real key reported `modelVersion: gemini-3.7-flash` — the top of
+ * the Flash family, at $0.75/M input and $3.75/M output, doubling on 1 January
+ * 2027. Every figure in the plan assumed a Flash-Lite at $0.25.
  *
- * Pinning changes nothing about what the user gets today — this IS what the
- * alias resolved to. It only removes the app's exposure to a decision made
- * somewhere else.
+ * That gap is not a rounding error, it is the business model. At 3.7 Flash a
+ * subscriber burning the 1,000 credits of the upper tier costs $10.58 against
+ * $7.60 of net revenue from January: the plan loses money on exactly the
+ * customer it is designed to attract. On this model the same burn costs $1.93.
  *
- * `gemini-3.1-flash-lite` is 3x cheaper on input and 2.5x on output and is the
- * obvious candidate to move to, but that is a question about answer quality on
- * 28-tool structured output, not about price. `llm_usage` records `calls` and
- * `requests`, so calls-per-request is the repair rate: run a while on each and
- * the comparison is measured rather than argued.
+ * So the choice is not "cheaper if convenient". The cheaper model is the
+ * assumption the ladder rests on, and 3.7 Flash would mean repricing rather
+ * than saving.
+ *
+ * The cost of the choice is answer quality: a smaller model picking among 28
+ * tools with structured output may need the repair loop more often. Two things
+ * make that measurable rather than a gamble — `llm_usage` records `calls` and
+ * `requests`, so calls-over-requests IS the repair rate, and the tool set the
+ * model has to choose from is being narrowed per call, which shrinks the job
+ * this model has to do.
+ *
+ * An explicit version, never an alias: an alias can move without a deploy, and
+ * a spend cap cannot defend against a rate change because the cap is
+ * denominated in the number that moved.
  */
-export const DEFAULT_GEMINI_MODEL = 'gemini-3.7-flash';
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite';
 export const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
 const DEFAULT_TEMPERATURE = 0.1;
@@ -252,7 +259,12 @@ export function createGeminiProvider(options: GeminiProviderOptions): GeminiProv
 
       const startedAt = now();
       for (;;) {
-        const schema = onLadder ? rungs[rung] : pinned;
+        const rungSchema = onLadder ? rungs[rung] : pinned;
+        // Per call, and on whichever rung is in force. Narrowing the enum is
+        // constrained decoding over a small surface: on the strict rung it
+        // deletes whole tool branches, which is most of what a request costs.
+        const schema =
+          rungSchema && req.tools ? narrowToolNames(rungSchema, req.tools) : rungSchema;
         // Prompt caching, and why this request is not reordered to chase it.
         //
         // Measured on this repo (src/llm/__tests__/prompt-cache.test.ts keeps

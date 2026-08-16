@@ -306,4 +306,40 @@ describe('Today screen', () => {
     expect(screen.queryByText('Nothing on today')).toBeNull();
     expect(screen.queryByLabelText('Loading your day')).toBeNull();
   });
+
+  /*
+   * A refetch that fails over a cached snapshot used to be completely silent:
+   * the day stayed on screen, looking exactly like a current one, and nothing
+   * said it had stopped updating. That is the failure this screen cannot have,
+   * because the user goes on trusting what they can see.
+   */
+  it('says the day has stopped updating when a refetch fails over it', async () => {
+    const refetch = jest.fn();
+    setToday(snapshot({ events: [event('e1', 'Standup', at('09:00'))] }), {
+      isPending: false,
+      isError: true,
+      refetch,
+    });
+    await wrap();
+
+    // The day is still there. It is not replaced by an error, and it is not
+    // hidden — it is still probably right.
+    expect(screen.getByText('Standup')).toBeTruthy();
+    expect(screen.queryByTestId('today-error')).toBeNull();
+
+    // And the timestamp is the point: "as it was at 12:00" is what turns a day
+    // that looks fine into one the user can see is an hour old.
+    expect(screen.getByTestId('today-stale')).toBeTruthy();
+    expect(screen.getByText(/as it was at 12:00/)).toBeTruthy();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Refresh' }));
+    expect(refetch).toHaveBeenCalled();
+  });
+
+  it('says nothing about staleness while the day is fresh', async () => {
+    setToday(snapshot({ events: [event('e1', 'Standup', at('09:00'))] }));
+    await wrap();
+
+    expect(screen.queryByTestId('today-stale')).toBeNull();
+  });
 });

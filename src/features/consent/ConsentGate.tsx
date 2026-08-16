@@ -29,9 +29,28 @@ import { useTheme } from '@/ui/ThemeProvider';
 
 import { ConsentScreen } from './ConsentScreen';
 
+/**
+ * Whether the lid is up.
+ *
+ * Exported because a lid that only stops fingers is not a lid. The overlay
+ * covers the navigator visually and claims its touches, but a screen reader
+ * walks the view tree rather than the screen: with VoiceOver or TalkBack on,
+ * every control underneath — the microphone included — is still reachable by
+ * swipe, which makes the one screen that cannot be skipped skippable by the
+ * users least able to notice they had skipped it. iOS is answered by
+ * `accessibilityViewIsModal` below; Android has no such prop, and the only
+ * answer there is for the tree underneath to hide itself, which is what
+ * `app/_layout.tsx` does with this.
+ */
+export function useConsentGateOpen(): boolean {
+  const consent = useSetting('assistantConsent');
+  // Not while the row is still being read: see the note in `ConsentGate`.
+  return !consent.isLoading && consent.value === 'unset';
+}
+
 export function ConsentGate() {
   const { colors } = useTheme();
-  const consent = useSetting('assistantConsent');
+  const open = useConsentGateOpen();
   const reduced = useReducedMotion();
 
   // Nothing until the row has actually been read. `useSetting` reports the
@@ -39,7 +58,7 @@ export function ConsentGate() {
   // right answer for a switch and precisely the wrong one here: it would put a
   // full-screen consent sheet over the home screen of every launch for as long
   // as SQLite took to answer, on every install that had already answered.
-  if (consent.isLoading || consent.value !== 'unset') return null;
+  if (!open) return null;
 
   return (
     <Animated.View
@@ -48,6 +67,11 @@ export function ConsentGate() {
       // mounted, routed and correct; this is a lid.
       style={[styles.overlay, { backgroundColor: colors.bg }]}
       entering={reduced ? undefined : FadeIn.duration(FADE.duration)}
+      // The screen-reader half of the same lid: VoiceOver stops at this view
+      // and does not walk on into the app underneath it. There is no Android
+      // equivalent to set here — `app/_layout.tsx` hides the tree below
+      // instead, which is why `useConsentGateOpen` is exported.
+      accessibilityViewIsModal
       // A View with no responder lets touches fall through to whatever is
       // underneath it, which here is the microphone. Claiming the start of any
       // gesture no child wanted is what makes this a lid rather than a picture

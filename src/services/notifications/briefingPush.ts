@@ -240,8 +240,20 @@ export const PUSH_ROUTE_SEGMENTS: readonly string[] = [
  * shape of every consent-farming attack there is. The screen is reached from
  * the first run, from Settings, and from the app's own refusal notice — all
  * three of which are the user already looking at Ridik.
+ *
+ * `backup` writes the entire database to a file and hands it to the share
+ * sheet. Every path on it needs a deliberate tap and the restore needs a
+ * confirmation as well, so nothing is one tap from leaving the phone — but the
+ * screen is *about* the whole database leaving the phone, and there is no
+ * reason a message from a server would ever need to open it. Deny by default is
+ * the rule; this is what the rule is for.
  */
-export const PUSH_BLOCKED_SEGMENTS: readonly string[] = ['consent', 'developer', 'unlock'];
+export const PUSH_BLOCKED_SEGMENTS: readonly string[] = [
+  'backup',
+  'consent',
+  'developer',
+  'unlock',
+];
 
 /**
  * Query parameters a push may not carry, whatever route it names.

@@ -192,6 +192,8 @@ export const qk = {
       [ROOT, 'history', 'list', limit, status] as const,
     detail: (id: string) => [ROOT, 'history', 'detail', id] as const,
     stats: () => [ROOT, 'history', 'stats'] as const,
+    /** Keyed on the window: two read-outs over different spans are two answers. */
+    latency: (window: number) => [ROOT, 'history', 'latency', window] as const,
   },
 
   /** The assistant's own spend meter; invalidated after every metered turn. */
@@ -229,6 +231,8 @@ export const qk = {
     background: () => [ROOT, 'system', 'background'] as const,
     geofence: () => [ROOT, 'system', 'geofence'] as const,
     database: () => [ROOT, 'system', 'database'] as const,
+    /** The backup files on this phone — a directory read, not a table. */
+    backups: () => [ROOT, 'system', 'backups'] as const,
   },
 
   focus: {

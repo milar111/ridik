@@ -36,6 +36,12 @@ export type CaptureOptions = {
    * different recipient and a different opt-in.
    */
   onDeviceOnly?: boolean;
+  /**
+   * The user's own names, biasing the recogniser towards them — see
+   * `./dictionary`. Applies to the recogniser rungs only; Whisper takes a
+   * prompt rather than a bias list and is left alone.
+   */
+  contextualStrings?: readonly string[];
   /** Whisper is opt-in and needs a key; without both, the ladder stops early. */
   whisper?: { enabled: boolean; apiKey?: string | null; maxSeconds?: number };
   /** Cancels a Whisper recording in progress. */
@@ -113,6 +119,7 @@ function listenOnce(options: CaptureOptions): Promise<Result<VoiceCapture>> {
       minConfidence: options.minConfidence,
       silenceTimeoutMs: options.silenceTimeoutMs,
       onDeviceOnly: options.onDeviceOnly,
+      contextualStrings: options.contextualStrings,
       onPartial: options.onPartial,
       onStateChange: options.onStateChange,
       onError: (error) => done(err(error)),
@@ -150,6 +157,13 @@ function canUseWhisper(options: CaptureOptions, error: AppError): boolean {
 }
 
 export {
+  buildContextualStrings,
+  readContextualStrings,
+  readPersonalNames,
+  DICTIONARY_QUOTAS,
+} from './dictionary';
+
+export {
   abortListening,
   chunkForSpeech,
   cleanTranscript,
@@ -173,6 +187,12 @@ export type {
   VoiceCapture,
   VoiceState,
 } from './types';
+export type {
+  DictionaryRepositories,
+  DictionarySource,
+  PersonalName,
+  PersonalNames,
+} from './dictionary';
 export type { SilenceDetector, SilenceDetectorOptions, SilenceStats } from './vad';
 export type { RecordAndTranscribeOptions, WhisperTranscript } from './whisper';
 export type { SpeakOptions } from './tts';

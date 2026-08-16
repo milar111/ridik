@@ -9,6 +9,7 @@ import Animated, {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../ThemeProvider';
+import { useAnnounceOnIOS } from '../a11y';
 import { AnimatedPressable, usePressScale } from '../motionHooks';
 import { Txt } from './Text';
 import { FADE, FADE_OUT, REFLOW_MS } from '../motion';
@@ -120,6 +121,19 @@ function ToastStack({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: st
     accent: colors.accent,
   };
 
+  /**
+   * A toast is a sentence that appears somewhere nobody is looking and leaves
+   * again after three seconds. It is how "Undone" is reported, and how an undo
+   * that failed is reported — both of them the end of the receipt's own path —
+   * so a silent one means the safety loop closes for everybody except the
+   * people it matters most to. The newest, because they stack and iOS keeps
+   * only the last announcement made in a commit anyway.
+   */
+  const newest = toasts[toasts.length - 1];
+  useAnnounceOnIOS(
+    newest ? [newest.message, newest.detail].filter(Boolean).join('. ') : null,
+  );
+
   return (
     <View pointerEvents="box-none" style={[styles.stack, { top: insets.top + 6, gap: spacing.sm }]}>
       {toasts.map((t) => {
@@ -127,6 +141,7 @@ function ToastStack({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: st
         return (
           <Animated.View
             key={t.id}
+            testID="toast"
             /*
              * The one place in the app that uses layout animations, and it can
              * because the stack renders in the provider tree rather than inside
@@ -145,6 +160,10 @@ function ToastStack({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: st
              * this the one animated surface outside a sheet would be the only
              * thing still moving for someone who asked the OS to stop.
              */
+            // The Android half of the announcement above: TalkBack reads the
+            // toast as it arrives rather than waiting for a focus that will
+            // never move here.
+            accessibilityLiveRegion="polite"
             entering={FadeInUp.duration(FADE.duration).reduceMotion(ReduceMotion.System)}
             exiting={FadeOutUp.duration(FADE_OUT.duration).reduceMotion(ReduceMotion.System)}
             layout={LinearTransition.duration(REFLOW_MS).reduceMotion(ReduceMotion.System)}
@@ -203,7 +222,8 @@ function Trailing({
   return (
     <AnimatedPressable
       accessibilityRole="button"
-      accessibilityLabel={action ? undefined : 'Dismiss'}
+      // The drawn label is upper-cased for the eye; the spoken one is not.
+      accessibilityLabel={action ? action.label : 'Dismiss'}
       onPress={onPress}
       hitSlop={8}
       {...press.handlers}

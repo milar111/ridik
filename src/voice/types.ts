@@ -49,6 +49,19 @@ export type SttListenOptions = {
   /** Set false to skip the on-device attempt entirely. */
   preferOnDevice?: boolean;
   /**
+   * The user's own proper nouns, biasing the recogniser towards them.
+   *
+   * `SFSpeechRecognitionRequest.contextualStrings` on iOS and
+   * `EXTRA_BIASING_STRINGS` (API 33+) on Android. Without it the engine returns
+   * the nearest word in its general vocabulary — a colleague's name, a company,
+   * a list the user invented — and the wrong word lands on a real row.
+   *
+   * Ranked and capped at `CONTEXTUAL_STRINGS_CAP` by `./dictionary`; anything
+   * past that is dropped here too, because a bias list is a hint and an
+   * oversized one degrades the recognition it was meant to help.
+   */
+  contextualStrings?: readonly string[];
+  /**
    * Refuse the platform's *network* recogniser outright, even when the device
    * has no offline model for the locale.
    *
@@ -82,6 +95,19 @@ export type SttListenOptions = {
 export const NO_OFFLINE_VOICE_MESSAGE =
   'This phone has no offline voice for your language, and Ridik is keeping your words on ' +
   'this phone. You can type instead, or turn the assistant on in Settings.';
+
+/**
+ * How many bias phrases a recognition session may carry.
+ *
+ * Apple's guidance for `contextualStrings` is to keep the array small — the
+ * list is weighted into the language model for the whole session, so a large
+ * one drags ordinary words towards the user's nouns and costs more accuracy
+ * than it buys. Android's `EXTRA_BIASING_STRINGS` is a hint the recogniser is
+ * free to truncate, and a service that truncates decides *for* us which names
+ * survive. A hundred is comfortably inside both, and `./dictionary` spends it
+ * on the names most likely to be said next rather than the first hundred rows.
+ */
+export const CONTEXTUAL_STRINGS_CAP = 100;
 
 export const DEFAULT_LOCALE = 'en-US';
 export const DEFAULT_MIN_CONFIDENCE = 0.7;

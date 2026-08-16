@@ -9,7 +9,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Platform, useColorScheme } from 'react-native';
 
-import { ConsentGate } from '@/features/consent';
+import { ConsentGate, useConsentGateOpen } from '@/features/consent';
 import { VoiceDock } from '@/features/voice/VoiceDock';
 import { useEmberChoice } from '@/hooks/useEmber';
 import { useWidgetPublisher } from '@/hooks/useWidgetPublisher';
@@ -113,6 +113,12 @@ export default function RootLayout() {
             <ToastProvider>
               <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
               <ErrorBoundary label="app">
+                {/* Everything the consent lid is drawn over, in one view so it
+                    can be taken out of a screen reader's reach while the lid is
+                    up. It is a wrapper and nothing else: the navigator still
+                    mounts on the very first render, which is the rule the whole
+                    overlay pattern exists to keep. */}
+                <ConsentShield>
                 {/* The navigator must mount on the very first render: expo-router
                     resolves the initial URL against whatever tree exists then, and
                     gating it behind an async boot leaves the app on "Unmatched Route".
@@ -147,6 +153,7 @@ export default function RootLayout() {
                     wherever you are. It draws its own floating mic everywhere
                     except home, where the screen already is one. */}
                 <VoiceDock />
+                </ConsentShield>
                 {/* Only once the database is open: the widget feed reads the
                     same aggregate query as Today, and running it against a
                     half-migrated database would publish a face built from
@@ -179,12 +186,46 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
+  // The navigator's own space, taken by the shield around it so nothing moves.
+  fill: { flex: 1 },
   overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center' },
   // The spinner is a fixed square, where `ActivityIndicator` stretched and
   // centred itself. Only the boot overlay wants this; the failure screen's
   // paragraphs still fill the width.
   centred: { alignItems: 'center' },
 });
+
+/**
+ * The app, hidden from VoiceOver and TalkBack while the first-run lid is up.
+ *
+ * `ConsentGate` covers the navigator and claims its touches, but a screen
+ * reader walks the view tree and not the screen: with one switched on, the
+ * microphone underneath the disclosure was still one swipe away, which made the
+ * one screen nobody may skip skippable by exactly the people who could not see
+ * that they had skipped it. iOS is answered by `accessibilityViewIsModal` on
+ * the gate itself; Android has no such prop, and the only way to say it there
+ * is for everything underneath to stand down — which needs a view around it.
+ *
+ * A wrapper and nothing else. It has no effect on layout (`flex: 1`, the same
+ * space the navigator already filled) and it does not gate anything: `Stack`
+ * mounts on the first render exactly as before.
+ *
+ * Its own component because the answer comes from a query, and the provider
+ * that serves it is inside `RootLayout`'s own tree — the same reason
+ * `WidgetPublisher` below is one.
+ */
+function ConsentShield({ children }: { children: React.ReactNode }) {
+  const hidden = useConsentGateOpen();
+  return (
+    <View
+      style={styles.fill}
+      accessibilityElementsHidden={hidden}
+      importantForAccessibility={hidden ? 'no-hide-descendants' : 'auto'}
+    >
+      {children}
+    </View>
+  );
+}
 
 /**
  * Renders nothing; exists so the widget feed sits inside the query client.

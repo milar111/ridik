@@ -29,7 +29,7 @@ import { StyleSheet, View } from 'react-native';
 import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
-import { countLabel, truncate } from '@/core/format';
+import { countLabel, formatLatency, truncate } from '@/core/format';
 import { toAppError } from '@/core/result';
 import { currentZone, formatDayHeading, formatTime, localDateOf, type LocalDate } from '@/core/time';
 import { copyToClipboard } from '@/features/export';
@@ -81,14 +81,11 @@ function reason(error: unknown): string {
 /**
  * Milliseconds, read as a person would say them.
  *
- * `latencyMs` is written on every turn and has never had a reader anywhere in
- * the app. It costs nothing to show and it is the only way to see that the
- * assistant got slower.
+ * Moved to `@/core/format` once the developer screen started reading the same
+ * numbers in aggregate; re-exported here because it is this screen's own
+ * vocabulary and its tests ask for it by this name.
  */
-export function formatLatency(ms: number | null): string | null {
-  if (ms === null || !Number.isFinite(ms) || ms < 0) return null;
-  return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`;
-}
+export { formatLatency };
 
 /** A parameter value as one readable line. Objects and arrays keep their JSON. */
 export function formatParameter(value: unknown): string {

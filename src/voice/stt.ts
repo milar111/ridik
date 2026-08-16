@@ -19,6 +19,7 @@ import { createLogger } from '@/core/logger';
 import { AppError, err, fail, ok, toAppError, type Result } from '@/core/result';
 import { cleanTranscript, createSilenceDetector, evaluateTranscript, type SilenceDetector } from './vad';
 import {
+  CONTEXTUAL_STRINGS_CAP,
   DEFAULT_LOCALE,
   DEFAULT_MIN_SPEECH_MS,
   DEFAULT_TRAILING_SILENCE_MS,
@@ -250,7 +251,7 @@ function beginSession(
   attach(current);
 
   try {
-    ExpoSpeechRecognitionModule.start(recognitionOptions(locale, onDevice));
+    ExpoSpeechRecognitionModule.start(recognitionOptions(locale, onDevice, options.contextualStrings));
   } catch (error) {
     const appError = toAppError(error, 'Could not start listening.');
     current.settled = true;
@@ -263,7 +264,15 @@ function beginSession(
   return ok(undefined);
 }
 
-function recognitionOptions(locale: string, onDevice: boolean): ExpoSpeechRecognitionOptions {
+function recognitionOptions(
+  locale: string,
+  onDevice: boolean,
+  contextualStrings: readonly string[] | undefined,
+): ExpoSpeechRecognitionOptions {
+  // Sliced rather than trusted: the builder caps its own output, but this is
+  // the boundary the native module sits behind, and an oversized bias list is
+  // not rejected — it quietly makes recognition worse.
+  const bias = (contextualStrings ?? []).slice(0, CONTEXTUAL_STRINGS_CAP);
   return {
     lang: locale,
     // Partial results feed both the live UI text and our own endpointer.
@@ -273,6 +282,9 @@ function recognitionOptions(locale: string, onDevice: boolean): ExpoSpeechRecogn
     addsPunctuation: true,
     maxAlternatives: 1,
     iosTaskHint: TaskHintIOS.dictation,
+    // The user's own proper nouns. Omitted entirely when there are none, so a
+    // fresh install sends exactly what it always did.
+    ...(bias.length > 0 ? { contextualStrings: bias } : {}),
   };
 }
 

@@ -111,6 +111,23 @@ export type ExecutionContext = {
   confidence?: number | null;
 };
 
+/**
+ * One found row, for a tool whose answer *is* a list.
+ *
+ * `search` is the only one so far, and it is the reason this exists: a question
+ * answered with "found 6 matches: 3 notes and 3 tasks" is a summary of the
+ * answer rather than the answer. The scope is carried beside the label because
+ * "Resistors" means different things as a note and as a task, and the whole
+ * point of a cross-scope search is that both come back.
+ */
+export type ResultHit = {
+  label: string;
+  /** What kind of thing it is — 'note', 'task', 'event'. Singular, lower case. */
+  scope?: string;
+  /** Deep link, when there is a screen that shows this row. */
+  href?: string;
+};
+
 export type ActionResult = {
   toolName: ToolName;
   /**
@@ -124,6 +141,12 @@ export type ActionResult = {
   detail?: string;
   /** Deep link, e.g. '/note/abc' or '/project/xyz'. */
   href?: string;
+  /**
+   * The rows behind the summary, when the summary is only a count of them.
+   * Rendered as a list by whoever shows the result; never spoken — TTS reads
+   * `summary`, and reading six labels aloud is not an answer either.
+   */
+  results?: ResultHit[];
   /**
    * Set when the user asked for this on screen rather than out loud. A briefing
    * with `speak: false` still returns its text; it just must not be read aloud.
@@ -286,6 +309,15 @@ const ALL_SEARCH_SCOPES = [
 
 /** Below this a search hit is noise rather than an answer. */
 const SEARCH_THRESHOLD = 0.42;
+
+/**
+ * How many hits come back as rows.
+ *
+ * Six, because the list is read on a phone under a sheet that already has a
+ * transcript above it: past this it stops being an answer and becomes a screen
+ * the user has to search a second time.
+ */
+const SEARCH_RESULT_CAP = 6;
 
 const MINUTE_MS = 60_000;
 
@@ -1693,12 +1725,16 @@ export function createExecutor(ctx: ExecutionContext) {
       [...counts].map(([scope, count]) => countLabel(count, scope, `${scope}s`)),
     );
 
+    // The rows, not a comma-joined `detail` of them. What the user asked was a
+    // question, and the answer is the list — one line of "Resistor stock, Order
+    // resistors, …" is a sentence about an answer that cannot be opened.
     return done(`Found ${countLabel(hits.length, 'match', 'matches')} for ${quote(params.query)}: ${breakdown}.`, {
       ...(best.href ? { href: best.href } : {}),
-      detail: hits
-        .slice(0, 5)
-        .map((hit) => hit.label)
-        .join(', '),
+      results: hits.slice(0, SEARCH_RESULT_CAP).map((hit) => ({
+        label: hit.label,
+        scope: hit.scope,
+        ...(hit.href ? { href: hit.href } : {}),
+      })),
     });
   }
 

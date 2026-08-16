@@ -89,3 +89,63 @@ describe('the patterns that were already right', () => {
     expect(action?.tool).toBe('note_create');
   });
 });
+
+/**
+ * A question, which arrived here the day home started telling people they may
+ * ask one.
+ *
+ * Every other pattern in this file writes a row, so its rule is that anything
+ * unrecognised becomes a note. `search` inverts that: it writes nothing, so a
+ * wrong guess costs "I found nothing" — while a question filed as a note is a
+ * note nobody will ever read, and the answer is lost either way.
+ */
+describe('asking rather than telling', () => {
+  it('searches for what a question is about', () => {
+    const action = actionOf('Where did I write about the lab?');
+
+    expect(action?.tool).toBe('search');
+    expect(action?.params.query).toBe('lab');
+  });
+
+  /* The grammar has to come out: `scoreText` averages over the query's tokens,
+     so six filler words divide the one that matters below the threshold and the
+     search runs and finds nothing. */
+  it('keeps only the words worth matching', () => {
+    expect(actionOf('What’s on my Hardware list?')?.params.query).toBe('Hardware');
+    expect(actionOf("What's on my Hardware list?")?.params.query).toBe('Hardware');
+    expect(actionOf('What have I got on Friday?')?.params.query).toBe('Friday');
+  });
+
+  it('takes an imperative to find as the same thing', () => {
+    const action = actionOf('Find everything about the resistors');
+
+    expect(action?.tool).toBe('search');
+    expect(action?.params.query).toBe('resistors');
+  });
+
+  /**
+   * Before the patterns that write, and this is the case that decides the
+   * order: `SPENT_RE` matches "have I paid 50 for the parts?" and would book
+   * fifty euros in answer to a question about whether it had been booked.
+   */
+  it('does not book a spend that was being asked about', () => {
+    const action = actionOf('Have I paid 50 for the parts?');
+
+    expect(action?.tool).toBe('search');
+    expect(action?.tool).not.toBe('ledger_add');
+  });
+
+  /* A statement is still a statement. Nothing here may take an order away from
+     the pattern that would have carried it out. */
+  it('leaves an ordinary instruction alone', () => {
+    expect(actionOf('Spent 12 leva on lunch')?.tool).toBe('ledger_add');
+    expect(actionOf('add milk to the shopping list')?.tool).toBe('checklist_add');
+    expect(actionOf('The wifi password is on the router')?.tool).toBe('note_create');
+  });
+
+  /* Nothing left after the grammar is not a question this can answer, so it
+     keeps what was said rather than searching for an empty string. */
+  it('keeps a question it cannot make a query out of', () => {
+    expect(actionOf('What is it?')?.tool).toBe('note_create');
+  });
+});

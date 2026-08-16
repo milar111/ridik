@@ -99,6 +99,11 @@ export function createHostedProvider(options: HostedProviderOptions): LlmProvide
             system: req.system,
             messages: req.messages,
             responseSchema: req.responseSchema,
+            // Forwarded rather than applied: the proxy owns the provider call
+            // and therefore the schema. Sending it means a backend can narrow
+            // the same way the direct path does; a backend that ignores the
+            // field behaves exactly as it did before it existed.
+            ...(req.tools ? { tools: [...req.tools] } : {}),
             temperature: req.temperature,
             maxOutputTokens: req.maxOutputTokens,
             ...(options.model ? { model: options.model } : {}),

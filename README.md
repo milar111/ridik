@@ -35,6 +35,9 @@ items to a shopping list — in one pass, offline-first, on-device.
   killed.
 - **A 15-second spoken morning briefing** built from all of it, plus markdown / PDF / clipboard /
   email export of your week.
+- **A backup that can come back.** Settings → Your data → Backup writes every row to one JSON file
+  and can restore it onto any install. Restoring **merges**: it adds what is missing and never
+  deletes or overwrites what is already there, and it says so before it runs.
 - Long-press the home-screen icon to start talking without opening a screen.
 
 ## Stack

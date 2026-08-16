@@ -34,7 +34,12 @@ import type { LlmClient } from '@/llm/client';
 import { actionSchema, type LlmAction, type ToolName } from '@/llm/contract';
 import { alwaysAsks, type ConfirmMode, type ConfirmScope } from './confirm';
 import { buildLlmContext } from '@/llm/context';
-import { createExecutor, type ActionResult, type ExecutorEffects } from '@/llm/executor';
+import {
+  createExecutor,
+  type ActionResult,
+  type ExecutorEffects,
+  type ResultHit,
+} from '@/llm/executor';
 import type { LlmMessage } from '@/llm/provider';
 import type { Repositories } from '@/repositories';
 
@@ -47,6 +52,8 @@ export type TurnItem = {
   summary: string;
   detail?: string;
   href?: string;
+  /** The rows behind an answer that is a list — see `ResultHit`. */
+  results?: ResultHit[];
   /**
    * The row the action touched. Carried so the UI can offer to undo a create;
    * what it points at differs per tool, which is why `undoableAction` decides
@@ -562,6 +569,7 @@ function toItem(result: ActionResult): TurnItem {
     summary: result.summary,
     ...(result.detail ? { detail: result.detail } : {}),
     ...(result.href ? { href: result.href } : {}),
+    ...(result.results?.length ? { results: result.results } : {}),
     ...(result.entityId ? { entityId: result.entityId } : {}),
   };
 }

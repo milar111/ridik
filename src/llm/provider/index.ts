@@ -20,6 +20,7 @@ export {
 } from './gemini';
 
 export {
+  narrowToolNames,
   strictResponseSchema,
   toGeminiSchema,
   type GeminiSchema,

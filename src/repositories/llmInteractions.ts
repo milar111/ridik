@@ -12,7 +12,7 @@
  * history screen wants rows, and both are answerable in SQLite against a real
  * database under plain Node.
  */
-import { desc, eq, isNotNull, sql } from 'drizzle-orm';
+import { desc, eq, isNotNull, sql, type SQL } from 'drizzle-orm';
 
 import type { RidikDatabase } from '@/db/migrator';
 import { llmInteractions, type LlmInteraction } from '@/db/schema';
@@ -71,6 +71,61 @@ export type InteractionStats = {
   newestAt: number | null;
 };
 
+/**
+ * How many turns back a latency read-out looks by default.
+ *
+ * `stats()` answers for the whole trail, which is the right unit for a history
+ * header and the wrong one for the only question worth asking of a latency:
+ * *is it slower than it was?* A thousand fast turns bury the hundred slow ones
+ * that came after them, and a lifetime median moves so little that a doubling
+ * of the real reply time barely shows. So the diagnostics read-out is a window.
+ */
+export const LATENCY_WINDOW = 100;
+
+/**
+ * What the slow tail of a spoken turn is held to.
+ *
+ * The tail rather than the middle, because the tail is what gets felt: a median
+ * of a second with one turn in twenty taking eight is an assistant people stop
+ * trusting, and the median never says so. Four seconds is roughly where a
+ * spoken reply stops reading as an answer and starts reading as the app having
+ * missed what was said — past that, people repeat themselves, which costs a
+ * second request and usually a second mistake.
+ *
+ * A number nothing enforces. It exists so the read-out can say whether what it
+ * shows is good, which is the difference between an instrument and a decoration.
+ */
+export const LATENCY_TARGET_P95_MS = 4_000;
+
+/**
+ * What the recent turns took, in the two figures that are not a lie.
+ *
+ * Nearest-rank, so both are durations a real turn actually had. A mean is
+ * useless here: one cold start or one repair ladder drags it somewhere no turn
+ * ever was.
+ */
+export type LatencySummary = {
+  /** The window that was asked for, in turns. */
+  window: number;
+  /** Turns inside it — fewer than `window` on a young install. */
+  turns: number;
+  /** Of those, the ones that recorded a latency. The percentiles are over these. */
+  timed: number;
+  medianMs: number | null;
+  p95Ms: number | null;
+  slowestMs: number | null;
+  /**
+   * Whether `p95Ms` clears `LATENCY_TARGET_P95_MS`. Null when nothing in the
+   * window was timed — "we did not measure" must never render as "fine".
+   */
+  withinTarget: boolean | null;
+};
+
+export type LatencyOptions = {
+  /** Turns to look back over. Defaults to `LATENCY_WINDOW`. */
+  window?: number;
+};
+
 export type ListInteractionsOptions = {
   /** Newest-first page size. Defaults to 50. */
   limit?: number;
@@ -117,6 +172,11 @@ function decorate(row: LlmInteraction): Interaction {
   return { ...row, parsedActions: parseActions(row.actions) };
 }
 
+/** SQLite answers a percentile over an empty population as NULL; keep that. */
+function nullable(value: number | null | undefined): number | null {
+  return value === null || value === undefined ? null : Number(value);
+}
+
 export function createLlmInteractionsRepository(db: RidikDatabase) {
   /**
    * Every latency that was recorded, as a derived table.
@@ -127,7 +187,27 @@ export function createLlmInteractionsRepository(db: RidikDatabase) {
   const timed = sql`select ${llmInteractions.latencyMs} as ms from ${llmInteractions} where ${llmInteractions.latencyMs} is not null`;
 
   /**
-   * Nearest-rank percentile, in integer arithmetic.
+   * The same population, cut to the most recent `window` *turns*.
+   *
+   * The window is applied before the null filter and not after it, so "the last
+   * hundred turns" means turns. Cutting the timed rows instead would quietly
+   * reach further and further back the more turns went untimed, and the read-out
+   * would say "lately" about a week that had nothing to do with lately.
+   *
+   * `window` is written into the statement for the same reason the percentile
+   * below is: it is an integer here and a double once bound, and SQLite will not
+   * take a real as a LIMIT. It never comes from the user.
+   */
+  const recentlyTimed = (window: number) => sql`
+    select ms from (
+      select ${llmInteractions.latencyMs} as ms
+      from ${llmInteractions}
+      order by ${llmInteractions.createdAt} desc, rowid desc
+      limit ${sql.raw(String(Math.trunc(window)))}
+    ) where ms is not null`;
+
+  /**
+   * Nearest-rank percentile over a population, in integer arithmetic.
    *
    * `(n * p + 99) / 100` is `ceil(n * p / 100)` with SQLite's integer division,
    * which avoids both a float and `ceil()` — the latter needs
@@ -137,12 +217,15 @@ export function createLlmInteractionsRepository(db: RidikDatabase) {
    * load-bearing: a bound `50` arrives as a *double*, which turns the whole
    * expression real, and an OFFSET that is not an integer is a bare "datatype
    * mismatch" from SQLite. It is a literal in this file, never user input.
+   *
+   * The population is passed in and interpolated twice, so the value and the
+   * offset that picks it can never disagree about which rows are in it.
    */
-  const nearestRank = (percentile: number) => {
+  const nearestRank = (percentile: number, population: SQL) => {
     const p = sql.raw(String(Math.trunc(percentile)));
     return sql<number | null>`(
-      select ms from (${timed}) order by ms
-      limit 1 offset (select max(0, (count(*) * ${p} + 99) / 100 - 1) from (${timed}))
+      select ms from (${population}) order by ms
+      limit 1 offset (select max(0, (count(*) * ${p} + 99) / 100 - 1) from (${population}))
     )`;
   };
 
@@ -191,8 +274,8 @@ export function createLlmInteractionsRepository(db: RidikDatabase) {
         clarify: sql<number>`(select count(*) from ${llmInteractions} where ${llmInteractions.status} = 'clarify')`,
         errors: sql<number>`(select count(*) from ${llmInteractions} where ${llmInteractions.status} = 'error')`,
         timed: sql<number>`(select count(*) from (${timed}))`,
-        median: nearestRank(50),
-        p95: nearestRank(95),
+        median: nearestRank(50, timed),
+        p95: nearestRank(95, timed),
         // `json_array_length` answers 0 for anything that is not an array, and
         // `json_valid` keeps a half-written row from taking the whole header
         // down with it.
@@ -215,8 +298,6 @@ export function createLlmInteractionsRepository(db: RidikDatabase) {
 
     const total = Number(row?.total ?? 0);
     const actions = Number(row?.actions ?? 0);
-    const nullable = (value: number | null | undefined) =>
-      value === null || value === undefined ? null : Number(value);
 
     return {
       total,
@@ -232,6 +313,46 @@ export function createLlmInteractionsRepository(db: RidikDatabase) {
         .map((entry) => ({ model: entry.model, turns: Number(entry.turns) })),
       oldestAt: nullable(row?.oldestAt),
       newestAt: nullable(row?.newestAt),
+    };
+  }
+
+  /**
+   * How slow the assistant has been lately.
+   *
+   * `latency_ms` has been written on every turn since the orchestrator was
+   * built, and until the history screen there was nothing that read it — which
+   * meant the app had a number for "did that feel slow?" and no way to answer
+   * the question. This is that number in the shape a diagnostic wants: a recent
+   * window, the middle turn, the slow tail, and whether the tail clears the one
+   * figure it is held to.
+   *
+   * Pure SQL and one statement, like `stats()`, because it runs behind a screen
+   * that is already fetching four other things.
+   */
+  async function latency(options: LatencyOptions = {}): Promise<LatencySummary> {
+    const window = Math.max(1, Math.trunc(options.window ?? LATENCY_WINDOW));
+    const population = recentlyTimed(window);
+
+    const [row] = await db
+      .select({
+        total: sql<number>`(select count(*) from ${llmInteractions})`,
+        timed: sql<number>`(select count(*) from (${population}))`,
+        median: nearestRank(50, population),
+        p95: nearestRank(95, population),
+        slowest: sql<number | null>`(select max(ms) from (${population}))`,
+      })
+      .from(sql`(select 1)`);
+
+    const p95Ms = nullable(row?.p95);
+
+    return {
+      window,
+      turns: Math.min(window, Number(row?.total ?? 0)),
+      timed: Number(row?.timed ?? 0),
+      medianMs: nullable(row?.median),
+      p95Ms,
+      slowestMs: nullable(row?.slowest),
+      withinTarget: p95Ms === null ? null : p95Ms <= LATENCY_TARGET_P95_MS,
     };
   }
 
@@ -265,7 +386,7 @@ export function createLlmInteractionsRepository(db: RidikDatabase) {
     return total;
   }
 
-  return { listRecent, getById, stats, remove, clear };
+  return { listRecent, getById, stats, latency, remove, clear };
 }
 
 export type LlmInteractionsRepository = ReturnType<typeof createLlmInteractionsRepository>;

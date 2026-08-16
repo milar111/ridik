@@ -37,7 +37,13 @@ import {
 import { useEmber, useSetting } from '@/hooks';
 import { useEntitlement } from '@/hooks/useBilling';
 import { ASSISTANT_PROVIDER, type AssistantConsent } from '@/llm/consent';
-import { describePlan, describeRenewal, FREE } from '@/services/billing/entitlement';
+import { describeTrial, TRIAL_TOTAL_REQUESTS } from '@/services/billing/allowance';
+import {
+  describePlan,
+  describeRenewal,
+  isStoreBuild,
+  FREE,
+} from '@/services/billing/entitlement';
 import {
   useEraseAllData,
   useExportEverything,
@@ -110,18 +116,57 @@ export default function SettingsScreen() {
 function PlanGroup() {
   const nav = useNavigateOnce();
   const entitlement = useEntitlement();
+  // Read-only, and it must stay that way: `reset-surfaces.test.ts` fails the
+  // build if anything in the app can write a trial counter. The number is
+  // monotonic by design — nothing here may lower it.
+  const trialUsed = useSetting('llmTrialRequestsUsed');
+  const simulateStore = useSetting('simulateStoreBuild');
 
   if (entitlement.isLoading && !entitlement.data) return <GroupSkeleton title="Plan" rows={1} />;
 
   const plan = entitlement.data ?? FREE;
   const renewal = describeRenewal(plan, (at) => formatDayHeading(at, undefined, now()));
 
+  /*
+   * The free trial, said out loud on the one screen a person looks at to find
+   * out what they are on.
+   *
+   * It has existed since the money path was written and has been visible in
+   * exactly two places: the developer screen behind seven taps, and the notice
+   * that fires with five requests left. Which is to say a free user's first
+   * news of a 25-request limit arrived at request twenty. That is the review
+   * every voice app with a hidden trial collects — "misleads with limited free
+   * trial… he doesn't specify the limit" — and it is earned.
+   *
+   * Held until the entitlement has actually answered, for the same reason
+   * `ConsentScreen` holds it: `isStoreBuild()` is module state that only turns
+   * true once a provider has registered, so asking during the first render of a
+   * cold start reliably gets "no" and nothing would re-render to correct it.
+   * `known` as well as `active`: a store that could not be reached is not
+   * evidence that anybody is on a trial, and telling a subscriber in a tunnel
+   * how many free requests they have left is the same lie in the other
+   * direction.
+   */
+  const showTrial =
+    entitlement.data !== undefined &&
+    plan.known &&
+    !plan.active &&
+    (isStoreBuild() || simulateStore.value);
+  const trialSpent = trialUsed.value >= TRIAL_TOTAL_REQUESTS;
+
   return (
     <Group title="Plan">
       <Row
         icon={plan.active ? 'checkmark-circle-outline' : 'sparkles-outline'}
         label={plan.active ? `${describePlan(plan)} · the assistant` : 'Free'}
-        hint={renewal}
+        value={showTrial ? describeTrial(trialUsed.value) : undefined}
+        hint={
+          !showTrial
+            ? renewal
+            : trialSpent
+              ? 'They are spent, and nothing refills them. Ridik still listens and still files simple phrases on its own; a plan turns the full assistant back on.'
+              : 'They are for the life of this install, not per month. Everything else in Ridik stays free and unlimited.'
+        }
         right={
           <Button
             label={plan.active ? 'Manage' : 'See plans'}
@@ -363,6 +408,7 @@ function DataGroup() {
   const exportAll = useExportEverything();
   const erase = useEraseAllData();
   const toast = useToast();
+  const router = useRouter();
   const { spacing } = useTheme();
   const [confirming, setConfirming] = useState(false);
   const [typed, setTyped] = useState('');
@@ -396,6 +442,17 @@ function DataGroup() {
             }
           />
         }
+      />
+      {/* Readable and re-importable are two different promises, and the
+          markdown above only makes the first one. With no account and no
+          server, a backup is the only copy of this database that can ever
+          come back. */}
+      <Row
+        icon="save-outline"
+        label="Backup and restore"
+        hint="A file that can be put back. Restoring adds; it never deletes."
+        right={<Chevron />}
+        onPress={() => router.push('/backup')}
       />
       {confirming ? (
         <View style={{ padding: spacing.md, gap: spacing.sm }}>

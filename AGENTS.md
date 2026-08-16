@@ -178,6 +178,40 @@ Two Android text traps, both of which cost a debugging session:
   "Exporl", while "Allow" was fine. `Button`'s label carries 2pt of horizontal
   slack for this; any other tight text container needs the same.
 
+## The receipt has to be announced
+
+This app is safe because it *shows* you what it did — and every one of those
+things is a card that springs up in silence. With VoiceOver or TalkBack on, the
+receipt, the review gate's preview and the notice that says the assistant has
+stopped calling the model were not degraded, they were absent. `src/ui/a11y.ts`
+carries the rule; the short version:
+
+- **A surface that appears with news on it carries `accessibilityLiveRegion`
+  *and* calls `useAnnounceOnIOS` with the same sentence** — one prop and one
+  call, one platform each. The prop is Android's mechanism
+  (`announceForAccessibility` is discouraged there from API 34); the call is
+  UIKit's, which has no live regions at all. Announcing on *both* platforms
+  beside a region is how a sentence gets said twice. `useAnnounce` is the
+  exception, for state no element's text carries word for word: the mic caption
+  *becomes* the partial transcript, so a live region on it interrupts on every
+  syllable.
+- **One voice per event.** `HomeMic` and `LastAction` own the status and the
+  result on home; `VoiceDock` announces them only when it is not on home, where
+  its sheet is the only report a turn gets.
+- **Anything that is only a colour or a glyph has to be said.** A failed result
+  row was a red triangle, an in-flight undo a 50% dim, "working" a swapped
+  glyph — `accessibilityState` and the label carry those now.
+- **A gesture is never an exit.** The voice sheet's grab handle is a `Pressable`:
+  a bare `View` is not an accessibility element unless told to be, and
+  `onAccessibilityTap` is iOS-only, so TalkBack had nothing to activate.
+- **`ConsentGate` is a lid for touches only.** A screen reader walks the view
+  tree, so `accessibilityViewIsModal` (iOS) and `ConsentShield` in
+  `app/_layout.tsx` (Android, which has no such prop) are what stop it reaching
+  the microphone underneath the one screen nobody may skip.
+
+None of it has been through a real screen reader; the tests assert the props and
+the announcements exist, which is all a simulator can do.
+
 ## What belongs on the Settings screen
 
 The test: **if a stranger set this to the worst possible value, would the app
@@ -200,6 +234,17 @@ set `developerMode`; expo-router will match `ridik:///developer` regardless, so
 `app/developer.tsx` redirects on the switch itself. Anything added there is
 reachable by deep link until that check says otherwise.
 
+**A number on that screen has to say whether it is good.** `latency_ms` was
+written on every turn since the orchestrator was built and read by nothing, so
+the app measured how slow it was and threw the measurement away.
+`llmInteractions.latency()` is the reader: median and p95, nearest-rank so both
+are durations a real turn had, over a *window* of recent turns — a lifetime
+median cannot answer "did it get slower?", because a thousand fast turns bury
+the hundred slow ones after them. `LATENCY_TARGET_P95_MS` is what the tail is
+held to and the row tones warning past it. Nothing enforces the target; a
+read-out that cannot say whether it is bad is a decoration, and judging a prompt
+or model change by feel is how a regression ships.
+
 ## The money path
 
 One decision, then one measurement, and four states that must never collapse
@@ -215,6 +260,15 @@ it is pure; everything else feeds it.
 - **A cap is a `Cap`, never a number.** `0` means "unlimited" in the developer
   rows and "nothing bought" in a tier allowance. Only `developerCap()` may read
   a 0 as unlimited; `limitOf(0)` refuses everything.
+- **The trial is stated before it is spent, not when it runs out.** For a long
+  time `describeTrial()` was imported by exactly one file — `app/developer.tsx`,
+  behind seven taps — so a free user's first news of a 25-request limit was the
+  warning that fires with five left. It is on `/consent`, where the decision to
+  send anything is taken, and in the Plan row on `app/settings.tsx`. Both hold
+  it until the entitlement has *answered* and both check `known`: `isStoreBuild()`
+  is module state that is false until a provider registers, and telling a
+  subscriber in a tunnel how many free requests they have left is the same lie
+  in the other direction.
 - **`requests` is utterances; `calls` is what the provider billed.** One turn
   can bill three times when a reply has to be repaired. Plans are sold in
   requests, so repairs go in `calls` — adding them to `requests` charges the
@@ -242,6 +296,49 @@ it is pure; everything else feeds it.
   back cannot open an empty window. Winding it *forward* still can, and is left
   alone: it is indistinguishable from time passing, and the server owns the
   authoritative quota on the build where that matters.
+
+## Backups, and not losing what was said
+
+Two features, one idea: nothing the user produced may be thrown away by the app
+on their behalf.
+
+- **A restore MERGES. It never replaces.** `src/features/export/json.ts` owns
+  the whole decision and states it at the top of the file. A row whose id is
+  already here is skipped and the copy on the phone wins; a row clashing with a
+  *different* row (same habit name, same place label) is skipped and counted; a
+  row whose parent did not survive has its link cleared where the column allows
+  it and is dropped where it does not. There is not one `UPDATE` and not one
+  `DELETE` in the importer, and there must never be — replace is a one-tap way
+  to destroy a month of work with a stale file and there is no undo underneath
+  it. The whole thing is one transaction: a constraint is a skip, anything else
+  rolls back, because a half-restored database is worse than a failed restore.
+  **The user is told which it is before it runs** — `describeImport()` writes
+  the sentence, `app/backup.tsx` puts it in a `useConfirm()` with the counted
+  consequence for that particular file, and `backup-screen.test.tsx` fails if
+  the question stops saying it.
+- **Two versions travel and they move for different reasons.**
+  `BACKUP_VERSION` is the envelope; `schemaVersion` is `PRAGMA user_version` at
+  the time. A file from a *newer* build of either is refused by name rather
+  than half-decoded. An older one is fine — migrations are append-only, so it
+  is missing columns rather than carrying wrong ones, and they take their
+  declared defaults.
+- **`llm_usage` and `sync_queue` do not travel**, for the same reasons
+  `db/wipe.ts` preserves the first: it is the operator's spend meter, not a
+  possession, and a file that could write it could be edited to unspend a
+  trial. The second is an outbox of half-finished calls to somebody else's
+  calendar. `notes_fts` does not travel either — it is derived, and
+  `useRestoreBackup` rebuilds it, because nothing but the notes repository
+  maintains it.
+- **A transcript is the only record that a sentence was ever spoken.** The
+  audio is discarded as soon as it is transcribed. So `store.ts` keeps an
+  unanswered one in `recovered`, which `close()` and `reset()` deliberately do
+  **not** clear — only `recoverTranscript()` (which hands it to the composer)
+  and `discardRecovered()` do, plus that same sentence succeeding. A recogniser
+  that dies mid-utterance leaves its last partial there, because most of a long
+  dictation is worth incomparably more than nothing. And a session that
+  recorded *nothing at all* sets `heardNothing`, which says so in those words:
+  "I didn't quite catch that" over a microphone that captured a whole paragraph
+  of silence is how somebody finds out days later.
 
 ## Environment gotchas
 
@@ -429,8 +526,11 @@ Honest list. Everything else in the brief is built, tested and has been run on b
   and its manifest entry merges (`:app:processDebugResources`), but placing a Control Center
   button or a QS tile is a launcher gesture, exactly like the shortcut above. The URL they open
   is the one every other entry point opens and is covered end to end.
-- **A refetch failure over a cached Today snapshot is invisible.** The screen keeps showing the last
-  good day with no indication that it has stopped updating.
+- ~~A refetch failure over a cached Today snapshot is invisible~~ — `StaleNotice` in
+  `src/features/today/Fallbacks.tsx` says so, quietly: the day stays on screen, with the time the
+  snapshot was taken and a way to try again. It is deliberately not an error — nothing broke and
+  the day is still probably right — but a stale day is indistinguishable from a current one, which
+  is why it has to be stated at all.
 - **Google Calendar sync is untested against the live API.** Every path is covered against a mocked
   transport — offline, backoff, auth loss, last-write-wins — but no OAuth client ids were available,
   so nothing has spoken to Google.

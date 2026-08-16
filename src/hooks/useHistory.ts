@@ -16,10 +16,12 @@ import {
 } from '@tanstack/react-query';
 
 import { getRepositories } from '@/repositories';
-import type {
-  Interaction,
-  InteractionStats,
-  InteractionStatus,
+import {
+  LATENCY_WINDOW,
+  type Interaction,
+  type InteractionStats,
+  type InteractionStatus,
+  type LatencySummary,
 } from '@/repositories/llmInteractions';
 
 import { invalidateKeys, qk } from './keys';
@@ -60,6 +62,20 @@ export function useInteractionStats(): UseQueryResult<InteractionStats> {
   });
 }
 
+/**
+ * How slow the assistant has been over the last `window` turns.
+ *
+ * Separate from `useInteractionStats` because the two answer different
+ * questions with the same column: the history header wants the trail's lifetime
+ * shape, and a diagnostic wants to know whether *lately* is worse than before.
+ */
+export function useTurnLatency(window: number = LATENCY_WINDOW): UseQueryResult<LatencySummary> {
+  return useQuery({
+    queryKey: qk.history.latency(window),
+    queryFn: () => getRepositories().llmInteractions.latency({ window }),
+  });
+}
+
 export function useForgetInteraction(): UseMutationResult<boolean, Error, string> {
   const client = useQueryClient();
   return useMutation({
@@ -82,4 +98,9 @@ export function useClearInteractionHistory(): UseMutationResult<number, Error, v
   });
 }
 
-export type { Interaction, InteractionStats, InteractionStatus };
+export type { Interaction, InteractionStats, InteractionStatus, LatencySummary };
+
+/* The window and the target travel with the numbers they describe: a screen may
+   not reach past `@/hooks` into a repository, and a read-out that cannot say
+   what it is held to is a decoration. */
+export { LATENCY_TARGET_P95_MS, LATENCY_WINDOW } from '@/repositories/llmInteractions';

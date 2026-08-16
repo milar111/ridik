@@ -26,6 +26,9 @@ import { SectionBoundary } from '@/features/today/Fallbacks';
 import { useNow } from '@/features/today/useNow';
 import { useSpeakIntent } from '@/features/voice/speakIntent';
 import { useVoiceStore } from '@/features/voice/store';
+// The one component, not the dock: `VoiceDock` hides its whole floating column
+// on home, and the offer to restore an unsent transcript has to survive that.
+import { UnsentTranscript } from '@/features/voice/Unsent';
 import { useSetting, useToday } from '@/hooks';
 // The pure predicate, not `@/features/consent` — that barrel carries the
 // disclosure screen, and home may not pull a HeatField, the billing hooks and
@@ -153,9 +156,19 @@ export default function HomeScreen() {
           <HomeMic />
         </Animated.View>
 
-        <SectionBoundary label="last action">
-          <LastAction />
-        </SectionBoundary>
+        {/* The two things the bottom of this screen can say: what the last
+            utterance did, and what it failed to do and still has. In the flow
+            rather than floating, so neither can land on top of the other —
+            they are not mutually exclusive, a typed turn can fail over a
+            receipt that is still on screen. */}
+        <View style={{ gap: spacing.sm }}>
+          <SectionBoundary label="unsent">
+            <UnsentTranscript />
+          </SectionBoundary>
+          <SectionBoundary label="last action">
+            <LastAction />
+          </SectionBoundary>
+        </View>
       </View>
     </View>
   );

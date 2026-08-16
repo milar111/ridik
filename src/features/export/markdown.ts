@@ -22,6 +22,7 @@ import {
 import type { ActivitySummary } from '@/repositories/activity';
 import type { LedgerQueryResult } from '@/repositories/ledger';
 import type { ProjectOverview } from '@/repositories/projects';
+import { lightColors } from '@/ui/theme';
 
 import type { BriefingData, BriefingTask } from '@/features/briefing/collect';
 
@@ -452,21 +453,44 @@ export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (character) => HTML_ENTITIES[character] ?? character);
 }
 
+/**
+ * The document's own palette — the app's, not a framework's.
+ *
+ * This stylesheet used to be #16181d ink on #f5f6f8 headers with #6b7280
+ * emphasis and #e3e5ea rules: a competent, entirely conventional cold-grey
+ * ramp, and the one thing this file must not be. An export is the app *speaking
+ * to someone else* — it lands in a mail thread, a shared drive, a printout —
+ * and a document that reads as generic is the app introducing itself in
+ * somebody else's voice. Read off `lightColors` rather than transcribed, so a
+ * re-solve of the palette carries here without anybody remembering to look.
+ *
+ * **Light palette only, deliberately.** A shared HTML file has no scheme to
+ * follow: it is opened in Mail, in a browser print preview, in whatever a
+ * recipient uses, and half of those ignore `prefers-color-scheme` while the
+ * other half would print a near-black page. `:root { color-scheme: light }`
+ * says so to the renderer, and the dark palette is simply not consulted — this
+ * is a printed surface, and paper has one temperature.
+ */
 const STYLE = `
 :root { color-scheme: light; }
-body { font: 14px/1.55 -apple-system, "Helvetica Neue", Arial, sans-serif; color: #16181d; margin: 40px; }
+body {
+  font: 14px/1.55 -apple-system, "Helvetica Neue", Arial, sans-serif;
+  color: ${lightColors.text};
+  background: ${lightColors.surface};
+  margin: 40px;
+}
 h1 { font-size: 24px; margin: 0 0 4px; }
-h2 { font-size: 17px; margin: 26px 0 6px; border-bottom: 1px solid #e3e5ea; padding-bottom: 4px; }
+h2 { font-size: 17px; margin: 26px 0 6px; border-bottom: 1px solid ${lightColors.borderStrong}; padding-bottom: 4px; }
 h3 { font-size: 15px; margin: 18px 0 4px; }
 p { margin: 6px 0; }
-em { color: #6b7280; font-style: normal; }
+em { color: ${lightColors.textSecondary}; font-style: normal; }
 ul { margin: 6px 0; padding-left: 20px; }
 li { margin: 2px 0; }
 table { border-collapse: collapse; margin: 10px 0; width: 100%; }
-th, td { border: 1px solid #e3e5ea; padding: 6px 9px; text-align: left; }
-th { background: #f5f6f8; font-weight: 600; }
-code { background: #f5f6f8; padding: 1px 4px; border-radius: 3px; }
-hr { border: 0; border-top: 1px solid #e3e5ea; margin: 20px 0; }
+th, td { border: 1px solid ${lightColors.border}; padding: 6px 9px; text-align: left; }
+th { background: ${lightColors.surfaceSunken}; font-weight: 600; }
+code { background: ${lightColors.surfaceSunken}; padding: 1px 4px; border-radius: 3px; }
+hr { border: 0; border-top: 1px solid ${lightColors.borderStrong}; margin: 20px 0; }
 `.trim();
 
 /**

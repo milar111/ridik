@@ -90,3 +90,17 @@ export function percent(part: number, total: number): number {
   if (total <= 0) return 0;
   return Math.round((part / total) * 100);
 }
+
+/**
+ * Milliseconds, read as a person would say them.
+ *
+ * Lives here rather than on the screen that first needed it because two now do:
+ * the history header shows what one turn took, and the developer screen shows
+ * what the last hundred took. `null` for anything that is not a real duration —
+ * an absent latency is not "0 ms", and a read-out that says so is a lie about a
+ * measurement nobody made.
+ */
+export function formatLatency(ms: number | null): string | null {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return null;
+  return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`;
+}

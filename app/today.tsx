@@ -12,6 +12,7 @@ import {
   LoggedToday,
   InlineError,
   SectionBoundary,
+  StaleNotice,
   TodayHeaderActions,
   TodaySkeleton,
   buildAgenda,
@@ -97,6 +98,23 @@ export default function TodayScreen() {
           message="Your day could not be loaded."
           onRetry={() => void today.refetch()}
           testID="today-error"
+        />
+      ) : null}
+
+      {/*
+        A failed refetch over a cached snapshot used to be completely invisible:
+        the screen kept drawing the last good day, with no way to tell that it
+        had stopped updating. That is the one failure a screen like this must
+        not have — a stale day is indistinguishable from a current one, so the
+        user goes on trusting it. Said above the sections it describes, and
+        quietly: the day is still probably right, it is just not fresh.
+      */}
+      {snapshot && today.isError ? (
+        <StaleNotice
+          at={snapshot.at}
+          zone={snapshot.zone}
+          onRetry={() => void today.refetch()}
+          testID="today-stale"
         />
       ) : null}
 
