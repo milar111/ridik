@@ -2,7 +2,7 @@ import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Txt } from '@/ui/components';
+import { SheetCard, Txt } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
 
 export type SheetAction = {
@@ -44,7 +44,7 @@ export function ActionSheet({
   } as const;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Dismiss menu"
@@ -52,7 +52,7 @@ export function ActionSheet({
         onPress={onClose}
       />
       <View style={styles.wrap} pointerEvents="box-none">
-        <View
+        <SheetCard
           style={[
             styles.sheet,
             {
@@ -109,7 +109,7 @@ export function ActionSheet({
               </Pressable>
             );
           })}
-        </View>
+        </SheetCard>
       </View>
     </Modal>
   );

@@ -39,19 +39,7 @@ import { MAX_MONITORED_REGIONS } from '@/repositories/geofences';
 import type { Coords } from '@/repositories/places';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
-import {
-  Badge,
-  Button,
-  Card,
-  Chip,
-  Divider,
-  EmptyState,
-  Input,
-  Screen,
-  Section,
-  Txt,
-  useToast,
-} from '@/ui/components';
+import { Badge, Button, Card, Chip, Divider, EmptyState, Input, Screen, Section, SheetCard, Txt, useToast } from '@/ui/components';
 
 /**
  * Named sizes, not a stepper. Nobody can tell 425 m from 450 m on the ground,
@@ -511,7 +499,7 @@ function PlaceSheet({
   };
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Close"
@@ -525,7 +513,7 @@ function PlaceSheet({
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.sheetWrap}
       >
-      <View
+      <SheetCard
         style={[
           styles.sheet,
           {
@@ -689,7 +677,7 @@ function PlaceSheet({
             </View>
           )}
         </ScrollView>
-      </View>
+      </SheetCard>
       </KeyboardAvoidingView>
     </Modal>
   );

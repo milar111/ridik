@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { now } from '@/core/clock';
 import { epochToLocal, localToEpoch } from '@/core/time';
 import type { CreateProjectInput, ProjectKind } from '@/repositories/projects';
-import { Button, Chip, Input, Section, Txt } from '@/ui/components';
+import { Button, Chip, Input, Section, SheetCard, Txt } from '@/ui/components';
 import { colorForTag } from '@/ui/theme';
 import { useTheme } from '@/ui/ThemeProvider';
 
@@ -76,7 +76,7 @@ export function CreateProjectSheet({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Cancel"
@@ -87,7 +87,7 @@ export function CreateProjectSheet({
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.wrap}
       >
-        <View
+        <SheetCard
           style={[
             styles.sheet,
             {
@@ -185,7 +185,7 @@ export function CreateProjectSheet({
             />
             <Button label="Cancel" variant="ghost" onPress={onClose} />
           </View>
-        </View>
+        </SheetCard>
       </KeyboardAvoidingView>
     </Modal>
   );

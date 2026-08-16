@@ -31,6 +31,7 @@ import { copyToClipboard, shareAsFile, weeklyStandup } from '@/features/export';
 import { useActivitySummary, useLogActivity, useRemoveActivityEntry } from '@/hooks';
 import type { ActivitySummary } from '@/repositories/activity';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { SheetCard } from '@/ui/components/SheetCard';
 import { useTheme } from '@/ui/ThemeProvider';
 import {
   Button,
@@ -357,7 +358,7 @@ function LogSheet({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Close"
@@ -372,7 +373,7 @@ function LogSheet({ onClose }: { onClose: () => void }) {
         style={styles.sheetWrap}
         pointerEvents="box-none"
       >
-        <View
+        <SheetCard
           style={[
             styles.sheet,
             {
@@ -422,7 +423,7 @@ function LogSheet({ onClose }: { onClose: () => void }) {
             />
             <Button label="Cancel" variant="ghost" onPress={onClose} />
           </View>
-        </View>
+        </SheetCard>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -512,7 +513,7 @@ function ExportSheet({
   };
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Close"
@@ -520,7 +521,7 @@ function ExportSheet({
         onPress={onClose}
       />
       <View style={styles.sheetWrap}>
-        <View
+        <SheetCard
           style={[
             styles.sheet,
             {
@@ -573,7 +574,7 @@ function ExportSheet({
           </Card>
 
           <Button label="Cancel" variant="ghost" fullWidth onPress={onClose} />
-        </View>
+        </SheetCard>
       </View>
     </Modal>
   );

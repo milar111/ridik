@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useArchiveNote, useDeleteNote, useNoteTags, useUpdateNote } from '@/hooks';
 import type { NoteWithBullets } from '@/repositories/notes';
-import { Button, Chip, Input, Txt, useConfirm, useToast } from '@/ui/components';
+import { Button, Chip, Input, SheetCard, Txt, useConfirm, useToast } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
 import { colorForTag } from '@/ui/theme';
 
@@ -192,7 +192,7 @@ export function ChangeTagSheet({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Dismiss"
@@ -200,7 +200,7 @@ export function ChangeTagSheet({
         onPress={onClose}
       />
       <View style={styles.wrap} pointerEvents="box-none">
-        <View
+        <SheetCard
           style={[
             styles.sheet,
             {
@@ -254,7 +254,7 @@ export function ChangeTagSheet({
             />
             <Button label="Cancel" variant="ghost" onPress={onClose} />
           </View>
-        </View>
+        </SheetCard>
       </View>
     </Modal>
   );

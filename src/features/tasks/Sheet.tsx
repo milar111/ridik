@@ -3,6 +3,7 @@ import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleShee
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Txt } from '@/ui/components/Text';
+import { SheetCard } from '@/ui/components/SheetCard';
 import { useTheme } from '@/ui/ThemeProvider';
 
 /**
@@ -34,7 +35,7 @@ export function Sheet({
   );
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Close"
@@ -46,7 +47,7 @@ export function Sheet({
         style={styles.wrap}
         pointerEvents="box-none"
       >
-        <View
+        <SheetCard
           style={[
             styles.sheet,
             {
@@ -95,7 +96,7 @@ export function Sheet({
           ) : (
             body
           )}
-        </View>
+        </SheetCard>
       </KeyboardAvoidingView>
     </Modal>
   );

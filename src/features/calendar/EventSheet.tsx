@@ -14,7 +14,7 @@ import {
 } from '@/core/time';
 import type { CalendarEvent } from '@/db/schema';
 import { useCalendarEvent, useDeleteEvent, useUpdateEvent } from '@/hooks';
-import { Badge, Button, Chip, Divider, Input, Txt, useToast } from '@/ui/components';
+import { Badge, Button, Chip, Divider, Input, SheetCard, Txt, useToast } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
 import type { Colors } from '@/ui/theme';
 
@@ -52,7 +52,7 @@ export function EventSheet({ target, zone, googleConnected, onClose, onMoved }: 
     <Modal
       visible={target !== null}
       transparent
-      animationType="slide"
+      animationType="fade"
       onRequestClose={onClose}
     >
       <Pressable
@@ -65,7 +65,7 @@ export function EventSheet({ target, zone, googleConnected, onClose, onMoved }: 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.sheetWrap}
       >
-        <View
+        <SheetCard
           style={[
             styles.sheet,
             {
@@ -91,7 +91,7 @@ export function EventSheet({ target, zone, googleConnected, onClose, onMoved }: 
               onMoved={onMoved}
             />
           ) : null}
-        </View>
+        </SheetCard>
       </KeyboardAvoidingView>
     </Modal>
   );

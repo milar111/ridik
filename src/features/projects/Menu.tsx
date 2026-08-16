@@ -10,7 +10,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Divider, Txt } from '@/ui/components';
+import { Divider, SheetCard, Txt } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
 
 import type { IconName } from './constants';
@@ -42,7 +42,7 @@ export function MenuSheet({
   const insets = useSafeAreaInsets();
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Close menu"
@@ -50,7 +50,7 @@ export function MenuSheet({
         onPress={onClose}
       />
       <View style={styles.wrap} pointerEvents="box-none">
-        <View
+        <SheetCard
           style={[
             styles.sheet,
             {
@@ -125,7 +125,7 @@ export function MenuSheet({
               );
             })}
           </ScrollView>
-        </View>
+        </SheetCard>
       </View>
     </Modal>
   );

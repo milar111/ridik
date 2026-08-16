@@ -29,20 +29,7 @@ import type { WeekParity } from '@/repositories/curriculum';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
 import { colorForTag } from '@/ui/theme';
-import {
-  Badge,
-  Button,
-  Card,
-  Chip,
-  Divider,
-  EmptyState,
-  Input,
-  Screen,
-  Section,
-  Segmented,
-  Txt,
-  useToast,
-} from '@/ui/components';
+import { Badge, Button, Card, Chip, Divider, EmptyState, Input, Screen, Section, Segmented, SheetCard, Txt, useToast } from '@/ui/components';
 
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -511,7 +498,7 @@ function EntrySheet({
     });
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Close"
@@ -524,7 +511,7 @@ function EntrySheet({
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.sheetWrap}
       >
-      <View
+      <SheetCard
         style={[
           styles.sheet,
           { backgroundColor: colors.surface, borderColor: colors.border, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl },
@@ -651,7 +638,7 @@ function EntrySheet({
             </View>
           )}
         </ScrollView>
-      </View>
+      </SheetCard>
       </KeyboardAvoidingView>
     </Modal>
   );

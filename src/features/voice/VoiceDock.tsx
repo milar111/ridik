@@ -223,7 +223,7 @@ export function VoiceDock() {
       <Modal
         visible={showSheet}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => {
           setTyping(false);
           close();

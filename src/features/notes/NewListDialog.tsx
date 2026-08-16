@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View } fr
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAddChecklistItems } from '@/hooks';
-import { Button, Input, Txt, useToast } from '@/ui/components';
+import { Button, Input, SheetCard, Txt, useToast } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
 
 import { errorMessage } from './errors';
@@ -61,7 +61,7 @@ export function NewListDialog({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Dismiss"
@@ -73,7 +73,7 @@ export function NewListDialog({
         style={styles.wrap}
         pointerEvents="box-none"
       >
-        <View
+        <SheetCard
           style={[
             styles.sheet,
             {
@@ -130,7 +130,7 @@ export function NewListDialog({
               }}
             />
           </View>
-        </View>
+        </SheetCard>
       </KeyboardAvoidingView>
     </Modal>
   );

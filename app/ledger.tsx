@@ -35,20 +35,7 @@ import {
 } from '@/hooks';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
-import {
-  Button,
-  Card,
-  Chip,
-  Divider,
-  EmptyState,
-  Input,
-  Screen,
-  Section,
-  Segmented,
-  Txt,
-  useConfirm,
-  useToast,
-} from '@/ui/components';
+import { Button, Card, Chip, Divider, EmptyState, Input, Screen, Section, Segmented, SheetCard, Txt, useConfirm, useToast } from '@/ui/components';
 import { colorForTag } from '@/ui/theme';
 
 type Period = 'today' | 'week' | 'month' | 'year';
@@ -832,7 +819,7 @@ function Sheet({
   const { colors, radius, spacing } = useTheme();
   const insets = useSafeAreaInsets();
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Close"
@@ -845,7 +832,7 @@ function Sheet({
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.sheetWrap}
       >
-        <View
+        <SheetCard
           style={[
             styles.sheet,
             {
@@ -870,7 +857,7 @@ function Sheet({
           </ScrollView>
 
           {footer}
-        </View>
+        </SheetCard>
       </KeyboardAvoidingView>
     </Modal>
   );
