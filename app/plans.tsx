@@ -85,6 +85,10 @@ export default function PlansScreen() {
   return (
     <Screen back title={plan.active ? 'Your plan' : 'The assistant'}>
       {plan.active ? <Subscribed plan={plan} /> : <Offer />}
+      {/* Both states, not just the paywall. Apple requires these beside an
+          auto-renewing subscription, and the subscribed screen sells the
+          consumable top-up — so it is a purchase screen too. */}
+      <LegalLinks />
     </Screen>
   );
 }
@@ -575,7 +579,6 @@ function Offer() {
         Ridik never sees your card.
       </Txt>
 
-      <LegalLinks />
     </>
   );
 }
