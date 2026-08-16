@@ -1,9 +1,10 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { countLabel } from '@/core/format';
 import type { TodaySync } from '@/hooks';
 import { Badge, Button } from '@/ui/components';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 /**
  * The two places Today does not itself go, plus the outbox.
@@ -16,6 +17,9 @@ import { Badge, Button } from '@/ui/components';
  */
 export function TodayHeaderActions({ sync }: { sync?: TodaySync }) {
   const router = useRouter();
+  // Called whether or not the badge is drawn: a hook behind the `label ?` would
+  // change the hook order the first time a sync failed.
+  const press = usePressScale();
 
   const failed = sync?.failed ?? 0;
   const badge = sync?.badge ?? 0;
@@ -24,20 +28,23 @@ export function TodayHeaderActions({ sync }: { sync?: TodaySync }) {
   return (
     <View style={styles.row}>
       {label ? (
-        <Pressable
+        <AnimatedPressable
           accessibilityRole="button"
           accessibilityLabel={
             failed > 0
               ? `${countLabel(failed, 'sync failure')}. Opens settings`
               : `${countLabel(badge, 'change')} waiting to sync. Opens settings`
           }
+          // Slop is measured against the layout box, which the transform leaves
+          // where it was — the target stays 44pt however far the badge sinks.
           hitSlop={12}
           onPress={() => router.push('/settings')}
-          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+          {...press.handlers}
+          style={press.style}
           testID="today-sync-badge"
         >
           <Badge label={label} tone={failed > 0 ? 'danger' : 'warning'} />
-        </Pressable>
+        </AnimatedPressable>
       ) : null}
       <Button
         icon="sparkles-outline"

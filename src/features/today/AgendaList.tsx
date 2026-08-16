@@ -1,12 +1,16 @@
 import { Fragment } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
 import { formatTime } from '@/core/time';
 import { useTheme } from '@/ui/ThemeProvider';
 import { colorForTag } from '@/ui/theme';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { Txt } from '@/ui/components';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 
 import type { Agenda, AgendaItem } from './agenda';
 
@@ -20,14 +24,33 @@ import type { Agenda, AgendaItem } from './agenda';
  * glance at an agenda is actually asking.
  */
 export function AgendaList({ agenda, now, zone }: { agenda: Agenda; now: number; zone: string }) {
+  // One arrival down the whole column: the all-day rows and the timed ones read
+  // as a single list, so the timed ones carry on counting where all-day stopped
+  // rather than restarting the stagger halfway down.
+  const arrive = useStaggeredEntry({ from: 'below' });
+
   return (
     <View>
       {agenda.allDay.map((item, index) => (
-        <Row key={item.key} item={item} now={now} zone={zone} allDay divider={index > 0} />
+        <Animated.View
+          key={item.key}
+          entering={arrive(index)}
+          layout={LinearTransition.duration(REFLOW_MS)}
+        >
+          <Row item={item} now={now} zone={zone} allDay divider={index > 0} />
+        </Animated.View>
       ))}
 
       {agenda.timed.map((item, index) => (
-        <Fragment key={item.key}>
+        <Animated.View
+          key={item.key}
+          entering={arrive(agenda.allDay.length + index)}
+          // The rule is drawn inside the row it sits above, so the row owns the
+          // height the rule adds. `useNow` walks it down the list as the clock
+          // advances, and `layout` is what makes everything below step down
+          // with it instead of jumping a rule-height in one frame.
+          layout={LinearTransition.duration(REFLOW_MS)}
+        >
           {index === agenda.nowIndex ? <NowRule /> : null}
           <Row
             item={item}
@@ -36,7 +59,7 @@ export function AgendaList({ agenda, now, zone }: { agenda: Agenda; now: number;
             // The rule is already a line; a divider under it would double it.
             divider={(index > 0 || agenda.allDay.length > 0) && index !== agenda.nowIndex}
           />
-        </Fragment>
+        </Animated.View>
       ))}
 
       {/* The whole day is behind us: the rule belongs after the last row. */}
@@ -93,8 +116,13 @@ function Row({
 
   const dot = item.kind === 'class' ? (item.color ?? colorForTag(item.title)) : null;
 
+  // Scale only, no `opacity` option: the row already owns its opacity to fade
+  // what is behind us, and a press that wrote `opacity` would have to know
+  // about that and would clobber it on release.
+  const press = usePressScale({ scale: 0.98 });
+
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={
         allDay ? `${title}, all day` : `${title} at ${formatTime(item.startsAt, zone)}`
@@ -105,14 +133,16 @@ function Row({
       // target; the slop puts the tappable area back over 44 without making the
       // scaffolding look like an appointment.
       hitSlop={isBuffer ? { top: 6, bottom: 6 } : undefined}
-      style={({ pressed }) => [
+      {...press.handlers}
+      style={[
         styles.row,
         {
           minHeight: isBuffer ? 32 : 44,
           borderTopWidth: divider ? StyleSheet.hairlineWidth : 0,
           borderTopColor: colors.border,
-          opacity: pressed ? 0.6 : past ? 0.42 : 1,
+          opacity: past ? 0.42 : 1,
         },
+        press.style,
       ]}
     >
       <View style={styles.timeCol}>
@@ -147,7 +177,7 @@ function Row({
       ) : item.kind === 'class' ? (
         <Ionicons name="school-outline" size={13} color={colors.textTertiary} />
       ) : null}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

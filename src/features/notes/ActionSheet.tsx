@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SheetCard, Txt } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 export type SheetAction = {
   label: string;
@@ -79,39 +80,61 @@ export function ActionSheet({
             </View>
           ) : null}
 
-          {actions.map((action) => {
-            const color = toneColor[action.tone ?? 'default'];
-            return (
-              <Pressable
-                key={action.label}
-                accessibilityRole="button"
-                accessibilityLabel={action.label}
-                onPress={() => {
-                  onClose();
-                  action.onPress();
-                }}
-                style={({ pressed }) => [
-                  styles.row,
-                  { paddingHorizontal: spacing.lg, opacity: pressed ? 0.6 : 1 },
-                ]}
-              >
-                <Ionicons name={action.icon} size={19} color={color} />
-                <View style={{ flex: 1, gap: 1 }}>
-                  <Txt variant="body" style={{ color }}>
-                    {action.label}
-                  </Txt>
-                  {action.detail ? (
-                    <Txt variant="micro" tone="tertiary">
-                      {action.detail}
-                    </Txt>
-                  ) : null}
-                </View>
-              </Pressable>
-            );
-          })}
+          {actions.map((action) => (
+            <Row
+              key={action.label}
+              action={action}
+              color={toneColor[action.tone ?? 'default']}
+              onPress={() => {
+                onClose();
+                action.onPress();
+              }}
+            />
+          ))}
         </SheetCard>
       </View>
     </Modal>
+  );
+}
+
+/**
+ * One action, extracted because each needs its own animation state and a hook
+ * cannot be called from inside a `map`.
+ *
+ * Inside a `Modal`, which is why the press is a shared value driven from an
+ * effect (what `usePressScale` is) rather than anything layout-animated.
+ */
+function Row({
+  action,
+  color,
+  onPress,
+}: {
+  action: SheetAction;
+  color: string;
+  onPress: () => void;
+}) {
+  const { spacing } = useTheme();
+  const press = usePressScale({ scale: 0.98 });
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={action.label}
+      onPress={onPress}
+      {...press.handlers}
+      style={[styles.row, { paddingHorizontal: spacing.lg }, press.style]}
+    >
+      <Ionicons name={action.icon} size={19} color={color} />
+      <View style={{ flex: 1, gap: 1 }}>
+        <Txt variant="body" style={{ color }}>
+          {action.label}
+        </Txt>
+        {action.detail ? (
+          <Txt variant="micro" tone="tertiary">
+            {action.detail}
+          </Txt>
+        ) : null}
+      </View>
+    </AnimatedPressable>
   );
 }
 

@@ -1,5 +1,6 @@
 import { Fragment, useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { Task } from '@/db/schema';
@@ -7,7 +8,9 @@ import type { DependencyEdge } from '@/repositories/tasks';
 import { Chip, EmptyState } from '@/ui/components/Controls';
 import { MIC_CLEARANCE } from '@/ui/components/Screen';
 import { Txt } from '@/ui/components/Text';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { GRAPH_METRICS, layoutGraph, type LaidOutEdge } from './graphLayout';
 
@@ -30,6 +33,9 @@ export function DependencyGraph({
 }) {
   const { colors, radius, spacing } = useTheme();
   const layout = useMemo(() => layoutGraph(nodes, edges), [nodes, edges]);
+  // `layoutGraph` returns the nodes in topological order, so the stagger runs
+  // the way the chain does: what can be started today lands first.
+  const arrive = useStaggeredEntry();
 
   if (layout.nodes.length === 0) {
     return (
@@ -67,53 +73,79 @@ export function DependencyGraph({
               />
             ))}
 
-            {layout.nodes.map(({ task, x, y }) => {
-              const done = task.isCompleted === true;
-              const locked = task.isLocked === true && !done;
-              const tint = done ? colors.success : locked ? colors.warning : colors.accent;
-              const state = done ? 'done' : locked ? 'blocked' : 'ready';
-              return (
-                <Pressable
-                  key={task.id}
-                  testID={`graph-node-${task.id}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${task.title}, ${state}`}
-                  onPress={() => onOpen(task)}
-                  style={({ pressed }) => [
-                    styles.node,
-                    {
-                      left: x,
-                      top: y,
-                      width: GRAPH_METRICS.nodeWidth,
-                      height: GRAPH_METRICS.nodeHeight,
-                      backgroundColor: colors.surface,
-                      borderColor: colors.border,
-                      borderLeftColor: tint,
-                      borderRadius: radius.sm,
-                      opacity: pressed ? 0.7 : 1,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={done ? 'checkmark-circle' : locked ? 'lock-closed' : 'ellipse-outline'}
-                    size={11}
-                    color={tint}
-                  />
-                  <Txt
-                    variant="micro"
-                    tone={done ? 'tertiary' : 'primary'}
-                    numberOfLines={2}
-                    style={[{ flex: 1 }, done ? styles.struck : null]}
-                  >
-                    {task.title}
-                  </Txt>
-                </Pressable>
-              );
-            })}
+            {layout.nodes.map(({ task, x, y }, index) => (
+              // The position lives on a wrapper so the entrance has a host view
+              // of its own, and so the node inside is free to carry the press
+              // transform without the two fighting over one `transform` array.
+              // Same box, same paint order, one view deeper.
+              <Animated.View
+                key={task.id}
+                entering={arrive(index)}
+                style={[
+                  styles.slot,
+                  { left: x, top: y, width: GRAPH_METRICS.nodeWidth, height: GRAPH_METRICS.nodeHeight },
+                ]}
+              >
+                <GraphNode task={task} onOpen={onOpen} />
+              </Animated.View>
+            ))}
           </View>
         </ScrollView>
       </ScrollView>
     </View>
+  );
+}
+
+/**
+ * One box in the graph, extracted so it can hold its own press state — a hook
+ * cannot be called from inside the `map` this used to be written in.
+ */
+function GraphNode({
+  task,
+  onOpen,
+}: {
+  task: Task;
+  onOpen: (task: Task) => void;
+}) {
+  const { colors, radius } = useTheme();
+  const done = task.isCompleted === true;
+  const locked = task.isLocked === true && !done;
+  const tint = done ? colors.success : locked ? colors.warning : colors.accent;
+  const state = done ? 'done' : locked ? 'blocked' : 'ready';
+  const press = usePressScale();
+
+  return (
+    <AnimatedPressable
+      testID={`graph-node-${task.id}`}
+      accessibilityRole="button"
+      accessibilityLabel={`${task.title}, ${state}`}
+      onPress={() => onOpen(task)}
+      {...press.handlers}
+      style={[
+        styles.node,
+        {
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          borderLeftColor: tint,
+          borderRadius: radius.sm,
+        },
+        press.style,
+      ]}
+    >
+      <Ionicons
+        name={done ? 'checkmark-circle' : locked ? 'lock-closed' : 'ellipse-outline'}
+        size={11}
+        color={tint}
+      />
+      <Txt
+        variant="micro"
+        tone={done ? 'tertiary' : 'primary'}
+        numberOfLines={2}
+        style={[{ flex: 1 }, done ? styles.struck : null]}
+      >
+        {task.title}
+      </Txt>
+    </AnimatedPressable>
   );
 }
 
@@ -172,8 +204,10 @@ const LINE = 1;
 
 const styles = StyleSheet.create({
   legend: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  /** The node's place on the canvas; the node itself fills it. */
+  slot: { position: 'absolute' },
   node: {
-    position: 'absolute',
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,

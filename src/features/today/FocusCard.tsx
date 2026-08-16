@@ -1,10 +1,11 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
 import { formatClock, formatDuration } from '@/core/time';
 import { useFocusControl, useLiveFocus } from '@/hooks/useFocusRuntime';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { Button, Card, Txt, useToast } from '@/ui/components';
 
 /**
@@ -26,6 +27,9 @@ export function FocusCard() {
   const { colors, radius, spacing } = useTheme();
   const { snapshot, phases } = useLiveFocus();
   const control = useFocusControl();
+  // Before the early return: this card comes and goes with the session, and a
+  // hook called only while one is running would change order the moment it is.
+  const headPress = usePressScale({ scale: 0.98 });
 
   if (!snapshot || snapshot.isComplete) return null;
 
@@ -44,11 +48,12 @@ export function FocusCard() {
 
   return (
     <Card accent={tint} style={{ gap: spacing.sm }} testID="today-focus">
-      <Pressable
+      <AnimatedPressable
         accessibilityRole="button"
         accessibilityLabel={`${isBreak ? 'Break' : snapshot.label} — open the focus screen`}
         onPress={() => router.push('/focus')}
-        style={({ pressed }) => [styles.head, { opacity: pressed ? 0.7 : 1 }]}
+        {...headPress.handlers}
+        style={[styles.head, headPress.style]}
       >
         <View style={{ flex: 1, gap: 1 }}>
           <Txt variant="bodyStrong" numberOfLines={1}>
@@ -59,7 +64,7 @@ export function FocusCard() {
           </Txt>
         </View>
         <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
-      </Pressable>
+      </AnimatedPressable>
 
       <Txt
         variant="timer"

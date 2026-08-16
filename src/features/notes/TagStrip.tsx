@@ -1,6 +1,9 @@
 import { ScrollView, View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 
 import { Chip } from '@/ui/components';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
 import { colorForTag } from '@/ui/theme';
 import type { TagCount } from '@/repositories/notes';
@@ -22,6 +25,9 @@ export function TagStrip({
   total: number;
 }) {
   const { colors, spacing } = useTheme();
+  // Fading in place, not rising: a horizontal strip that slides up from below
+  // has every chip cross whatever sits under it. Same call as `HabitStrip`.
+  const arrive = useStaggeredEntry();
   if (tags.length === 0) return null;
 
   return (
@@ -35,20 +41,32 @@ export function TagStrip({
       contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.xs }}
     >
       <View accessibilityRole="tablist" style={{ flexDirection: 'row', gap: spacing.xs }}>
-        <Chip
-          label={`All ${total}`}
-          color={colors.textSecondary}
-          selected={selected === null}
-          onPress={() => onSelect(null)}
-        />
-        {tags.map((tag) => (
+        {/* "All" is the first step of the same wave, not a fixture the tags
+            arrive around — it is a tab like the rest of them. */}
+        <Animated.View entering={arrive(0)}>
           <Chip
-            key={tag.tag}
-            label={`${tag.tag} ${tag.count}`}
-            color={colorForTag(tag.tag)}
-            selected={selected !== null && selected.toLowerCase() === tag.tag.toLowerCase()}
-            onPress={() => onSelect(selected === tag.tag ? null : tag.tag)}
+            label={`All ${total}`}
+            color={colors.textSecondary}
+            selected={selected === null}
+            onPress={() => onSelect(null)}
           />
+        </Animated.View>
+        {tags.map((tag, index) => (
+          // Tagging a note adds a chip mid-strip and untagging the last one
+          // takes it away; `layout` slides the neighbours over instead of
+          // re-cutting the whole row between two frames.
+          <Animated.View
+            key={tag.tag}
+            entering={arrive(index + 1)}
+            layout={LinearTransition.duration(REFLOW_MS)}
+          >
+            <Chip
+              label={`${tag.tag} ${tag.count}`}
+              color={colorForTag(tag.tag)}
+              selected={selected !== null && selected.toLowerCase() === tag.tag.toLowerCase()}
+              onPress={() => onSelect(selected === tag.tag ? null : tag.tag)}
+            />
+          </Animated.View>
         ))}
       </View>
     </ScrollView>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
@@ -22,6 +22,7 @@ import { useCurriculumEntries, useSettings } from '@/hooks';
 import { Button, Divider, Screen, Txt } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 /**
  * One schedule: a week strip that pages by week, and the selected day beneath
@@ -63,19 +64,22 @@ export default function CalendarScreen() {
 
   const goToday = useCallback(() => reveal(localDateOf(now(), zone)), [reveal, zone]);
 
+  const monthPress = usePressScale({ scale: 0.97 });
+
   return (
     <Screen back scroll={false} padded={false} contentStyle={{ flex: 1, gap: 0 }}>
       <View style={[styles.header, { paddingHorizontal: spacing.lg }]}>
-        <Pressable
+        <AnimatedPressable
           accessibilityRole="button"
           accessibilityLabel={`${formatMonthLabel(monthOfWeek(visibleWeek, zone), zone)}. Jump to another month`}
           onPress={() => setMonthOpen(true)}
           hitSlop={8}
-          style={({ pressed }) => [styles.monthButton, { opacity: pressed ? 0.6 : 1 }]}
+          {...monthPress.handlers}
+          style={[styles.monthButton, monthPress.style]}
         >
           <Txt variant="title">{formatMonthLabel(monthOfWeek(visibleWeek, zone), zone)}</Txt>
           <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
-        </Pressable>
+        </AnimatedPressable>
         <Button label="Today" icon="today-outline" size="sm" onPress={goToday} testID="today-button" />
       </View>
 

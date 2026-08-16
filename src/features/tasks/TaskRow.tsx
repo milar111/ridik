@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Fragment } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
@@ -8,7 +9,10 @@ import { formatDuration } from '@/core/time';
 import type { Task } from '@/db/schema';
 import { Card, Divider } from '@/ui/components/Card';
 import { Txt } from '@/ui/components/Text';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, useCheckPop, usePressScale } from '@/ui/motionHooks';
 
 import { bucketOf, dueLabel } from './buckets';
 
@@ -48,6 +52,13 @@ export function TaskRow({
   const done = task.isCompleted === true;
   const locked = task.isLocked === true && !done;
   const bucket = bucketOf(task.dueDate);
+  // The row's press used to be a background flash. A flash and a scale together
+  // is two answers to one finger, so the flash goes and the row sinks instead.
+  const rowPress = usePressScale({ scale: 0.98 });
+  const boxPress = usePressScale({ scale: 0.88 });
+  // Completing a task is one of the two things this app is for. It used to pop
+  // the tick, fill the box and strike the title in a single frame.
+  const pop = useCheckPop(done);
 
   const parts: MetaPart[] = [];
   if (task.dueDate != null) {
@@ -64,7 +75,7 @@ export function TaskRow({
   const boxColor = done ? colors.success : locked ? colors.borderStrong : colors.accent;
 
   return (
-    <Pressable
+    <AnimatedPressable
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={task.title}
@@ -74,10 +85,8 @@ export function TaskRow({
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
         onQuickActions(task);
       }}
-      style={({ pressed }) => [
-        styles.row,
-        { backgroundColor: pressed ? colors.surfaceSunken : 'transparent', paddingRight: spacing.md },
-      ]}
+      {...rowPress.handlers}
+      style={[styles.row, { paddingRight: spacing.md }, rowPress.style]}
     >
       <View
         style={[
@@ -87,28 +96,32 @@ export function TaskRow({
         ]}
       />
 
-      <Pressable
+      <AnimatedPressable
         testID={testID ? `${testID}-box` : undefined}
         accessibilityRole="checkbox"
         accessibilityState={{ checked: done }}
         accessibilityLabel={`${done ? 'Reopen' : 'Complete'} ${task.title}`}
+        // The target stays 41×52 — a transform does not move the layout box the
+        // slop is measured from, so nothing here is harder to hit than it was.
         hitSlop={8}
         onPress={() => {
           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
           onToggle(task);
         }}
-        style={({ pressed }) => [styles.boxTarget, { opacity: pressed ? 0.5 : 1 }]}
+        {...boxPress.handlers}
+        style={[styles.boxTarget, boxPress.style]}
       >
-        <View
+        <Animated.View
           style={[
             styles.box,
             { borderColor: boxColor, backgroundColor: done ? colors.success : 'transparent' },
+            pop,
           ]}
         >
           {done ? <Ionicons name="checkmark" size={13} color="#FFFFFF" /> : null}
           {locked ? <Ionicons name="lock-closed" size={10} color={colors.textTertiary} /> : null}
-        </View>
-      </Pressable>
+        </Animated.View>
+      </AnimatedPressable>
 
       <View style={styles.body}>
         <Txt
@@ -137,19 +150,39 @@ export function TaskRow({
         ) : null}
         {below}
       </View>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
-/** Rows in one hairline-bounded card, dividers inset to the text column. */
+/**
+ * Rows in one hairline-bounded card, dividers inset to the text column.
+ *
+ * The one place the three task lists share, so the arrival is written here
+ * rather than three times: Active, Blocked and Done all render their rows
+ * through this, and animating it once is what keeps them identical.
+ *
+ * The divider moved inside the wrapper on purpose. It belongs to the row below
+ * it, and a hairline left outside would stay put while its row reflowed —
+ * ticking a task off would leave a stray line behind for the length of the
+ * transition.
+ */
 export function RowCard({ rows }: { rows: { key: string; node: ReactNode }[] }) {
+  const arrive = useStaggeredEntry({ from: 'below' });
+
   return (
     <Card padded={false}>
       {rows.map((row, i) => (
-        <Fragment key={row.key}>
+        <Animated.View
+          key={row.key}
+          entering={arrive(i)}
+          // Completing a task takes its row out of this card mid-list. Without
+          // this the rows below jump up a row-height in one frame, which reads
+          // as the wrong thing having been ticked.
+          layout={LinearTransition.duration(REFLOW_MS)}
+        >
           {i > 0 ? <Divider inset={44} /> : null}
           {row.node}
-        </Fragment>
+        </Animated.View>
       ))}
     </Card>
   );

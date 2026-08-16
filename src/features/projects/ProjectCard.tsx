@@ -4,13 +4,14 @@
  * Three lines and no more — the list is meant to be scanned, and the detail
  * screen is one tap away.
  */
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { ProjectSummary } from '@/hooks';
 import { Card, Chip, Txt } from '@/ui/components';
 import { colorForTag } from '@/ui/theme';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { ProgressBar } from './Bits';
 import { PROJECT_KIND_ICON, PROJECT_KIND_LABEL } from './constants';
@@ -27,6 +28,9 @@ export function ProjectCard({
 }) {
   const { colors, spacing } = useTheme();
   const { project, counts } = summary;
+  // Matches `Card`'s own press: this row *is* a card, it just wraps one rather
+  // than passing `onPress` in, because the long-press has to reach both.
+  const press = usePressScale({ scale: 0.98 });
 
   const statusTint =
     project.status === 'active'
@@ -48,13 +52,14 @@ export function ProjectCard({
   ].filter((part): part is string => part !== null);
 
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={`${project.name}, ${PROJECT_KIND_LABEL[project.kind]}, ${meta.join(', ')}`}
       accessibilityHint="Opens the project"
       onPress={onPress}
       onLongPress={onLongPress}
-      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+      {...press.handlers}
+      style={press.style}
     >
       <Card padded={false} accent={statusTint}>
         <View style={{ padding: spacing.md, gap: 7 }}>
@@ -94,6 +99,6 @@ export function ProjectCard({
           </View>
         </View>
       </Card>
-    </Pressable>
+    </AnimatedPressable>
   );
 }

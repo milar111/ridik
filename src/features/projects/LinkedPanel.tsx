@@ -5,15 +5,19 @@
  * to the trip; this panel is where they surface, and every row leads back to
  * the screen that owns it rather than editing it in place.
  */
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
 import { countLabel, formatMoney } from '@/core/format';
 import { formatDayHeading } from '@/core/time';
 import type { ProjectOverview } from '@/repositories/projects';
 import { Card, Chip, Divider, EmptyState, Section, Txt } from '@/ui/components';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { colorForTag } from '@/ui/theme';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { DueChip } from './Bits';
 import type { IconName } from './constants';
@@ -37,21 +41,25 @@ function LinkRow({
   struck?: boolean;
 }) {
   const { colors, spacing } = useTheme();
+  const press = usePressScale({ scale: 0.98 });
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={title}
       accessibilityHint="Opens it on its own screen"
       onPress={onPress}
-      style={({ pressed }) => ({
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        minHeight: 44,
-        paddingHorizontal: spacing.md,
-        paddingVertical: spacing.sm,
-        opacity: pressed ? 0.6 : 1,
-      })}
+      {...press.handlers}
+      style={[
+        {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 10,
+          minHeight: 44,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.sm,
+        },
+        press.style,
+      ]}
     >
       <Ionicons name={icon} size={16} color={iconColor ?? colors.textTertiary} />
       <View style={{ flex: 1, gap: 1 }}>
@@ -71,19 +79,35 @@ function LinkRow({
       </View>
       {right}
       <Ionicons name="chevron-forward" size={14} color={colors.textTertiary} />
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
-/** Hairline-separated rows in one card; each child keeps the key it was given. */
+/**
+ * Hairline-separated rows in one card; each child keeps the key it was given.
+ *
+ * Four of the five groups on this panel render through here, so the arrival is
+ * written once — the same reasoning as `RowCard` on the task lists. Each card
+ * runs its own wave from zero rather than one wave down the whole panel: the
+ * groups are separate cards under separate headings, and a single count across
+ * all of them would leave Spending waiting on Tasks for no visible reason.
+ */
 function Group({ children }: { children: React.ReactElement[] }) {
+  const arrive = useStaggeredEntry({ from: 'below' });
+
   return (
     <Card padded={false}>
       {children.map((child, index) => (
-        <View key={child.key ?? index}>
+        <Animated.View
+          key={child.key ?? index}
+          entering={arrive(index)}
+          // Ticking a linked task off elsewhere drops it out of this card on
+          // the next refetch; the rows below close the gap rather than jump.
+          layout={LinearTransition.duration(REFLOW_MS)}
+        >
           {index > 0 ? <Divider inset={12} /> : null}
           {child}
-        </View>
+        </Animated.View>
       ))}
     </Card>
   );
@@ -97,6 +121,10 @@ export function LinkedPanel({
   onOpen: (href: string) => void;
 }) {
   const { colors, spacing } = useTheme();
+  // Money is the one group that does not go through `Group` — its rows are two
+  // lines and a wallet rather than a `LinkRow` — so it arrives on its own copy
+  // of the same wave.
+  const arriveTotal = useStaggeredEntry({ from: 'below' });
   const totals = currencyTotals(linked.transactions);
   const empty =
     linked.tasks.length === 0 &&
@@ -120,7 +148,11 @@ export function LinkedPanel({
         <Section title="Money">
           <Card padded={false}>
             {totals.map((total, index) => (
-              <View key={total.currency}>
+              <Animated.View
+                key={total.currency}
+                entering={arriveTotal(index)}
+                layout={LinearTransition.duration(REFLOW_MS)}
+              >
                 {index > 0 ? <Divider inset={12} /> : null}
                 <View
                   style={{
@@ -149,7 +181,7 @@ export function LinkedPanel({
                     </Txt>
                   </View>
                 </View>
-              </View>
+              </Animated.View>
             ))}
           </Card>
         </Section>

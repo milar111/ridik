@@ -1,16 +1,28 @@
-import { useState } from 'react';
-import {
-  Pressable,
-  StyleSheet,
-  TextInput,
-  View,
-  type TextInputProps,
-  type ViewStyle,
-} from 'react-native';
+import { useEffect, useState } from 'react';
+import { StyleSheet, TextInput, View, type TextInputProps, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useTheme } from '../ThemeProvider';
+import { fade } from '../motion';
+import { AnimatedPressable, useCheckPop, usePressScale } from '../motionHooks';
 import { Txt } from './Text';
+
+/**
+ * A layer that fades with a flag — `Toggle`'s lit track, generalised one file.
+ *
+ * Local on purpose: it is two lines over `FADE` rather than a new curve, and
+ * the two callers here (a segment's pill, a chip's fill) are the only places
+ * that need a *fill* to arrive rather than a transform. Anything with physics
+ * in it belongs in `motionHooks`, not here.
+ */
+function useLit(on: boolean) {
+  const lit = useSharedValue(on ? 1 : 0);
+  useEffect(() => {
+    lit.value = fade(on ? 1 : 0);
+  }, [on, lit]);
+  return useAnimatedStyle(() => ({ opacity: lit.value }));
+}
 
 /* --------------------------------------------------------------- Checkbox -- */
 
@@ -41,8 +53,13 @@ export function Checkbox({
   accessibilityLabel?: string;
 }) {
   const { colors, spacing } = useTheme();
+  // 0.98 because the touchable is a full-width row, not the 21pt box inside it.
+  const press = usePressScale({ scale: 0.98, disabled: !!disabled });
+  // The tick is a receipt. Ticking something off is one of two things this app
+  // asks of you every day and it used to change four properties in one frame.
+  const pop = useCheckPop(checked);
   return (
-    <Pressable
+    <AnimatedPressable
       testID={testID}
       accessibilityRole="checkbox"
       accessibilityState={{ checked, disabled: !!disabled }}
@@ -52,24 +69,24 @@ export function Checkbox({
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         onToggle(!checked);
       }}
-      // 44pt minimum target: these rows are tapped while walking.
-      style={({ pressed }) => [
-        styles.checkRow,
-        { paddingVertical: spacing.sm, opacity: pressed ? 0.6 : 1 },
-      ]}
+      {...press.handlers}
+      // 44pt minimum target: these rows are tapped while walking. The scale is
+      // visual only — `minHeight` and `hitSlop` are untouched by a transform.
+      style={[styles.checkRow, { paddingVertical: spacing.sm }, press.style]}
       hitSlop={6}
     >
-      <View
+      <Animated.View
         style={[
           styles.box,
           {
             borderColor: checked ? colors.accent : colors.borderStrong,
             backgroundColor: checked ? colors.accent : 'transparent',
           },
+          pop,
         ]}
       >
         {checked ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
-      </View>
+      </Animated.View>
       <View style={{ flex: 1, gap: 1 }}>
         {label ? (
           <Txt
@@ -87,7 +104,7 @@ export function Checkbox({
         ) : null}
       </View>
       {right}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -113,6 +130,8 @@ export function Chip({
 }) {
   const { colors, radius } = useTheme();
   const tint = color ?? colors.accent;
+  // A chip is small, so it takes the full press travel.
+  const press = usePressScale();
   const body = (
     <View
       style={[
@@ -134,7 +153,7 @@ export function Chip({
   );
   if (!onPress) return body;
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={accessibilityHint}
@@ -144,11 +163,13 @@ export function Chip({
       onPress={onPress}
       // A small chip is ~18pt tall. Vertical-only slop, because chips sit in
       // horizontal rows and a sideways expansion would steal a neighbour's tap.
+      // Slop is measured on the layout box, which a transform does not move.
       hitSlop={{ top: 8, bottom: 8 }}
-      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+      {...press.handlers}
+      style={press.style}
     >
       {body}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -229,26 +250,53 @@ export function Segmented<T extends string>({
         { backgroundColor: colors.surfaceSunken, borderRadius: radius.sm, borderColor: colors.border },
       ]}
     >
-      {options.map((o) => {
-        const active = o.value === value;
-        return (
-          <Pressable
-            key={o.value}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
-            onPress={() => onChange(o.value)}
-            style={[
-              styles.segment,
-              { backgroundColor: active ? colors.surfaceRaised : 'transparent', borderRadius: radius.sm - 2 },
-            ]}
-          >
-            <Txt variant="caption" tone={active ? 'primary' : 'tertiary'} weight={active ? '600' : '400'}>
-              {o.label}
-            </Txt>
-          </Pressable>
-        );
-      })}
+      {options.map((o) => (
+        <Segment
+          key={o.value}
+          label={o.label}
+          active={o.value === value}
+          onPress={() => onChange(o.value)}
+        />
+      ))}
     </View>
+  );
+}
+
+/**
+ * One segment, extracted because each needs its own animation state and a hook
+ * cannot be called from inside a `map`.
+ *
+ * The active pill used to jump between segments. It is drawn here as a layer
+ * *per segment* that fades, rather than one indicator that slides: sliding
+ * needs every segment measured through `onLayout` and re-measured on rotation,
+ * and a two-frame crossfade of a background is honest about what changed
+ * without a whole geometry to keep in step. The label's tone changes with it —
+ * its `weight` cannot be animated, because that swaps the font family.
+ */
+function Segment({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  const { colors, radius } = useTheme();
+  const lit = useLit(active);
+  const press = usePressScale({ scale: 0.97 });
+  return (
+    <AnimatedPressable
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      {...press.handlers}
+      style={[styles.segment, press.style]}
+    >
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: colors.surfaceRaised, borderRadius: radius.sm - 2 },
+          lit,
+        ]}
+      />
+      <Txt variant="caption" tone={active ? 'primary' : 'tertiary'} weight={active ? '600' : '400'}>
+        {label}
+      </Txt>
+    </AnimatedPressable>
   );
 }
 

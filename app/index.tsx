@@ -11,14 +11,9 @@
  * it out from under your thumb.
  */
 import { useMemo } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, {
-  FadeIn,
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-} from 'react-native-reanimated';
+import Animated, { FadeIn, useReducedMotion } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
 import { HomeMic, LastAction, NextUpLine, nextUp, useDailyBriefing } from '@/features/home';
@@ -34,7 +29,8 @@ import { useToday } from '@/hooks';
 import { HeatField, type HeatState } from '@/ui/HeatField';
 import { useTheme } from '@/ui/ThemeProvider';
 import { useFontsReady } from '@/ui/fonts';
-import { STAGGER_MS, tap } from '@/ui/motion';
+import { STAGGER_MS } from '@/ui/motion';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useNavigateOnce } from '@/ui/useNavigateOnce';
 
 /** The field answers to the voice session; speaking and thinking look alike. */
@@ -151,28 +147,24 @@ function CornerButton({
   onPress: () => void;
 }) {
   const { colors } = useTheme();
-  const press = useSharedValue(0);
-  const style = useAnimatedStyle(() => ({ transform: [{ scale: 1 - press.value * 0.1 }] }));
+  // Was a shared value and a `tap()` written out by hand here; `usePressScale`
+  // is the same spring with the same 0.9 travel, and it is interruptible for
+  // free — a second tap inside the release now carries the current velocity
+  // instead of restarting from wherever the first one had got to.
+  const press = usePressScale({ scale: 0.9 });
 
   return (
-    <Animated.View style={style}>
-      <Pressable
-        testID={testID}
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        onPressIn={() => {
-          press.value = tap(1);
-        }}
-        onPressOut={() => {
-          press.value = tap(0);
-        }}
-        onPress={onPress}
-        hitSlop={10}
-        style={[styles.corner, { backgroundColor: colors.text }]}
-      >
-        <Ionicons name={icon} size={19} color={colors.surface} />
-      </Pressable>
-    </Animated.View>
+    <AnimatedPressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      {...press.handlers}
+      onPress={onPress}
+      hitSlop={10}
+      style={[styles.corner, { backgroundColor: colors.text }, press.style]}
+    >
+      <Ionicons name={icon} size={19} color={colors.surface} />
+    </AnimatedPressable>
   );
 }
 

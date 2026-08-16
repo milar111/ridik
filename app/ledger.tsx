@@ -8,6 +8,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { now } from '@/core/clock';
@@ -35,7 +36,10 @@ import {
 } from '@/hooks';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { Button, Card, Chip, Divider, EmptyState, Input, Screen, Section, Segmented, SheetCard, Txt, useConfirm, useToast } from '@/ui/components';
+import { REFLOW_MS } from '@/ui/motion';
+import { useProgressWidth, useStaggeredEntry } from '@/ui/motionHooks';
 import { colorForTag } from '@/ui/theme';
 
 type Period = 'today' | 'week' | 'month' | 'year';
@@ -121,6 +125,14 @@ function LedgerBody({ period }: { period: Period }) {
 
   const [picked, setPicked] = useState<string | null>(null);
   const [editing, setEditing] = useState<Transaction | null>(null);
+  // Four lists on one screen, four waves. They run at the same time rather than
+  // one after another: the totals, the breakdown, the trend and the day groups
+  // are separate answers to separate questions, and chaining them would make
+  // the last one arrive a second and a half after the first.
+  const arriveTotal = useStaggeredEntry({ from: 'below' });
+  const arriveBar = useStaggeredEntry({ from: 'below' });
+  const arriveTrend = useStaggeredEntry();
+  const arriveDay = useStaggeredEntry({ from: 'below' });
 
   const result = query.data;
 
@@ -241,14 +253,21 @@ function LedgerBody({ period }: { period: Period }) {
       {/* One card per currency: a summed EUR+USD number is a lie that reads
           like a fact, so they never share a total. */}
       <View style={{ gap: spacing.sm }}>
-        {currencies.map((code) => (
-          <TotalCard
+        {currencies.map((code, i) => (
+          <Animated.View
             key={code}
-            code={code}
-            spent={result.expenseByCurrency[code] ?? 0}
-            received={result.incomeByCurrency[code] ?? 0}
-            net={result.netByCurrency[code] ?? 0}
-          />
+            entering={arriveTotal(i)}
+            // A period with no spending in one of the currencies drops its card
+            // out of the stack entirely.
+            layout={LinearTransition.duration(REFLOW_MS)}
+          >
+            <TotalCard
+              code={code}
+              spent={result.expenseByCurrency[code] ?? 0}
+              received={result.incomeByCurrency[code] ?? 0}
+              net={result.netByCurrency[code] ?? 0}
+            />
+          </Animated.View>
         ))}
       </View>
 
@@ -270,7 +289,14 @@ function LedgerBody({ period }: { period: Period }) {
         <Section title={`Where it went · ${currency}`}>
           <Card>
             {bars.map((bar, i) => (
-              <View key={bar.key}>
+              // Sorted by amount, so a new transaction can lift a category past
+              // two others; keyed on the category, so `layout` carries the row
+              // to its new rank instead of relabelling the rows in place.
+              <Animated.View
+                key={bar.key}
+                entering={arriveBar(i)}
+                layout={LinearTransition.duration(REFLOW_MS)}
+              >
                 {i > 0 ? <Divider /> : null}
                 <BreakdownBar
                   name={bar.key}
@@ -279,7 +305,7 @@ function LedgerBody({ period }: { period: Period }) {
                   share={bar.share}
                   fill={bar.fill}
                 />
-              </View>
+              </Animated.View>
             ))}
           </Card>
         </Section>
@@ -299,10 +325,23 @@ function LedgerBody({ period }: { period: Period }) {
               {trend.months.map((month, i) => {
                 const latest = i === trend.months.length - 1;
                 return (
-                  <View key={month.month} style={styles.trendColumn}>
-                    <View
+                  // Left to right, fading in place: the columns are read as a
+                  // sequence in time, and six of them sliding up from below
+                  // would be six bars growing the wrong way.
+                  <Animated.View
+                    key={month.month}
+                    entering={arriveTrend(i)}
+                    style={styles.trendColumn}
+                  >
+                    <Animated.View
                       accessibilityRole="image"
                       accessibilityLabel={`${month.label}: ${formatMoney(month.value, currency)}`}
+                      // Switching currency redraws all six to new heights at
+                      // once. `layout` is what animates a *size* change without
+                      // a shared value per bar: the column is the same view, it
+                      // just measures differently, which is exactly the case
+                      // `LinearTransition` covers.
+                      layout={LinearTransition.duration(REFLOW_MS)}
                       style={{
                         width: '70%',
                         // +2 so an empty month still reads as a baseline tick.
@@ -314,7 +353,7 @@ function LedgerBody({ period }: { period: Period }) {
                     <Txt variant="micro" tone={latest ? 'secondary' : 'tertiary'}>
                       {month.label}
                     </Txt>
-                  </View>
+                  </Animated.View>
                 );
               })}
             </View>
@@ -335,8 +374,16 @@ function LedgerBody({ period }: { period: Period }) {
         {recent.isPending && rows.length === 0 ? (
           <SkeletonRows count={3} />
         ) : (
-          days.map(([date, entries]) => (
-            <View key={date} style={{ gap: 4 }}>
+          days.map(([date, entries], dayIndex) => (
+            // The day is the unit that arrives; its rows come with it. Two
+            // nested staggers on one list is a list that takes a second and a
+            // half to finish assembling itself.
+            <Animated.View
+              key={date}
+              entering={arriveDay(dayIndex)}
+              layout={LinearTransition.duration(REFLOW_MS)}
+              style={{ gap: 4 }}
+            >
               <View style={[styles.spread, { paddingTop: spacing.xs }]}>
                 <Txt variant="micro" tone="tertiary" style={styles.tracked}>
                   {formatDayHeading(entries[0]!.createdAt, zone).toUpperCase()}
@@ -347,13 +394,16 @@ function LedgerBody({ period }: { period: Period }) {
               </View>
               <Card padded={false}>
                 {entries.map((tx, i) => (
-                  <View key={tx.id}>
+                  // `layout` only — no second entrance. Deleting a transaction
+                  // takes a row out of the middle of the day and the rows below
+                  // it have to close the gap rather than jump.
+                  <Animated.View key={tx.id} layout={LinearTransition.duration(REFLOW_MS)}>
                     {i > 0 ? <Divider inset={spacing.md} /> : null}
                     <TransactionRow tx={tx} onEdit={() => setEditing(tx)} />
-                  </View>
+                  </Animated.View>
                 ))}
               </Card>
-            </View>
+            </Animated.View>
           ))
         )}
       </Section>
@@ -449,6 +499,11 @@ function BreakdownBar({
   fill: number;
 }) {
   const { colors, spacing } = useTheme();
+  // The floor is kept inside the fraction rather than applied to the width, so
+  // the animated bar lands on exactly the same 2% stub the static one drew.
+  // Timing, not spring: a bar that overshoots its track has lied about a number.
+  const fillStyle = useProgressWidth(Math.max(0.02, fill));
+
   return (
     <View
       accessibilityRole="text"
@@ -467,14 +522,16 @@ function BreakdownBar({
         </Txt>
       </View>
       <View style={[styles.track, { backgroundColor: colors.surfaceSunken }]}>
-        <View
-          style={{
-            height: '100%',
-            // A visible stub keeps a 0% row from reading as missing data.
-            width: `${Math.max(2, fill * 100)}%`,
-            borderRadius: 3,
-            backgroundColor: colorForTag(name),
-          }}
+        <Animated.View
+          style={[
+            {
+              height: '100%',
+              // A visible stub keeps a 0% row from reading as missing data.
+              borderRadius: 3,
+              backgroundColor: colorForTag(name),
+            },
+            fillStyle,
+          ]}
         />
       </View>
     </View>
@@ -486,17 +543,16 @@ function TransactionRow({ tx, onEdit }: { tx: Transaction; onEdit: () => void })
   const income = tx.direction === 'income';
   const money = formatMoney(tx.amount, tx.currency);
   const title = tx.description?.trim() || tx.category;
+  const press = usePressScale({ scale: 0.98 });
 
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={`${title}, ${income ? 'received' : 'spent'} ${money}`}
       accessibilityHint="Tap to edit"
       onPress={onEdit}
-      style={({ pressed }) => [
-        styles.txRow,
-        { paddingHorizontal: spacing.md, opacity: pressed ? 0.6 : 1 },
-      ]}
+      {...press.handlers}
+      style={[styles.txRow, { paddingHorizontal: spacing.md }, press.style]}
     >
       <View style={{ flex: 1, gap: 3 }}>
         <Txt variant="body" numberOfLines={1}>
@@ -517,7 +573,7 @@ function TransactionRow({ tx, onEdit }: { tx: Transaction; onEdit: () => void })
       <Txt variant="bodyStrong" style={{ color: income ? colors.success : colors.text }}>
         {income ? `+${money}` : money}
       </Txt>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

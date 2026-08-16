@@ -1,8 +1,9 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Txt } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 /**
  * The one thing worth interrupting the calendar for: events being written that
@@ -11,20 +12,25 @@ import { useTheme } from '@/ui/ThemeProvider';
  */
 export function SyncBanner({ onPress }: { onPress: () => void }) {
   const { colors, radius, spacing } = useTheme();
+  // A banner is nearly the full width of the screen, so it takes the shallow
+  // travel a large surface takes; the same 0.96 that reads as contact on a chip
+  // would read as the page flinching here.
+  const press = usePressScale({ scale: 0.98 });
   return (
-    <Pressable
+    <AnimatedPressable
       testID="calendar-not-connected"
       accessibilityRole="button"
       accessibilityLabel="Google Calendar is not connected. Open settings to connect."
       onPress={onPress}
-      style={({ pressed }) => [
+      {...press.handlers}
+      style={[
         styles.banner,
         {
           backgroundColor: colors.warningMuted,
           borderRadius: radius.sm,
           marginHorizontal: spacing.lg,
-          opacity: pressed ? 0.7 : 1,
         },
+        press.style,
       ]}
     >
       <Ionicons name="cloud-offline-outline" size={15} color={colors.warning} />
@@ -37,7 +43,7 @@ export function SyncBanner({ onPress }: { onPress: () => void }) {
         </Txt>
       </View>
       <Ionicons name="chevron-forward" size={14} color={colors.warning} />
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

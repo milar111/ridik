@@ -1,5 +1,6 @@
-import { Pressable, StyleSheet, View, type ViewProps, type ViewStyle } from 'react-native';
+import { StyleSheet, View, type ViewProps, type ViewStyle } from 'react-native';
 import { useTheme } from '../ThemeProvider';
+import { AnimatedPressable, usePressScale } from '../motionHooks';
 
 export type CardProps = ViewProps & {
   onPress?: () => void;
@@ -22,6 +23,11 @@ export function Card({
   ...rest
 }: CardProps) {
   const { colors, radius, spacing } = useTheme();
+  // Shallower than the 0.96 default: a card is most of the screen's width, and
+  // the same proportional travel that reads as contact on a chip reads as the
+  // whole page flinching on something this big. Called unconditionally — a card
+  // without `onPress` still renders through the same hook order.
+  const press = usePressScale({ scale: 0.98 });
 
   const base: ViewStyle = {
     backgroundColor: raised ? colors.surfaceRaised : colors.surface,
@@ -40,14 +46,15 @@ export function Card({
 
   if (!onPress && !onLongPress) return content;
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       onPress={onPress}
       onLongPress={onLongPress}
-      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+      {...press.handlers}
+      style={press.style}
     >
       {content}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

@@ -61,3 +61,6 @@ dist/
 .bob/
 .claude/skills/
 skills-lock.json
+
+# Scratch git worktrees created for isolated parallel work.
+.claude/worktrees/

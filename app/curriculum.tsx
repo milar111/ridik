@@ -11,6 +11,7 @@
  */
 import { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -27,7 +28,10 @@ import {
 import type { CurriculumEntry } from '@/db/schema';
 import type { WeekParity } from '@/repositories/curriculum';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { colorForTag } from '@/ui/theme';
 import { Badge, Button, Card, Chip, Divider, EmptyState, Input, Screen, Section, Segmented, SheetCard, Txt, useToast } from '@/ui/components';
 
@@ -217,6 +221,11 @@ function WeekGrid({
   onEdit: (entry: CurriculumEntry) => void;
 }) {
   const { colors, radius } = useTheme();
+  // Column by column, left to right: `dayOrder` is Monday-first, so the week
+  // fills in the direction it is read. Fading in place rather than rising — a
+  // block's vertical position is the time it starts, and sliding it up from
+  // below would draw every class at the wrong hour on the way in.
+  const arrive = useStaggeredEntry();
 
   const { fromHour, toHour } = useMemo(() => {
     if (entries.length === 0) return { fromHour: 8, toHour: 16 };
@@ -289,36 +298,40 @@ function WeekGrid({
             ))}
           </View>
 
-          {dayOrder.map((day) => (
+          {dayOrder.map((day, column) => (
             <View key={day} style={{ flex: 1, paddingHorizontal: 1 }}>
               {(byDay.get(day) ?? []).map(({ entry, lane, lanes }) => {
                 const start = minutesOf(entry.startTime);
                 const end = Math.max(minutesOf(entry.endTime), start + 15);
-                const tint = entry.color ?? colorForTag(entry.subjectName);
                 return (
-                  <Pressable
+                  // The block's *place* moved out to a wrapper so the entrance
+                  // has a host view of its own, and so `TimetableBlock` is free
+                  // to carry the press transform underneath it — two transforms
+                  // on one view would mean the last one written wins. Same box,
+                  // one view deeper; the pattern `DependencyGraph` uses.
+                  //
+                  // The whole column shares one step of the stagger: a day is
+                  // what you read at a glance, not the individual lessons in
+                  // it, and six lessons counting up inside one column would
+                  // outrun the cap before the week was half drawn.
+                  <Animated.View
                     key={entry.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${entry.subjectName}, ${DAY_LONG[entry.dayOfWeek]} ${entry.startTime} to ${entry.endTime}`}
-                    onPress={() => onEdit(entry)}
-                    style={({ pressed }) => [
-                      styles.block,
+                    entering={arrive(column)}
+                    // Editing a class changes its hour or its lane; that is a
+                    // move on the canvas, not a redraw.
+                    layout={LinearTransition.duration(REFLOW_MS)}
+                    style={[
+                      styles.slot,
                       {
                         top: ((start - originMinutes) / 60) * HOUR_HEIGHT,
                         height: Math.max(MIN_BLOCK_HEIGHT, ((end - start) / 60) * HOUR_HEIGHT - 2),
                         left: `${(lane / lanes) * 100}%`,
                         width: `${100 / lanes}%`,
-                        backgroundColor: colors.surfaceRaised,
-                        borderLeftColor: tint,
-                        borderRadius: radius.sm,
-                        opacity: pressed ? 0.6 : 1,
                       },
                     ]}
                   >
-                    <Txt variant="micro" numberOfLines={2} style={{ color: tint }}>
-                      {entry.subjectName}
-                    </Txt>
-                  </Pressable>
+                    <TimetableBlock entry={entry} onPress={() => onEdit(entry)} />
+                  </Animated.View>
                 );
               })}
             </View>
@@ -326,6 +339,42 @@ function WeekGrid({
         </View>
       </View>
     </Card>
+  );
+}
+
+/**
+ * One class on the grid, extracted because each needs its own animation state
+ * and a hook cannot be called from inside a `map`.
+ *
+ * The block is absolutely positioned by `top`/`left`/`height`/`width`, none of
+ * which a transform touches — the scale happens around the block's own centre
+ * and leaves it exactly where the timetable put it.
+ */
+function TimetableBlock({ entry, onPress }: { entry: CurriculumEntry; onPress: () => void }) {
+  const { colors, radius } = useTheme();
+  const press = usePressScale();
+  const tint = entry.color ?? colorForTag(entry.subjectName);
+
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={`${entry.subjectName}, ${DAY_LONG[entry.dayOfWeek]} ${entry.startTime} to ${entry.endTime}`}
+      onPress={onPress}
+      {...press.handlers}
+      style={[
+        styles.block,
+        {
+          backgroundColor: colors.surfaceRaised,
+          borderLeftColor: tint,
+          borderRadius: radius.sm,
+        },
+        press.style,
+      ]}
+    >
+      <Txt variant="micro" numberOfLines={2} style={{ color: tint }}>
+        {entry.subjectName}
+      </Txt>
+    </AnimatedPressable>
   );
 }
 
@@ -343,6 +392,11 @@ function WeekList({
   onEdit: (entry: CurriculumEntry) => void;
 }) {
   const { colors, spacing } = useTheme();
+  const arrive = useStaggeredEntry({ from: 'below' });
+  // One wave down the week rather than one per day: the days are a single
+  // timetable broken by heading, and restarting the count at every heading
+  // would make five short lists out of one.
+  let rank = 0;
 
   return (
     <>
@@ -355,55 +409,80 @@ function WeekList({
         return (
           <Section key={day} title={DAY_LONG[day]} compact>
             <Card padded={false}>
-              {rows.map((entry, index) => {
-                const tint = entry.color ?? colorForTag(entry.subjectName);
-                const meta = [entry.location, entry.teacher].filter(Boolean).join(' · ');
-                const nextAt = nextBySubject.get(entry.subjectName.toLowerCase());
-                return (
-                  <View key={entry.id}>
-                    {index > 0 ? <Divider inset={spacing.md} /> : null}
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Edit ${entry.subjectName}`}
-                      onPress={() => onEdit(entry)}
-                      style={({ pressed }) => [
-                        styles.listRow,
-                        { paddingHorizontal: spacing.md, opacity: pressed ? 0.6 : 1 },
-                      ]}
-                    >
-                      <View style={{ width: 3, alignSelf: 'stretch', backgroundColor: tint, borderRadius: 2 }} />
-                      <Txt variant="mono" tone="secondary" style={{ width: 84 }}>
-                        {entry.startTime}–{entry.endTime}
-                      </Txt>
-                      <View style={{ flex: 1, gap: 1 }}>
-                        <Txt variant="bodyStrong" tone={entry.isActive ? 'primary' : 'tertiary'}>
-                          {entry.subjectName}
-                        </Txt>
-                        {meta ? (
-                          <Txt variant="caption" tone="tertiary" numberOfLines={1}>
-                            {meta}
-                          </Txt>
-                        ) : null}
-                        {entry.isActive && nextAt !== undefined ? (
-                          <Txt variant="micro" tone="tertiary">
-                            Next {formatDayHeading(nextAt)} at {formatTime(nextAt)}
-                          </Txt>
-                        ) : null}
-                      </View>
-                      {entry.weekParity !== 'every' ? (
-                        <Badge label={entry.weekParity.toUpperCase()} tone="info" />
-                      ) : null}
-                      {!entry.isActive ? <Badge label="OFF" tone="neutral" /> : null}
-                      <Ionicons name="chevron-forward" size={15} color={colors.textTertiary} />
-                    </Pressable>
-                  </View>
-                );
-              })}
+              {rows.map((entry, index) => (
+                <Animated.View
+                  key={entry.id}
+                  entering={arrive(rank++)}
+                  // Deleting a class, or moving one to another day, takes a row
+                  // out of the middle of the card.
+                  layout={LinearTransition.duration(REFLOW_MS)}
+                >
+                  {index > 0 ? <Divider inset={spacing.md} /> : null}
+                  <WeekRow
+                    entry={entry}
+                    nextAt={nextBySubject.get(entry.subjectName.toLowerCase())}
+                    onPress={() => onEdit(entry)}
+                  />
+                </Animated.View>
+              ))}
             </Card>
           </Section>
         );
       })}
     </>
+  );
+}
+
+/**
+ * One row of the week list, extracted for the same reason as `TimetableBlock`.
+ */
+function WeekRow({
+  entry,
+  nextAt,
+  onPress,
+}: {
+  entry: CurriculumEntry;
+  nextAt: number | undefined;
+  onPress: () => void;
+}) {
+  const { colors, spacing } = useTheme();
+  const press = usePressScale({ scale: 0.98 });
+  const tint = entry.color ?? colorForTag(entry.subjectName);
+  const meta = [entry.location, entry.teacher].filter(Boolean).join(' · ');
+
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={`Edit ${entry.subjectName}`}
+      onPress={onPress}
+      {...press.handlers}
+      style={[styles.listRow, { paddingHorizontal: spacing.md }, press.style]}
+    >
+      <View style={{ width: 3, alignSelf: 'stretch', backgroundColor: tint, borderRadius: 2 }} />
+      <Txt variant="mono" tone="secondary" style={{ width: 84 }}>
+        {entry.startTime}–{entry.endTime}
+      </Txt>
+      <View style={{ flex: 1, gap: 1 }}>
+        <Txt variant="bodyStrong" tone={entry.isActive ? 'primary' : 'tertiary'}>
+          {entry.subjectName}
+        </Txt>
+        {meta ? (
+          <Txt variant="caption" tone="tertiary" numberOfLines={1}>
+            {meta}
+          </Txt>
+        ) : null}
+        {entry.isActive && nextAt !== undefined ? (
+          <Txt variant="micro" tone="tertiary">
+            Next {formatDayHeading(nextAt)} at {formatTime(nextAt)}
+          </Txt>
+        ) : null}
+      </View>
+      {entry.weekParity !== 'every' ? (
+        <Badge label={entry.weekParity.toUpperCase()} tone="info" />
+      ) : null}
+      {!entry.isActive ? <Badge label="OFF" tone="neutral" /> : null}
+      <Ionicons name="chevron-forward" size={15} color={colors.textTertiary} />
+    </AnimatedPressable>
   );
 }
 
@@ -673,8 +752,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   gridHeaderCell: { flex: 1, alignItems: 'center' },
+  /** The block's place on the grid; the block itself fills it. */
+  slot: { position: 'absolute' },
   block: {
-    position: 'absolute',
+    flex: 1,
     borderLeftWidth: 2,
     paddingHorizontal: 3,
     paddingVertical: 2,

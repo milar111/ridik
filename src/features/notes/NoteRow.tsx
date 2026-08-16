@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { countLabel } from '@/core/format';
@@ -7,6 +7,7 @@ import type { NoteWithBullets } from '@/repositories/notes';
 import { Chip, Txt } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
 import { colorForTag } from '@/ui/theme';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 const PREVIEW_BULLETS = 2;
 
@@ -36,9 +37,10 @@ export function NoteRow({
   const summary =
     todos.length > 0 ? `${done}/${todos.length}` : String(note.bullets.length);
   const allDone = todos.length > 0 && done === todos.length;
+  const press = usePressScale({ scale: 0.98 });
 
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={`${note.titleSummary}, tagged ${note.categoryTag}, ${countLabel(
         note.bullets.length,
@@ -47,10 +49,8 @@ export function NoteRow({
       accessibilityHint="Long press for pin, tag, archive and delete"
       onPress={onPress}
       onLongPress={onLongPress}
-      style={({ pressed }) => [
-        styles.row,
-        { paddingVertical: spacing.sm + 2, opacity: pressed ? 0.6 : 1 },
-      ]}
+      {...press.handlers}
+      style={[styles.row, { paddingVertical: spacing.sm + 2 }, press.style]}
     >
       <View style={styles.head}>
         {note.isPinned ? <Ionicons name="pin" size={13} color={colors.accent} /> : null}
@@ -99,7 +99,7 @@ export function NoteRow({
           Empty — say “add … to {note.titleSummary}”
         </Txt>
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

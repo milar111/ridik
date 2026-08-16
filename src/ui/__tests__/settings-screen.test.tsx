@@ -159,6 +159,11 @@ describe('settings screen', () => {
       'Speech rate',
       'Requests per day',
       'Requests per month',
+      // Both belong to the operator's invoice, not to the person using the app:
+      // a trial counter anyone could zero is not a trial, and a switch that
+      // pretends a store is present would lock a personal build.
+      'Free trial',
+      'Simulate a store build',
       'Whisper fallback',
       'Rebuild search index',
       'Week starts on',

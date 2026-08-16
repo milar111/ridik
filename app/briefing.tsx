@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import Animated, { type EntryOrExitLayoutType } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -26,7 +27,9 @@ import {
   useToast,
 } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 const SCOPES: { value: BriefingScope; label: string }[] = [
   { value: 'today', label: 'Today' },
@@ -62,19 +65,24 @@ export default function BriefingScreen() {
 
 function CloseButton({ onPress }: { onPress: () => void }) {
   const { colors, radius } = useTheme();
+  // A small filled disc: there is a fill to watch it move, so the default is
+  // enough travel.
+  const press = usePressScale();
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel="Close briefing"
       onPress={onPress}
       hitSlop={10}
-      style={({ pressed }) => [
+      {...press.handlers}
+      style={[
         styles.close,
-        { backgroundColor: colors.surfaceRaised, borderRadius: radius.pill, opacity: pressed ? 0.6 : 1 },
+        { backgroundColor: colors.surfaceRaised, borderRadius: radius.pill },
+        press.style,
       ]}
     >
       <Ionicons name="close" size={18} color={colors.textSecondary} />
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -85,6 +93,11 @@ function BriefingBody({ scope, onNavigate }: { scope: BriefingScope; onNavigate:
 
   const query = useBriefing(scope);
   const speech = useBriefingSpeech();
+  // Changing scope replaces every bullet, and the bullets are keyed by index —
+  // so they do not remount and the wave plays once, when the briefing first
+  // lands. That is the correct reading: this is a page being read to you, and
+  // it should not re-assemble itself every time you tap Tomorrow.
+  const arrive = useStaggeredEntry({ from: 'below' });
 
   const briefing = query.data;
 
@@ -132,7 +145,7 @@ function BriefingBody({ scope, onNavigate }: { scope: BriefingScope; onNavigate:
       <Card>
         <View style={{ gap: spacing.md }}>
           {briefing.bullets.map((bullet, index) => (
-            <View key={index} style={styles.bullet}>
+            <Animated.View key={index} entering={arrive(index)} style={styles.bullet}>
               <Ionicons
                 name={ICONS[bullet.icon]}
                 size={20}
@@ -142,7 +155,7 @@ function BriefingBody({ scope, onNavigate }: { scope: BriefingScope; onNavigate:
               <Txt variant="heading" weight="500" style={{ flex: 1 }}>
                 {bullet.text}
               </Txt>
-            </View>
+            </Animated.View>
           ))}
 
           <Divider />
@@ -181,6 +194,14 @@ function BriefingBody({ scope, onNavigate }: { scope: BriefingScope; onNavigate:
 /* ---------------------------------------------------------------- detail -- */
 
 function Detail({ data, onOpen }: { data: BriefingData; onOpen: (href: string) => void }) {
+  const arrive = useStaggeredEntry({ from: 'below' });
+  // Eight sections, one wave. `rank` is a plain counter rather than eight
+  // separate hooks because the detail is *one* list broken by heading — a
+  // per-section count would have Streaks arriving as slowly as Classes did,
+  // eight times over, which reads as eight lists loading rather than one page.
+  // Reset on every render by construction, so it cannot drift.
+  let rank = 0;
+
   const timed = data.events.filter((event) => !event.isBuffer);
   const buffers = data.events.filter((event) => event.isBuffer);
   const due = [...data.overdueTasks, ...data.dueTasks, ...data.upcomingTasks];
@@ -210,6 +231,7 @@ function Detail({ data, onOpen }: { data: BriefingData; onOpen: (href: string) =
             {data.classes.map((entry, index) => (
               <Row
                 key={`${entry.subject}-${entry.startsAt}`}
+                entering={arrive(rank++)}
                 first={index === 0}
                 icon="school-outline"
                 lead={`${formatTime(entry.startsAt, data.zone)}–${formatTime(entry.endsAt, data.zone)}`}
@@ -228,6 +250,7 @@ function Detail({ data, onOpen }: { data: BriefingData; onOpen: (href: string) =
             {timed.map((event, index) => (
               <Row
                 key={event.id}
+                entering={arrive(rank++)}
                 first={index === 0}
                 icon="calendar-outline"
                 lead={event.allDay ? 'All day' : formatTime(event.startsAt, data.zone)}
@@ -239,6 +262,7 @@ function Detail({ data, onOpen }: { data: BriefingData; onOpen: (href: string) =
             {buffers.map((event) => (
               <Row
                 key={event.id}
+                entering={arrive(rank++)}
                 icon="walk-outline"
                 tone="warning"
                 lead={formatTime(event.startsAt, data.zone)}
@@ -257,6 +281,7 @@ function Detail({ data, onOpen }: { data: BriefingData; onOpen: (href: string) =
             {due.map((task, index) => (
               <Row
                 key={task.id}
+                entering={arrive(rank++)}
                 first={index === 0}
                 icon={overdue.has(task.id) ? 'alert-circle-outline' : 'ellipse-outline'}
                 tone={overdue.has(task.id) ? 'danger' : 'default'}
@@ -276,6 +301,7 @@ function Detail({ data, onOpen }: { data: BriefingData; onOpen: (href: string) =
             {data.unlockedTasks.slice(0, 5).map((task, index) => (
               <Row
                 key={task.id}
+                entering={arrive(rank++)}
                 first={index === 0}
                 icon="lock-open-outline"
                 lead="Ready"
@@ -294,6 +320,7 @@ function Detail({ data, onOpen }: { data: BriefingData; onOpen: (href: string) =
             {data.commitments.map((commitment, index) => (
               <Row
                 key={commitment.id}
+                entering={arrive(rank++)}
                 first={index === 0}
                 icon={commitment.direction === 'i_owe' ? 'arrow-up-circle-outline' : 'arrow-down-circle-outline'}
                 tone={commitment.isOverdue ? 'danger' : 'default'}
@@ -313,6 +340,7 @@ function Detail({ data, onOpen }: { data: BriefingData; onOpen: (href: string) =
             {data.streaks.map((habit, index) => (
               <Row
                 key={habit.id}
+                entering={arrive(rank++)}
                 first={index === 0}
                 icon="flame-outline"
                 tone={habit.atRisk ? 'warning' : 'success'}
@@ -331,6 +359,7 @@ function Detail({ data, onOpen }: { data: BriefingData; onOpen: (href: string) =
           <Card padded={false}>
             <Row
               first
+              entering={arrive(rank++)}
               icon="timer-outline"
               tone="accent"
               lead={formatClock(data.focus.remainingMs)}
@@ -349,6 +378,7 @@ type RowTone = 'default' | 'accent' | 'success' | 'warning' | 'danger';
 
 function Row({
   first,
+  entering,
   icon,
   tone = 'default',
   lead,
@@ -357,6 +387,14 @@ function Row({
   onPress,
 }: {
   first?: boolean;
+  /**
+   * The row's place in the page-wide wave, from `useStaggeredEntry`.
+   *
+   * Passed in rather than derived here: every section on this screen renders
+   * through this component, and a row that counted its own index would restart
+   * the stagger at each heading.
+   */
+  entering?: EntryOrExitLayoutType;
   icon: keyof typeof Ionicons.glyphMap;
   tone?: RowTone;
   lead: string;
@@ -374,7 +412,10 @@ function Row({
   };
 
   return (
-    <>
+    // The divider is inside the wrapper because it belongs to the row under it:
+    // left outside, a hairline would sit at full strength above a row that has
+    // not arrived yet.
+    <Animated.View entering={entering}>
       {first ? null : <Divider inset={spacing.md} />}
       <Card
         padded={false}
@@ -400,7 +441,7 @@ function Row({
           <Ionicons name="chevron-forward" size={14} color={colors.textTertiary} />
         </View>
       </Card>
-    </>
+    </Animated.View>
   );
 }
 

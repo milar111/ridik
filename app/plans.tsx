@@ -13,8 +13,7 @@
  * subscription it is billing, and an in-app "Cancel" that merely opened the
  * same link while looking like it did the work would be a lie.
  */
-import { Linking, Pressable, View } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { Linking, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { now } from '@/core/clock';
@@ -36,7 +35,7 @@ import {
   type Plan,
 } from '@/services/billing/entitlement';
 import { useTheme } from '@/ui/ThemeProvider';
-import { tap } from '@/ui/motion';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { elevate } from '@/ui/shadow';
 import { Badge, Button, Card, Divider, Screen, Txt, useToast } from '@/ui/components';
 
@@ -165,24 +164,21 @@ function PlanCard({
   onPress: () => void;
 }) {
   const { colors, radius, spacing } = useTheme();
-  const press = useSharedValue(0);
-  const style = useAnimatedStyle(() => ({ transform: [{ scale: 1 - press.value * 0.02 }] }));
+  // The same 0.98 the hand-rolled shared value gave, off the shared hook — and
+  // `disabled` now stops the card answering while the purchase is in flight,
+  // which the old version could not express.
+  const press = usePressScale({ scale: 0.98, disabled: busy });
 
   return (
-    <Animated.View style={style}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Subscribe ${plan.title}, ${plan.price}`}
-        accessibilityState={{ busy }}
-        disabled={busy}
-        onPressIn={() => {
-          press.value = tap(1);
-        }}
-        onPressOut={() => {
-          press.value = tap(0);
-        }}
-        onPress={onPress}
-        style={{
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={`Subscribe ${plan.title}, ${plan.price}`}
+      accessibilityState={{ busy }}
+      disabled={busy}
+      {...press.handlers}
+      onPress={onPress}
+      style={[
+        {
           flexDirection: 'row',
           alignItems: 'center',
           gap: spacing.md,
@@ -196,23 +192,24 @@ function PlanCard({
           borderColor: recommended ? colors.accent : colors.border,
           opacity: busy ? 0.6 : 1,
           ...elevate('card'),
-        }}
-      >
-        <View style={{ flex: 1, gap: 2 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-            <Txt variant="bodyStrong">{plan.title}</Txt>
-            {plan.note ? <Badge label={plan.note} tone="warning" /> : null}
-          </View>
-          <Txt variant="caption" tone="tertiary">
-            {describeAllowance(plan.tier)}, billed per {plan.period}
-          </Txt>
+        },
+        press.style,
+      ]}
+    >
+      <View style={{ flex: 1, gap: 2 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <Txt variant="bodyStrong">{plan.title}</Txt>
+          {plan.note ? <Badge label={plan.note} tone="warning" /> : null}
         </View>
-        <Txt variant="readout" style={{ fontSize: 22, lineHeight: 26 }}>
-          {plan.price}
+        <Txt variant="caption" tone="tertiary">
+          {describeAllowance(plan.tier)}, billed per {plan.period}
         </Txt>
-        <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
-      </Pressable>
-    </Animated.View>
+      </View>
+      <Txt variant="readout" style={{ fontSize: 22, lineHeight: 26 }}>
+        {plan.price}
+      </Txt>
+      <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+    </AnimatedPressable>
   );
 }
 

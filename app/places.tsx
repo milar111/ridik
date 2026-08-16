@@ -12,6 +12,7 @@
  */
 import { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -38,7 +39,10 @@ import type { GeofenceTrigger, SavedPlace } from '@/db/schema';
 import { MAX_MONITORED_REGIONS } from '@/repositories/geofences';
 import type { Coords } from '@/repositories/places';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { Badge, Button, Card, Chip, Divider, EmptyState, Input, Screen, Section, SheetCard, Txt, useToast } from '@/ui/components';
 
 /**
@@ -95,6 +99,11 @@ export default function PlacesScreen() {
   const places = usePlaces();
   const triggers = useGeofenceTriggers();
   const status = useGeofenceStatus();
+  // Two cards, two waves — the places you saved and the reminders hanging off
+  // them are separate answers, and chaining them would make the second look
+  // like it was still loading.
+  const arrivePlace = useStaggeredEntry({ from: 'below' });
+  const arriveTrigger = useStaggeredEntry({ from: 'below' });
 
   const rows = places.data ?? [];
   const allTriggers = triggers.data ?? [];
@@ -146,14 +155,19 @@ export default function PlacesScreen() {
           ) : (
             <Card padded={false}>
               {rows.map((place, index) => (
-                <View key={place.id}>
+                // Deleting a place takes its row out of the middle of the card.
+                <Animated.View
+                  key={place.id}
+                  entering={arrivePlace(index)}
+                  layout={LinearTransition.duration(REFLOW_MS)}
+                >
                   {index > 0 ? <Divider inset={spacing.lg} /> : null}
                   <PlaceRow
                     place={place}
                     triggers={triggerCounts.get(place.id) ?? 0}
                     onPress={() => setDraft(toDraft(place))}
                   />
-                </View>
+                </Animated.View>
               ))}
             </Card>
           )}
@@ -191,10 +205,16 @@ export default function PlacesScreen() {
           ) : (
             <Card padded={false}>
               {live.map((trigger, index) => (
-                <View key={trigger.id}>
+                // A one-shot reminder stops being live the moment it fires, so
+                // rows leave this list on their own while you are looking at it.
+                <Animated.View
+                  key={trigger.id}
+                  entering={arriveTrigger(index)}
+                  layout={LinearTransition.duration(REFLOW_MS)}
+                >
                   {index > 0 ? <Divider inset={spacing.lg} /> : null}
                   <TriggerRow trigger={trigger} />
-                </View>
+                </Animated.View>
               ))}
             </Card>
           )}
@@ -231,12 +251,14 @@ function PlaceRow({
   onPress: () => void;
 }) {
   const { colors, spacing } = useTheme();
+  const press = usePressScale({ scale: 0.98 });
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={`Edit ${place.label}`}
       onPress={onPress}
-      style={({ pressed }) => [styles.row, { paddingHorizontal: spacing.md, opacity: pressed ? 0.6 : 1 }]}
+      {...press.handlers}
+      style={[styles.row, { paddingHorizontal: spacing.md }, press.style]}
     >
       <Ionicons name="location" size={18} color={colors.accent} />
       <View style={{ flex: 1, gap: 1 }}>
@@ -250,7 +272,7 @@ function PlaceRow({
         </Txt>
       </View>
       <Ionicons name="chevron-forward" size={15} color={colors.textTertiary} />
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -259,6 +281,10 @@ function PlaceRow({
 function TriggerRow({ trigger }: { trigger: GeofenceTrigger }) {
   const { colors, spacing } = useTheme();
   const toast = useToast();
+  // Two bare 17pt glyphs in 44pt boxes: the icon is the only thing that can
+  // move, so both take deeper travel than a surface would.
+  const offPress = usePressScale({ scale: 0.86 });
+  const deletePress = usePressScale({ scale: 0.86 });
   const deactivate = useDeactivateGeofenceTrigger();
   const remove = useDeleteGeofenceTrigger();
   // The row disappearing from the list is not the same as the OS letting the
@@ -325,10 +351,11 @@ function TriggerRow({ trigger }: { trigger: GeofenceTrigger }) {
           />
           {/* 17pt glyphs centred in a 44pt box: these two sit next to each other
               and one is destructive, so the target has to be the full minimum. */}
-          <Pressable
+          <AnimatedPressable
             accessibilityRole="button"
             accessibilityLabel={`Switch off the reminder at ${trigger.label}`}
-            style={({ pressed }) => [styles.iconButton, { opacity: pressed ? 0.6 : 1 }]}
+            {...offPress.handlers}
+            style={[styles.iconButton, offPress.style]}
             onPress={() =>
               deactivate.mutate(trigger.id, {
                 onSuccess: () => {
@@ -340,15 +367,16 @@ function TriggerRow({ trigger }: { trigger: GeofenceTrigger }) {
             }
           >
             <Ionicons name="power" size={17} color={colors.textSecondary} />
-          </Pressable>
-          <Pressable
+          </AnimatedPressable>
+          <AnimatedPressable
             accessibilityRole="button"
             accessibilityLabel={`Delete the reminder at ${trigger.label}`}
-            style={({ pressed }) => [styles.iconButton, { opacity: pressed ? 0.6 : 1 }]}
+            {...deletePress.handlers}
+            style={[styles.iconButton, deletePress.style]}
             onPress={() => setConfirming(true)}
           >
             <Ionicons name="trash-outline" size={17} color={colors.danger} />
-          </Pressable>
+          </AnimatedPressable>
         </>
       )}
     </View>

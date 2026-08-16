@@ -6,12 +6,14 @@
  * is shaped) rather than a general primitive.
  */
 import { StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
 import { now } from '@/core/clock';
 import { percent } from '@/core/format';
 import { currentZone, formatDayHeading, formatRelative } from '@/core/time';
 import { Button, Card, Chip, Txt } from '@/ui/components';
+import { useProgressWidth } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
 
 import { deadlineOf } from './format';
@@ -31,6 +33,10 @@ export function ProgressBar({
 }) {
   const { colors, radius } = useTheme();
   const filled = percent(done, total);
+  // Fed the same rounded percentage the static bar drew, so ticking an item
+  // lands on exactly the width it used to cut to — it just travels there.
+  const fillStyle = useProgressWidth(filled / 100);
+
   return (
     <View
       accessibilityRole="progressbar"
@@ -43,12 +49,14 @@ export function ProgressBar({
         overflow: 'hidden',
       }}
     >
-      <View
-        style={{
-          width: `${filled}%`,
-          height: '100%',
-          backgroundColor: tone ?? (filled === 100 ? colors.success : colors.accent),
-        }}
+      <Animated.View
+        style={[
+          {
+            height: '100%',
+            backgroundColor: tone ?? (filled === 100 ? colors.success : colors.accent),
+          },
+          fillStyle,
+        ]}
       />
     </View>
   );

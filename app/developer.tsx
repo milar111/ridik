@@ -13,7 +13,7 @@
  */
 import { useMemo } from 'react';
 import { View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 
 import { countLabel } from '@/core/format';
 import { formatDateTime, isValidZone } from '@/core/time';
@@ -31,7 +31,8 @@ import {
 } from '@/features/settings';
 import { useAssistantUsage, useRebuildNoteSearchIndex, useSetting } from '@/hooks';
 import { useAssistantMode } from '@/hooks/useAssistant';
-import { formatCostMicros } from '@/llm/usage';
+import { formatCostMicros, type UsageWindow } from '@/llm/usage';
+import { describeTrial, TRIAL_TOTAL_REQUESTS } from '@/services/billing/allowance';
 import {
   useBackgroundStatus,
   useCalendarConnection,
@@ -56,6 +57,12 @@ const MODEL_PRESETS = ['gemini-flash-latest', 'gemini-3-flash', 'gemini-3.1-flas
 export default function DeveloperScreen() {
   const router = useRouter();
   const developer = useSetting('developerMode');
+
+  // The seven taps were the only thing standing in front of this screen, and a
+  // gesture is not a gate: expo-router matches `ridik:///developer` straight to
+  // it, so a deep link walked past the ritual entirely. The switch the taps set
+  // is the actual state, so it is the thing to check.
+  if (!developer.isLoading && !developer.value) return <Redirect href="/settings" />;
 
   return (
     <Screen
@@ -105,12 +112,43 @@ export default function DeveloperScreen() {
 
 /* --------------------------------------------------------------- assistant */
 
+/**
+ * What a prompt cache saved this month, and what one utterance really cost.
+ *
+ * A cache hit changes neither the request count nor the input count, so this
+ * row is the only place the app can be *seen* to be getting one — the reason
+ * `llm_usage.cached_tokens` is recorded at all. It has to be visible on the
+ * hosted build in particular: the proxy is the half where caching can actually
+ * pay, because it sends a byte-identical prefix on behalf of every user, and
+ * for one release this read-out sat inside the branch that renders only when
+ * the build is *not* hosted. The number it could have shown was therefore
+ * guaranteed to be zero wherever it was drawn.
+ *
+ * `calls` is the same idea in the other unit: one utterance can bill the
+ * provider three times when the reply has to be repaired, and nothing else in
+ * the app would ever say so.
+ */
+function spendDetail(month: UsageWindow): string {
+  const parts: string[] = [];
+  if (month.inputTokens > 0 && month.cachedTokens > 0) {
+    const percent = Math.round((month.cachedTokens / month.inputTokens) * 100);
+    parts.push(`${percent}% of this month's input came from a prompt cache.`);
+  }
+  if (month.requests > 0) {
+    const perTurn = (Math.max(month.calls, month.requests) / month.requests).toFixed(2);
+    parts.push(`${perTurn} provider calls per request — 1.00 means nothing needed repairing.`);
+  }
+  return parts.join(' ');
+}
+
 function AssistantGroup() {
   const { spacing } = useTheme();
   const mode = useAssistantMode();
   const model = useSetting('llmModel');
   const dailyCap = useSetting('llmDailyRequestCap');
   const monthlyCap = useSetting('llmMonthlyRequestCap');
+  const trialUsed = useSetting('llmTrialRequestsUsed');
+  const simulateStore = useSetting('simulateStoreBuild');
   const usage = useAssistantUsage(dailyCap.value, monthlyCap.value).data;
   const key = useSecret('llm');
 
@@ -174,11 +212,11 @@ function AssistantGroup() {
         <SliderRow
           label="Requests per month"
           hint={
-            monthlyCap.value === 0
+            (monthlyCap.value === 0
               ? 'Unlimited.'
               : `${usage?.remainingThisMonth ?? monthlyCap.value} left${
                   usage ? ` · ${formatCostMicros(usage.month.costMicros)} so far` : ''
-                }. Past the cap, commands fall back to pattern matching.`
+                }. Past the cap, commands fall back to pattern matching.`)
           }
           value={monthlyCap.value}
           min={0}
@@ -186,6 +224,42 @@ function AssistantGroup() {
           step={250}
           format={(v) => (v === 0 ? 'Off' : String(Math.round(v)))}
           onChange={(v) => monthlyCap.set(Math.round(v))}
+        />
+      )}
+
+      {/* The free tier's whole budget, spent once per install rather than per
+          month, and read-only.
+
+          There used to be a Reset button here. It wrote zero to the one counter
+          that decides whether the operator pays for a stranger's traffic —
+          one tap, unlimited repeats — and it was shown in precisely the
+          configuration where the trial is the only thing standing between a
+          free user and the key. A read-out is what this screen is for; the
+          counter itself is monotonic by design and nothing in the app may
+          lower it. */}
+      <Row
+        icon="hourglass-outline"
+        label="Free trial"
+        value={describeTrial(trialUsed.value)}
+        hint={`${TRIAL_TOTAL_REQUESTS} requests for the life of the install, and nothing refills them — not a date, not erasing your data, not reinstalling. Counted only while a store is present and nothing is subscribed.`}
+      />
+
+      {/* Outside the hosted branch on purpose: the hosted build is the one
+          whose numbers here can be non-zero. */}
+      {usage && spendDetail(usage.month) ? (
+        <Row
+          icon="speedometer-outline"
+          label="This month"
+          value={`${usage.month.requests} requests · ${formatCostMicros(usage.month.costMicros)}`}
+          hint={spendDetail(usage.month)}
+        />
+      ) : null}
+      {hosted ? null : (
+        <SwitchRow
+          label="Simulate a store build"
+          hint="Treats this build as though RevenueCat were compiled in, so the free-tier lock and its paywall can be walked through without store keys. Voice still falls back to offline matching."
+          value={simulateStore.value}
+          onChange={(next) => simulateStore.set(next)}
         />
       )}
 

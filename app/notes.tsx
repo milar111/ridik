@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { countLabel } from '@/core/format';
@@ -28,9 +29,46 @@ import {
   Txt,
 } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
 
 type Pane = 'notes' | 'lists';
+
+/**
+ * The staggered arrival, made safe for a `FlatList`.
+ *
+ * A mapped list mounts every row once and is done. A `FlatList` mounts a cell
+ * the moment it scrolls into the window, so the same `entering` prop stops
+ * being an arrival and becomes an entrance *on scroll* — the row you dragged
+ * into view fades in under your thumb, and does it again every time you come
+ * back to it. That is the one thing a list animation must not do.
+ *
+ * The guard is the gesture itself, not a timer: once the list has been dragged,
+ * nothing in it is arriving any more, it is being uncovered. A ref rather than
+ * state on purpose — flipping it must not re-render the list mid-scroll, and it
+ * is read at cell-render time, which is exactly when the answer is needed.
+ *
+ * Spread `handlers` onto the list; hand `entering(index)` to the row.
+ */
+function useMountWave() {
+  const arrive = useStaggeredEntry({ from: 'below' });
+  const scrolled = useRef(false);
+  const settle = useCallback(() => {
+    scrolled.current = true;
+  }, []);
+
+  const entering = useCallback(
+    (index: number) => (scrolled.current ? undefined : arrive(index)),
+    [arrive],
+  );
+
+  const handlers = useMemo(
+    () => ({ onScrollBeginDrag: settle, onMomentumScrollBegin: settle }),
+    [settle],
+  );
+
+  return { entering, handlers };
+}
 
 /**
  * Two capture surfaces that the brief keeps strictly apart, behind one control.
@@ -79,6 +117,7 @@ function NotesPane() {
   const [query, setQuery] = useState('');
   const [tag, setTag] = useState<string | null>(null);
   const [menuFor, setMenuFor] = useState<NoteWithBullets | null>(null);
+  const wave = useMountWave();
 
   const term = useDebounced(query, 200).trim();
   const searching = term.length > 0;
@@ -132,6 +171,7 @@ function NotesPane() {
         <FlatList
           data={notes}
           keyExtractor={(note) => note.id}
+          {...wave.handlers}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           ItemSeparatorComponent={Divider}
@@ -148,12 +188,18 @@ function NotesPane() {
               </View>
             ) : null
           }
-          renderItem={({ item }) => (
-            <NoteRow
-              note={item}
-              onPress={() => router.push(`/note/${item.id}`)}
-              onLongPress={() => setMenuFor(item)}
-            />
+          renderItem={({ item, index }) => (
+            // Searching swaps the whole data set for another one, which
+            // remounts every cell — so a search you have not scrolled yet
+            // arrives as a wave, which is the honest reading: these are new
+            // rows, not the old ones re-ordered.
+            <Animated.View entering={wave.entering(index)}>
+              <NoteRow
+                note={item}
+                onPress={() => router.push(`/note/${item.id}`)}
+                onLongPress={() => setMenuFor(item)}
+              />
+            </Animated.View>
           )}
         />
       )}
@@ -215,6 +261,7 @@ function NotesEmpty({
 function ListsPane({ focus }: { focus?: string }) {
   const { spacing } = useTheme();
   const names = useChecklistNames();
+  const wave = useMountWave();
 
   const [creating, setCreating] = useState(false);
   // `null` means "untouched", so the first list can start open without that
@@ -265,6 +312,7 @@ function ListsPane({ focus }: { focus?: string }) {
       <FlatList
         data={lists}
         keyExtractor={(list) => list.name}
+        {...wave.handlers}
         keyboardShouldPersistTaps="handled"
         ItemSeparatorComponent={Divider}
         contentContainerStyle={{ paddingBottom: MIC_CLEARANCE }}
@@ -300,12 +348,17 @@ function ListsPane({ focus }: { focus?: string }) {
             hint="Try: “add M3 screws to my hardware list”"
           />
         }
-        renderItem={({ item }) => (
-          <ChecklistSection
-            summary={item}
-            expanded={expanded.has(item.name)}
-            onToggleExpanded={() => toggle(item.name)}
-          />
+        renderItem={({ item, index }) => (
+          // The section's own rows carry a second, inner stagger when it is
+          // expanded. They do not collide: this one runs on the screen opening,
+          // that one on the disclosure.
+          <Animated.View entering={wave.entering(index)}>
+            <ChecklistSection
+              summary={item}
+              expanded={expanded.has(item.name)}
+              onToggleExpanded={() => toggle(item.name)}
+            />
+          </Animated.View>
         )}
       />
 

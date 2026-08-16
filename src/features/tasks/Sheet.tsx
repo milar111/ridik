@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Txt } from '@/ui/components/Text';
 import { SheetCard } from '@/ui/components/SheetCard';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 /**
  * The bottom-sheet shell both task sheets sit in.
@@ -29,6 +30,8 @@ export function Sheet({
 }) {
   const { colors, radius, spacing } = useTheme();
   const insets = useSafeAreaInsets();
+  // A word, not a surface: it takes the full travel or the press is invisible.
+  const donePress = usePressScale({ scale: 0.9 });
 
   const body = (
     <View style={{ gap: spacing.lg, paddingBottom: spacing.md }}>{children}</View>
@@ -71,18 +74,19 @@ export function Sheet({
                 </Txt>
               ) : null}
             </View>
-            <Pressable
+            <AnimatedPressable
               accessibilityRole="button"
               accessibilityLabel="Close"
               onPress={onClose}
               // An 11pt label is a 14pt target; the slop is what makes it 44.
               hitSlop={{ top: 15, bottom: 15, left: 16, right: 16 }}
-              style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+              {...donePress.handlers}
+              style={donePress.style}
             >
               <Txt variant="micro" tone="accent">
                 DONE
               </Txt>
-            </Pressable>
+            </AnimatedPressable>
           </View>
 
           {scroll ? (

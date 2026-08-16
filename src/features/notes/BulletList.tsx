@@ -1,5 +1,7 @@
+import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
 import {
@@ -11,7 +13,10 @@ import {
 import type { NoteWithBullets } from '@/repositories/notes';
 import type { NoteBullet } from '@/db/schema';
 import { Button, Checkbox, Input, Txt, useToast } from '@/ui/components';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { errorMessage } from './errors';
 
@@ -30,6 +35,7 @@ const TAP = { minWidth: 44, minHeight: 40 } as const;
 export function BulletList({ note }: { note: NoteWithBullets }) {
   const { colors, spacing } = useTheme();
   const toast = useToast();
+  const arrive = useStaggeredEntry({ from: 'below' });
 
   const toggleBullet = useToggleNoteBullet();
   const updateBullet = useUpdateNoteBullet();
@@ -83,23 +89,25 @@ export function BulletList({ note }: { note: NoteWithBullets }) {
         const isTodo = bullet.bulletKind === 'todo';
 
         const more = (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Actions for ${bullet.content}`}
-            accessibilityState={{ expanded: open }}
-            hitSlop={10}
+          <MoreButton
+            label={bullet.content}
+            open={open}
+            tint={open ? colors.accent : colors.textTertiary}
             onPress={() => setActionsFor(open ? null : bullet.id)}
-          >
-            <Ionicons
-              name="ellipsis-horizontal"
-              size={16}
-              color={open ? colors.accent : colors.textTertiary}
-            />
-          </Pressable>
+          />
         );
 
         return (
-          <View key={bullet.id}>
+          // Reorder is the reason this row is animated at all: the up/down
+          // buttons swap two bullets, and a swap with no travel is two rows
+          // blinking into each other's place — you cannot tell which one moved.
+          // `layout` makes the pair trade places in front of you, and covers the
+          // gap closing when a bullet is deleted.
+          <Animated.View
+            key={bullet.id}
+            entering={arrive(index)}
+            layout={LinearTransition.duration(REFLOW_MS)}
+          >
             {editing ? (
               <View style={{ paddingVertical: spacing.xs }}>
                 <Input
@@ -125,25 +133,13 @@ export function BulletList({ note }: { note: NoteWithBullets }) {
                 right={more}
               />
             ) : (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={bullet.content}
-                accessibilityHint="Tap to edit"
+              <TextBulletRow
+                content={bullet.content}
+                padding={spacing.sm}
                 onPress={() => startEdit(bullet)}
                 onLongPress={() => setActionsFor(open ? null : bullet.id)}
-                style={({ pressed }) => [
-                  styles.textRow,
-                  { paddingVertical: spacing.sm, opacity: pressed ? 0.6 : 1 },
-                ]}
-              >
-                <Txt variant="body" tone="tertiary" style={styles.dot}>
-                  •
-                </Txt>
-                <Txt variant="body" style={{ flex: 1 }}>
-                  {bullet.content}
-                </Txt>
-                {more}
-              </Pressable>
+                trailing={more}
+              />
             )}
 
             {open && !editing ? (
@@ -211,10 +207,87 @@ export function BulletList({ note }: { note: NoteWithBullets }) {
                 />
               </View>
             ) : null}
-          </View>
+          </Animated.View>
         );
       })}
     </View>
+  );
+}
+
+/**
+ * The row's ⋯, extracted because it needs its own animation state and a hook
+ * cannot be called from inside a `map`.
+ *
+ * It had no press feedback at all — only a colour change once the actions were
+ * already open, which is the result rather than the acknowledgement. Deep
+ * travel: a bare 16pt glyph has nothing but itself to move.
+ */
+function MoreButton({
+  label,
+  open,
+  tint,
+  onPress,
+}: {
+  label: string;
+  open: boolean;
+  tint: string;
+  onPress: () => void;
+}) {
+  const press = usePressScale({ scale: 0.82 });
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={`Actions for ${label}`}
+      accessibilityState={{ expanded: open }}
+      hitSlop={10}
+      onPress={onPress}
+      {...press.handlers}
+      style={press.style}
+    >
+      <Ionicons name="ellipsis-horizontal" size={16} color={tint} />
+    </AnimatedPressable>
+  );
+}
+
+/**
+ * A `text` bullet, extracted for the same reason as `MoreButton`.
+ *
+ * The ⋯ sits *inside* this row, so the row's scale carries it: two nested
+ * transforms compose, and a press on the ⋯ reads as the glyph sinking further
+ * than the line it belongs to, which is what actually happened.
+ */
+function TextBulletRow({
+  content,
+  padding,
+  onPress,
+  onLongPress,
+  trailing,
+}: {
+  content: string;
+  padding: number;
+  onPress: () => void;
+  onLongPress: () => void;
+  trailing: ReactNode;
+}) {
+  const press = usePressScale({ scale: 0.98 });
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={content}
+      accessibilityHint="Tap to edit"
+      onPress={onPress}
+      onLongPress={onLongPress}
+      {...press.handlers}
+      style={[styles.textRow, { paddingVertical: padding }, press.style]}
+    >
+      <Txt variant="body" tone="tertiary" style={styles.dot}>
+        •
+      </Txt>
+      <Txt variant="body" style={{ flex: 1 }}>
+        {content}
+      </Txt>
+      {trailing}
+    </AnimatedPressable>
   );
 }
 

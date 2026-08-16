@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Linking, ScrollView, StyleSheet, View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
 import { formatClock, formatDayHeading, formatDuration, formatTime, weekRange } from '@/core/time';
@@ -31,6 +32,8 @@ import {
   useToast,
 } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { REFLOW_MS } from '@/ui/motion';
+import { useProgressWidth, useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
 
 const VOICE_HINT =
@@ -140,6 +143,11 @@ function RunningSession({ snapshot, phases }: { snapshot: FocusSnapshot; phases:
 
   const span = snapshot.phaseElapsedMs + snapshot.phaseRemainingMs;
   const progress = span > 0 ? snapshot.phaseElapsedMs / span : 0;
+  // The runtime ticks once a second, so this bar used to redraw its own length
+  // in a hard step every second — the one place in the app where a jump is
+  // literally a clock being wrong between beats. `useProgressWidth` clamps and
+  // handles `0/0` itself, which is what the Math.min/Math.max here were doing.
+  const fillStyle = useProgressWidth(progress);
 
   const run = (action: 'pause' | 'resume' | 'skip' | 'stop') => {
     control.mutate(action, {
@@ -188,13 +196,15 @@ function RunningSession({ snapshot, phases }: { snapshot: FocusSnapshot; phases:
           accessibilityValue={{ min: 0, max: 100, now: Math.round(progress * 100) }}
           style={[styles.track, { backgroundColor: colors.surfaceSunken, borderRadius: radius.pill }]}
         >
-          <View
-            style={{
-              width: `${Math.min(100, Math.max(0, progress * 100))}%`,
-              height: '100%',
-              backgroundColor: tint,
-              borderRadius: radius.pill,
-            }}
+          <Animated.View
+            style={[
+              {
+                height: '100%',
+                backgroundColor: tint,
+                borderRadius: radius.pill,
+              },
+              fillStyle,
+            ]}
           />
         </View>
 
@@ -247,6 +257,10 @@ function RunningSession({ snapshot, phases }: { snapshot: FocusSnapshot; phases:
 /** The plan as a row of pills: done and current are filled, the rest outlined. */
 function PhaseStrip({ phases, current }: { phases: SessionPhase[]; current: number }) {
   const { colors, spacing } = useTheme();
+  // Mounted when a session starts, so the plan lays itself out in front of you
+  // — which is the one moment the shape of the next two hours is worth reading.
+  const arrive = useStaggeredEntry();
+
   return (
     <ScrollView
       horizontal
@@ -257,8 +271,9 @@ function PhaseStrip({ phases, current }: { phases: SessionPhase[]; current: numb
         const done = index < current;
         const active = index === current;
         return (
-          <View
+          <Animated.View
             key={`${phase.kind}-${index}`}
+            entering={arrive(index)}
             accessibilityLabel={`${phase.kind}, ${phase.minutes} minutes${
               active ? ', running now' : done ? ', done' : ''
             }`}
@@ -275,7 +290,7 @@ function PhaseStrip({ phases, current }: { phases: SessionPhase[]; current: numb
                     : colors.accent
               }
             />
-          </View>
+          </Animated.View>
         );
       })}
     </ScrollView>
@@ -297,6 +312,10 @@ function QuickStart() {
   const toast = useToast();
   const start = useStartFocusPlan();
   const projects = useProjects('active');
+  // The project chips only; `PRESETS` below is a constant, and staggering three
+  // rows that are always there and always the same is animation for its own
+  // sake — the wave is for content that arrived, not for furniture.
+  const arrive = useStaggeredEntry();
 
   const [subject, setSubject] = useState('');
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -340,14 +359,19 @@ function QuickStart() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ gap: spacing.xs }}
               >
-                {projects.data.map((project) => (
-                  <Chip
+                {projects.data.map((project, index) => (
+                  <Animated.View
                     key={project.id}
-                    label={project.name}
-                    selected={projectId === project.id}
-                    // Tapping the selected one clears it: the field is optional.
-                    onPress={() => setProjectId(projectId === project.id ? null : project.id)}
-                  />
+                    entering={arrive(index)}
+                    layout={LinearTransition.duration(REFLOW_MS)}
+                  >
+                    <Chip
+                      label={project.name}
+                      selected={projectId === project.id}
+                      // Tapping the selected one clears it: the field is optional.
+                      onPress={() => setProjectId(projectId === project.id ? null : project.id)}
+                    />
+                  </Animated.View>
                 ))}
               </ScrollView>
             </View>
@@ -394,6 +418,7 @@ function QuickStart() {
 function History() {
   const { colors, spacing } = useTheme();
   const { summaries, isLoading, isError, refetch } = useRecentFocusSummaries();
+  const arrive = useStaggeredEntry({ from: 'below' });
 
   // Fixed on mount: the week only turns over at midnight on Monday, and a fresh
   // range on every render would be a new query key every render.
@@ -433,8 +458,14 @@ function History() {
             />
           </>
         ) : (
-          summaries.map((summary) => (
-            <View key={summary.session.id}>
+          summaries.map((summary, index) => (
+            // Finishing a session puts a new row at the top of this card and
+            // pushes the rest down; the entrance is what marks which one is new.
+            <Animated.View
+              key={summary.session.id}
+              entering={arrive(index)}
+              layout={LinearTransition.duration(REFLOW_MS)}
+            >
               <Divider />
               <View
                 style={{
@@ -459,7 +490,7 @@ function History() {
                   {formatDuration(summary.minutes)}
                 </Txt>
               </View>
-            </View>
+            </Animated.View>
           ))
         )}
       </Card>

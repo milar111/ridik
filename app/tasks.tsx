@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { countLabel } from '@/core/format';
@@ -22,6 +22,7 @@ import { Refresh } from '@/ui/components/Refresh';
 import { MIC_CLEARANCE, Screen } from '@/ui/components/Screen';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 type TaskView = 'active' | 'blocked' | 'done';
 
@@ -87,6 +88,10 @@ export default function TasksScreen() {
   const activeCount = active.data?.length ?? 0;
   const subtitle = `${countLabel(activeCount, 'task')} ready · ${blocked.length} blocked`;
 
+  // A bare 21pt glyph in a 44×40 box: deeper travel, because the icon is the
+  // only thing that can move.
+  const viewPress = usePressScale({ scale: 0.86 });
+
   return (
     <Screen
       back
@@ -95,26 +100,29 @@ export default function TasksScreen() {
       scroll={false}
       contentStyle={{ flex: 1, paddingHorizontal: 0, gap: 0 }}
       right={
-        <Pressable
+        <AnimatedPressable
           accessibilityRole="button"
           accessibilityLabel={showGraph ? 'Show task lists' : 'Show dependency graph'}
           accessibilityState={{ selected: showGraph }}
           onPress={() => setShowGraph((on) => !on)}
           hitSlop={8}
-          style={({ pressed }) => ({
-            width: 44,
-            height: 40,
-            alignItems: 'flex-end',
-            justifyContent: 'center',
-            opacity: pressed ? 0.5 : 1,
-          })}
+          {...viewPress.handlers}
+          style={[
+            {
+              width: 44,
+              height: 40,
+              alignItems: 'flex-end',
+              justifyContent: 'center',
+            },
+            viewPress.style,
+          ]}
         >
           <Ionicons
             name={showGraph ? 'list-outline' : 'git-network-outline'}
             size={21}
             color={showGraph ? colors.accent : colors.textSecondary}
           />
-        </Pressable>
+        </AnimatedPressable>
       }
     >
       {showGraph ? (

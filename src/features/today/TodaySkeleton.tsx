@@ -1,17 +1,9 @@
-import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-  cancelAnimation,
-  type SharedValue,
-} from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 
 import { useTheme } from '@/ui/ThemeProvider';
 import { Section } from '@/ui/components';
+import { usePulse } from '@/ui/motionHooks';
 
 /**
  * The first cold read only.
@@ -24,16 +16,11 @@ import { Section } from '@/ui/components';
  */
 export function TodaySkeleton() {
   const { spacing } = useTheme();
-  const pulse = useSharedValue(0.5);
-
-  useEffect(() => {
-    pulse.value = withRepeat(
-      withTiming(1, { duration: 780, easing: Easing.inOut(Easing.quad) }),
-      -1,
-      true,
-    );
-    return () => cancelAnimation(pulse);
-  }, [pulse]);
+  // `usePulse` is the same loop this file used to hand-roll, with the one thing
+  // the hand-rolled version was missing: a repeat cannot be reduced away by a
+  // config, so the hook branches on `useReducedMotion()` and holds the bars at
+  // `from`. The period stays 780ms — this is a load, not the ambient breath.
+  const pulse = usePulse({ from: 0.5, to: 1, ms: 780 });
 
   return (
     // A bare `View` is not `accessible`, so the label alone would announce

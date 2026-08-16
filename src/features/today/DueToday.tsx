@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { countLabel, truncate } from '@/core/format';
@@ -7,6 +8,8 @@ import { calendarDaysBetween, epochToLocal, formatTime } from '@/core/time';
 import type { Task } from '@/db/schema';
 import { invalidateKeys, qk, useCompleteTask } from '@/hooks';
 import { Badge, Checkbox, Divider, Txt, useToast } from '@/ui/components';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 
 /** Inside this window the clock is worth colouring; before it, it is metadata. */
 const DUE_SOON_MS = 2 * 60 * 60_000;
@@ -36,6 +39,7 @@ export function DueToday({
   const client = useQueryClient();
   const toast = useToast();
   const complete = useCompleteTask();
+  const arrive = useStaggeredEntry({ from: 'below' });
   // Local, not cache: the row has to strike through in *this list* the instant
   // it is ticked, and it belongs to another query's snapshot.
   const [done, setDone] = useState<ReadonlySet<string>>(() => new Set());
@@ -83,7 +87,14 @@ export function DueToday({
   return (
     <View>
       {rows.map(({ task, late }, index) => (
-        <View key={task.id}>
+        // A ticked row stays in place and strikes through — it is deliberately
+        // not removed — so `layout` here is for the refetch that follows, when
+        // the day's tasks come back re-ordered.
+        <Animated.View
+          key={task.id}
+          entering={arrive(index)}
+          layout={LinearTransition.duration(REFLOW_MS)}
+        >
           {index > 0 ? <Divider inset={31} /> : null}
           <TaskRow
             task={task}
@@ -93,7 +104,7 @@ export function DueToday({
             zone={zone}
             onComplete={onComplete}
           />
-        </View>
+        </Animated.View>
       ))}
     </View>
   );

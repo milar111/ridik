@@ -1,11 +1,15 @@
 import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { epochToLocal } from '@/core/time';
 import { invalidateKeys, qk, useLogHabit, type TodayHabit } from '@/hooks';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, useCheckPop, usePressScale } from '@/ui/motionHooks';
 import { Chip, useToast } from '@/ui/components';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 
 type Pending = { streak: number };
 
@@ -25,6 +29,9 @@ export function HabitStrip({ habits, at, zone }: { habits: readonly TodayHabit[]
   const { colors, spacing } = useTheme();
   const log = useLogHabit();
   const [pending, setPending] = useState<Record<string, Pending>>({});
+  // A row, not a column: these arrive by fading in place. Sliding a horizontal
+  // strip up from below would have every chip cross the agenda row under it.
+  const arrive = useStaggeredEntry();
 
   // `lastCompletedDate` is the newest logged day, so "yesterday" is exactly
   // "logged yesterday and not today" — one quiet day and the run is gone.
@@ -70,7 +77,7 @@ export function HabitStrip({ habits, at, zone }: { habits: readonly TodayHabit[]
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={[styles.strip, { gap: spacing.sm }]}
     >
-      {habits.map((entry) => {
+      {habits.map((entry, index) => {
         const optimistic = pending[entry.habit.id];
         const logged = entry.loggedToday || optimistic !== undefined;
         const streak = optimistic?.streak ?? entry.streak;
@@ -78,32 +85,87 @@ export function HabitStrip({ habits, at, zone }: { habits: readonly TodayHabit[]
           !logged && yesterday != null && entry.habit.lastCompletedDate === yesterday;
 
         return (
-          <Pressable
+          // Wrapped rather than animated in place: `Slot` owns the press
+          // transform, and a second transform on the same view would mean the
+          // last one written wins. `layout` covers a habit dropping out of the
+          // strip once it is logged.
+          <Animated.View
             key={entry.habit.id}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: logged, disabled: logged }}
-            accessibilityLabel={
-              logged
-                ? `${entry.habit.name}, logged today, ${streak}-day streak`
-                : `Log ${entry.habit.name}${atRisk ? ', streak at risk' : ''}`
-            }
-            disabled={logged}
-            // The chip itself is 26pt tall; the slop is what makes it tappable
-            // while walking.
-            hitSlop={{ top: 11, bottom: 11, left: 4, right: 4 }}
-            onPress={() => onLog(entry)}
-            style={({ pressed }) => [styles.slot, { opacity: pressed ? 0.6 : 1 }]}
+            entering={arrive(index)}
+            layout={LinearTransition.duration(REFLOW_MS)}
           >
-            <Chip
+            <Slot
+              name={entry.habit.name}
               label={streak > 0 ? `${entry.habit.name} ${streak}` : entry.habit.name}
-              icon={logged ? 'checkmark' : atRisk ? 'flame' : 'ellipse-outline'}
-              selected={logged}
-              color={logged ? colors.success : atRisk ? colors.warning : colors.textSecondary}
+              logged={logged}
+              atRisk={atRisk}
+              streak={streak}
+              tint={logged ? colors.success : atRisk ? colors.warning : colors.textSecondary}
+              onPress={() => onLog(entry)}
             />
-          </Pressable>
+          </Animated.View>
         );
       })}
     </ScrollView>
+  );
+}
+
+/**
+ * One habit, extracted because each needs its own animation state and a hook
+ * cannot be called from inside a `map`.
+ *
+ * The pop is the point. Logging a habit is one of the two things this app asks
+ * of you every day, and it used to change the icon, the colour and the streak
+ * number in a single frame with nothing to mark that the tap had landed — the
+ * app's biggest reward moment, delivered as a re-render. `useCheckPop` is silent
+ * on mount, so a strip of habits already done today does not all jump when the
+ * screen opens.
+ */
+function Slot({
+  name,
+  label,
+  logged,
+  atRisk,
+  streak,
+  tint,
+  onPress,
+}: {
+  name: string;
+  label: string;
+  logged: boolean;
+  atRisk: boolean;
+  streak: number;
+  tint: string;
+  onPress: () => void;
+}) {
+  // `disabled` stops the press answering once the habit is logged, which is
+  // also when the Pressable itself stops taking touches.
+  const press = usePressScale({ disabled: logged });
+  const pop = useCheckPop(logged);
+  return (
+    <AnimatedPressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: logged, disabled: logged }}
+      accessibilityLabel={
+        logged ? `${name}, logged today, ${streak}-day streak` : `Log ${name}${atRisk ? ', streak at risk' : ''}`
+      }
+      disabled={logged}
+      // The chip itself is 26pt tall; the slop is what makes it tappable
+      // while walking. Slop measures the layout box, which a scale leaves alone.
+      hitSlop={{ top: 11, bottom: 11, left: 4, right: 4 }}
+      onPress={onPress}
+      {...press.handlers}
+      style={[styles.slot, press.style]}
+    >
+      <Animated.View style={pop}>
+        <Chip
+          label={label}
+          icon={logged ? 'checkmark' : atRisk ? 'flame' : 'ellipse-outline'}
+          selected={logged}
+          color={tint}
+        />
+      </Animated.View>
+    </AnimatedPressable>
   );
 }
 

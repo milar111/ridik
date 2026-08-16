@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
 import { now } from '@/core/clock';
@@ -17,6 +18,8 @@ import {
 import type { CalendarEvent } from '@/db/schema';
 import { useCalendarDay, useCurriculumDay } from '@/hooks';
 import { Button, Card, EmptyState, MIC_CLEARANCE, Txt } from '@/ui/components';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
 import { colorForTag, type Colors } from '@/ui/theme';
 
@@ -39,6 +42,7 @@ export type AgendaListProps = {
  */
 export function AgendaList({ date, zone, onOpen }: AgendaListProps) {
   const { colors, spacing } = useTheme();
+  const arrive = useStaggeredEntry({ from: 'below' });
 
   const dayOfWeek = useMemo(
     () => luxonWeekdayToSchema(epochToLocal(localToEpoch(date, zone), zone).weekday),
@@ -111,14 +115,22 @@ export function AgendaList({ date, zone, onOpen }: AgendaListProps) {
       ) : null}
 
       {items.map((item, index) => (
-        <View key={item.key}>
+        // Keyed on the item, so changing day remounts the column and it arrives
+        // again — the day you swiped to is new content, not the same list
+        // re-rendered. `layout` is for the NOW line, which is drawn inside the
+        // row it sits above and walks down the day as the clock advances.
+        <Animated.View
+          key={item.key}
+          entering={arrive(index)}
+          layout={LinearTransition.duration(REFLOW_MS)}
+        >
           {index === nowIndex ? <NowLine at={nowMs} zone={zone} /> : null}
           {item.type === 'event' ? (
             <EventRow item={item} zone={zone} nowMs={nowMs} onOpen={onOpen} />
           ) : (
             <ClassRow item={item} zone={zone} nowMs={nowMs} />
           )}
-        </View>
+        </Animated.View>
       ))}
 
       {/* A day whose every item is behind us still deserves the marker. */}

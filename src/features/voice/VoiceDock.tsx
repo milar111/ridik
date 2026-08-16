@@ -2,15 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
-  Easing,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
-  withRepeat,
-  withSequence,
   withSpring,
-  withTiming,
-  cancelAnimation,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -22,11 +17,19 @@ import { useTheme } from '@/ui/ThemeProvider';
 import { Txt } from '@/ui/components/Text';
 import { Button } from '@/ui/components/Button';
 import { Input } from '@/ui/components/Controls';
+import { SheetCard } from '@/ui/components/SheetCard';
 import { MIC_GAP, MIC_SIZE } from '@/ui/layout';
 import { SPRING_TAP } from '@/ui/motion';
+import { AnimatedPressable, usePressScale, usePulse } from '@/ui/motionHooks';
 import { elevate } from '@/ui/shadow';
-import { useVoiceStore } from './store';
+import { useVoiceStore, type VoiceOutcomeItem } from './store';
 import { useQuickActionRouting } from './useQuickActions';
+
+/**
+ * The longest thing the typed box will accept — about 5,000 words, which is
+ * far more than anyone dictates and still a bounded number of tokens.
+ */
+const MAX_DRAFT_CHARS = 20_000;
 
 /**
  * The one control the whole product is built around: a single always-present
@@ -59,24 +62,20 @@ export function VoiceDock() {
   const [draft, setDraft] = useState('');
   const [typing, setTyping] = useState(false);
 
-  const pulse = useSharedValue(1);
   const listening = status === 'listening';
 
-  useEffect(() => {
-    if (listening) {
-      pulse.value = withRepeat(
-        withSequence(
-          withTiming(1.14, { duration: 620, easing: Easing.out(Easing.quad) }),
-          withTiming(1, { duration: 620, easing: Easing.in(Easing.quad) }),
-        ),
-        -1,
-        false,
-      );
-    } else {
-      cancelAnimation(pulse);
-      pulse.value = withTiming(1, { duration: 180 });
-    }
-  }, [listening, pulse]);
+  /**
+   * The listening pulse, on the shared loop rather than a hand-rolled sequence.
+   *
+   * `usePulse` cancels and settles to `from` — 1, the resting size — when it
+   * stops, which is what the old `else` branch did by hand, and it also holds
+   * the mic still for anyone who asked the OS to reduce motion. A `withRepeat`
+   * cannot get that from a config: a repeat whose step resolves instantly still
+   * repeats, forever, at speed.
+   */
+  // `ms` is one direction; `usePulse` reverses, so this is the same 620-out,
+  // 620-back beat the mic already had.
+  const pulse = usePulse({ from: 1, to: 1.14, ms: 620, active: listening });
 
   // Any completed utterance can touch any table; the cheapest correct thing is
   // to invalidate everything rather than guess which screens went stale.
@@ -97,6 +96,9 @@ export function VoiceDock() {
   }, [sttUnavailable]);
 
   const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
+  // The disc is 56pt and the press sits *inside* the pulse, so the two scales
+  // compose: the mic answers the finger without leaving the breath behind.
+  const micPress = usePressScale({ scale: 0.94 });
 
   /**
    * On home the screen is already the voice interface — the field floods, the
@@ -107,8 +109,15 @@ export function VoiceDock() {
    *
    * Everywhere else it opens as it always did; those screens have no other way
    * to show what happened.
+   *
+   * A notice counts as genuinely needing it. It is the sentence that says the
+   * assistant has stopped calling the model — computed on the turn it happens
+   * and, before this, rendered nowhere on the one screen most turns are taken
+   * from. A quietly dumber assistant is exactly the failure the receipt exists
+   * to prevent, and it is rare enough that opening the sheet costs nothing.
    */
-  const needsSheet = Boolean(clarification) || Boolean(error) || typing;
+  const needsSheet =
+    Boolean(clarification) || Boolean(error) || typing || Boolean(outcome?.notice);
   const showSheet = expanded && (!onHome || needsSheet);
 
   const dismiss = useCallback(() => {
@@ -123,6 +132,11 @@ export function VoiceDock() {
    * list inside is a ScrollView, and a pan over the whole surface would fight
    * it for every vertical gesture. The handle is the affordance people already
    * reach for, and it cannot be ambiguous.
+   *
+   * The drag's offset is handed to `SheetCard`, which adds it to its own
+   * entrance rather than stacking a second transform — so the sheet arrives the
+   * way every other sheet in the app does and can still be pulled away, and a
+   * pull that starts mid-rise moves the sheet the finger is actually on.
    */
   const sheetY = useSharedValue(0);
   useEffect(() => {
@@ -142,7 +156,6 @@ export function VoiceDock() {
       else sheetY.value = withSpring(0, SPRING_TAP);
     });
 
-  const sheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: sheetY.value }] }));
 
   // The same element as the one on home: the darkest object on the screen,
   // constant, so the two mics read as one control that followed you here rather
@@ -183,26 +196,25 @@ export function VoiceDock() {
           style={[styles.dock, { bottom: insets.bottom + MIC_GAP }]}
         >
           <Animated.View style={pulseStyle}>
-            <Pressable
+            <AnimatedPressable
               testID="voice-mic"
               accessibilityRole="button"
               accessibilityLabel={listening ? 'Stop listening' : 'Start voice capture'}
               accessibilityHint="Long press to type instead"
               onPress={onPressMic}
               onLongPress={onLongPressMic}
-              style={({ pressed }) => [
+              {...micPress.handlers}
+              style={[
                 styles.mic,
                 // Tinted by the mic's own state colour, which Android's
                 // `elevation` could never be told about — it only draws black.
                 elevate('floating', micColor),
-                {
-                  backgroundColor: micColor,
-                  opacity: pressed ? 0.85 : 1,
-                },
+                { backgroundColor: micColor },
+                micPress.style,
               ]}
             >
               <Ionicons name={micIcon} size={26} color={colors.surface} />
-            </Pressable>
+            </AnimatedPressable>
           </Animated.View>
 
           {listening && partial ? (
@@ -242,7 +254,8 @@ export function VoiceDock() {
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={styles.sheetWrap}
           >
-          <Animated.View
+          <SheetCard
+            offset={sheetY}
             style={[
               styles.sheet,
               {
@@ -253,7 +266,6 @@ export function VoiceDock() {
                 paddingBottom: insets.bottom + spacing.lg,
                 gap: spacing.md,
               },
-              sheetStyle,
             ]}
           >
             <GestureDetector gesture={dragToDismiss}>
@@ -326,9 +338,27 @@ export function VoiceDock() {
                 ]}
               >
                 <Ionicons name="wallet-outline" size={18} color={colors.warning} />
-                <Txt variant="caption" tone="warning" style={{ flex: 1 }}>
-                  {outcome.notice}
-                </Txt>
+                <View style={{ flex: 1, gap: spacing.sm, alignItems: 'flex-start' }}>
+                  <Txt variant="caption" tone="warning">
+                    {outcome.notice}
+                  </Txt>
+                  {/* The paywall was reachable from exactly one row in
+                      Settings. Being told the assistant is off and left to go
+                      looking for the way back on is the same as not being told. */}
+                  {outcome.noticeAction ? (
+                    <Button
+                      label={outcome.noticeAction.label}
+                      size="sm"
+                      icon="sparkles-outline"
+                      onPress={() => {
+                        const href = outcome.noticeAction?.href;
+                        if (!href) return;
+                        dismiss();
+                        router.push(href as never);
+                      }}
+                    />
+                  ) : null}
+                </View>
               </View>
             ) : null}
 
@@ -336,38 +366,15 @@ export function VoiceDock() {
               <ScrollView style={{ maxHeight: 260 }} keyboardShouldPersistTaps="handled">
                 <View style={{ gap: spacing.sm }}>
                   {outcome.items.map((item, i) => (
-                    <Pressable
+                    <ResultRow
                       key={`${item.toolName}-${i}`}
-                      disabled={!item.href}
+                      item={item}
                       onPress={() => {
                         if (!item.href) return;
                         close();
                         router.push(item.href as never);
                       }}
-                      style={[
-                        styles.result,
-                        { borderColor: colors.border, borderRadius: radius.sm },
-                      ]}
-                    >
-                      <Ionicons
-                        name={item.ok ? 'checkmark-circle' : 'alert-circle'}
-                        size={17}
-                        color={item.ok ? colors.success : colors.warning}
-                      />
-                      <View style={{ flex: 1, gap: 1 }}>
-                        <Txt variant="caption" weight="600">
-                          {item.summary}
-                        </Txt>
-                        {item.detail ? (
-                          <Txt variant="micro" tone="tertiary">
-                            {item.detail}
-                          </Txt>
-                        ) : null}
-                      </View>
-                      {item.href ? (
-                        <Ionicons name="chevron-forward" size={14} color={colors.textTertiary} />
-                      ) : null}
-                    </Pressable>
+                    />
                   ))}
                 </View>
               </ScrollView>
@@ -387,6 +394,13 @@ export function VoiceDock() {
                   onChangeText={setDraft}
                   placeholder={clarification ? 'Your answer…' : 'Type what you would have said…'}
                   multiline
+                  // This box is "what you would have said", and nobody says
+                  // twenty thousand characters. It took a paste of any size:
+                  // a megabyte of text is a quarter of a million tokens
+                  // billed against the key in one turn. The budget's own
+                  // per-turn ceiling is what actually refuses that; this stops
+                  // it reaching React state and the prompt builder at all.
+                  maxLength={MAX_DRAFT_CHARS}
                   returnKeyType="send"
                   onSubmitEditing={send}
                   testID="voice-text-input"
@@ -410,11 +424,49 @@ export function VoiceDock() {
                 <Button label="Type" icon="create-outline" onPress={() => setTyping(true)} />
               </View>
             )}
-            </Animated.View>
+            </SheetCard>
           </KeyboardAvoidingView>
         </GestureHandlerRootView>
       </Modal>
     </>
+  );
+}
+
+/**
+ * One line of the receipt, extracted because each needs its own animation state
+ * and a hook cannot be called from inside a `map`.
+ *
+ * Half of these rows go nowhere — `href` is what makes one a link — so the
+ * press is disabled with it rather than left to answer a tap that does nothing.
+ * Inside a `Modal`, so the press is an effect-driven shared value.
+ */
+function ResultRow({ item, onPress }: { item: VoiceOutcomeItem; onPress: () => void }) {
+  const { colors, radius } = useTheme();
+  const press = usePressScale({ scale: 0.98, disabled: !item.href });
+  return (
+    <AnimatedPressable
+      disabled={!item.href}
+      onPress={onPress}
+      {...press.handlers}
+      style={[styles.result, { borderColor: colors.border, borderRadius: radius.sm }, press.style]}
+    >
+      <Ionicons
+        name={item.ok ? 'checkmark-circle' : 'alert-circle'}
+        size={17}
+        color={item.ok ? colors.success : colors.warning}
+      />
+      <View style={{ flex: 1, gap: 1 }}>
+        <Txt variant="caption" weight="600">
+          {item.summary}
+        </Txt>
+        {item.detail ? (
+          <Txt variant="micro" tone="tertiary">
+            {item.detail}
+          </Txt>
+        ) : null}
+      </View>
+      {item.href ? <Ionicons name="chevron-forward" size={14} color={colors.textTertiary} /> : null}
+    </AnimatedPressable>
   );
 }
 

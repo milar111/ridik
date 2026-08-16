@@ -15,7 +15,7 @@
  * session in the app rather than two that can disagree about whether it is on.
  */
 import { useEffect } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -30,12 +30,15 @@ import * as Haptics from 'expo-haptics';
 
 import { useTheme } from '@/ui/ThemeProvider';
 import { Txt } from '@/ui/components/Text';
-import { fade, tap } from '@/ui/motion';
+import { fade } from '@/ui/motion';
+// The shared `AnimatedPressable`, not a second one made here: two
+// `createAnimatedComponent` calls produce two component *types*, and the app
+// only needs one.
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { elevate } from '@/ui/shadow';
 import { useVoiceStore } from '@/features/voice/store';
 
 const DIAMETER = 138;
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 /** What the button is doing, in the fewest words that are still true. */
 const CAPTION: Record<string, string> = {
@@ -56,7 +59,10 @@ export function HomeMic() {
   const open = useVoiceStore((s) => s.open);
 
   const listening = status === 'listening';
-  const press = useSharedValue(0);
+  // 0.94 — the same travel this disc always had, now off the shared hook, so a
+  // second tap landing inside the release carries the current velocity instead
+  // of restarting the spring from wherever it had got to.
+  const press = usePressScale({ scale: 0.94 });
   const lit = useSharedValue(0);
   const ring = useSharedValue(0);
 
@@ -73,10 +79,6 @@ export function HomeMic() {
       ring.value = fade(0);
     }
   }, [listening, reduced, lit, ring]);
-
-  const discStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: 1 - press.value * 0.06 }],
-  }));
 
   // A hard edge travelling outward, fading as it goes. Reads at any field
   // temperature, which a change of fill colour does not.
@@ -96,26 +98,21 @@ export function HomeMic() {
           style={[styles.ring, { borderColor: colors.text }, ringStyle]}
         />
         <AnimatedPressable
-        testID="home-mic"
-        accessibilityRole="button"
-        accessibilityLabel={listening ? 'Stop listening' : 'Start voice capture'}
-        accessibilityHint="Long press to type instead"
-        onPressIn={() => {
-          press.value = tap(1);
-        }}
-        onPressOut={() => {
-          press.value = tap(0);
-        }}
-        onPress={() => {
-          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-          if (listening) void stopListening();
-          else void startListening();
-        }}
-        onLongPress={() => {
-          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
-          open();
-        }}
-          style={[styles.disc, elevate('source'), { backgroundColor: colors.text }, discStyle]}
+          testID="home-mic"
+          accessibilityRole="button"
+          accessibilityLabel={listening ? 'Stop listening' : 'Start voice capture'}
+          accessibilityHint="Long press to type instead"
+          {...press.handlers}
+          onPress={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+            if (listening) void stopListening();
+            else void startListening();
+          }}
+          onLongPress={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+            open();
+          }}
+          style={[styles.disc, elevate('source'), { backgroundColor: colors.text }, press.style]}
         >
           <Ionicons name={icon} size={54} color={colors.surface} />
         </AnimatedPressable>

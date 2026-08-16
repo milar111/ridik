@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
@@ -10,7 +11,10 @@ import { useCrmEntities, useOpenCommitments } from '@/hooks';
 import type { CrmEntitySummary } from '@/repositories/crm';
 import { Badge, Button, Card, Divider, EmptyState, Input, Screen, Txt } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { colorForTag } from '@/ui/theme';
 
 /** What to say to fill this screen — the empty state is the tutorial. */
@@ -36,6 +40,7 @@ function PeopleList() {
 
   const entities = useCrmEntities();
   const commitments = useOpenCommitments();
+  const arrive = useStaggeredEntry({ from: 'below' });
 
   // Recomputed only when the commitment list changes. "Overdue" drifting by a
   // minute is invisible, whereas a live clock would re-render every row.
@@ -99,7 +104,14 @@ function PeopleList() {
       ) : (
         <Card padded={false}>
           {rows.map((summary, i) => (
-            <View key={summary.entity.id}>
+            // Typing in the search field filters this list in place, so the
+            // rows that survive travel to their new position rather than the
+            // card re-cutting itself between keystrokes.
+            <Animated.View
+              key={summary.entity.id}
+              entering={arrive(i)}
+              layout={LinearTransition.duration(REFLOW_MS)}
+            >
               {i > 0 ? <Divider inset={34 + spacing.md * 2} /> : null}
               <PersonRow
                 summary={summary}
@@ -108,7 +120,7 @@ function PeopleList() {
                   router.push({ pathname: '/person/[id]', params: { id: summary.entity.id } })
                 }
               />
-            </View>
+            </Animated.View>
           ))}
         </Card>
       )}
@@ -131,9 +143,10 @@ function PersonRow({
   const context = entity.relationshipContext?.trim();
   const meta = context || (aliases.length > 0 ? `aka ${joinNatural(aliases, 'or')}` : '');
   const seen = lastInteractionAt !== null ? formatRelative(lastInteractionAt) : 'no history';
+  const press = usePressScale({ scale: 0.98 });
 
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={[
         entity.name,
@@ -145,10 +158,8 @@ function PersonRow({
         .filter(Boolean)
         .join(', ')}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.row,
-        { gap: spacing.md, paddingHorizontal: spacing.md, opacity: pressed ? 0.6 : 1 },
-      ]}
+      {...press.handlers}
+      style={[styles.row, { gap: spacing.md, paddingHorizontal: spacing.md }, press.style]}
     >
       <Monogram name={entity.name} />
       <View style={styles.rowText}>
@@ -170,7 +181,7 @@ function PersonRow({
         </Txt>
       </View>
       <Ionicons name="chevron-forward" size={15} color={colors.textTertiary} />
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -179,9 +190,12 @@ function PersonRow({
 function ScreenHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   const router = useRouter();
   const { colors, spacing } = useTheme();
+  // A bare chevron: the glyph is the whole cue, so it takes deeper travel than
+  // a surface would. Matches `Screen`'s own back button.
+  const press = usePressScale({ scale: 0.9 });
   return (
     <View style={[styles.header, { gap: spacing.sm }]}>
-      <Pressable
+      <AnimatedPressable
         accessibilityRole="button"
         accessibilityLabel="Go back"
         hitSlop={8}
@@ -190,10 +204,11 @@ function ScreenHeader({ title, subtitle }: { title: string; subtitle?: string })
         // sending someone back to it would leave them one more tap from where
         // every route eventually leads anyway.
         onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-        style={({ pressed }) => [styles.back, { opacity: pressed ? 0.5 : 1 }]}
+        {...press.handlers}
+        style={[styles.back, press.style]}
       >
         <Ionicons name="chevron-back" size={24} color={colors.text} />
-      </Pressable>
+      </AnimatedPressable>
       <View style={{ flex: 1, gap: 1 }}>
         <Txt variant="title">{title}</Txt>
         {subtitle ? (

@@ -16,38 +16,49 @@
  * reliably give them — it is a separate native window, which is the same reason
  * gesture-handler needs its own root view inside one. A shared value driven
  * from an effect is what `Toggle` already uses and it works in both places.
+ *
+ * The progress itself comes from `useMountProgress`, so the mount-once
+ * behaviour is the same primitive the rest of the app's in-`Modal` entrances
+ * use. The style stays hand-written rather than `useMountRise`'s because of
+ * `offset` — a caller dragging the sheet needs its translation added to the
+ * entrance's, not fighting it on a second transform.
  */
-import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import type { SharedValue } from 'react-native-reanimated';
 
-import { SPRING_ENTER } from '../motion';
+import { useMountProgress } from '../motionHooks';
 
 /** How far below its resting place the card starts. */
 const TRAVEL = 28;
 
 export function SheetCard({
   style,
+  offset,
   children,
 }: {
   style?: StyleProp<ViewStyle>;
+  /**
+   * An extra translation the caller owns — a drag-to-dismiss. Added to the
+   * entrance rather than layered as a second transform, so a pull that starts
+   * before the sheet has settled moves the sheet it can see.
+   */
+  offset?: SharedValue<number>;
   children: ReactNode;
 }) {
   // Starts down and rises once. The `Modal` mounts its content only while it is
   // open, so there is no "already shown" case to guard: every mount is an open.
-  const progress = useSharedValue(0);
-
-  useEffect(() => {
-    // `SPRING_ENTER` carries `reduceMotion: ReduceMotion.System`, so this
-    // resolves to a still frame rather than a faster slide for anyone who has
-    // asked the OS for one. A vestibular trigger does not care about duration.
-    progress.value = withSpring(1, SPRING_ENTER);
-  }, [progress]);
+  //
+  // `SPRING_ENTER` (this hook's default) carries `reduceMotion:
+  // ReduceMotion.System`, so this resolves to a still frame rather than a
+  // faster slide for anyone who has asked the OS for one. A vestibular trigger
+  // does not care about duration.
+  const progress = useMountProgress();
 
   const motion = useAnimatedStyle(() => ({
     opacity: progress.value,
-    transform: [{ translateY: (1 - progress.value) * TRAVEL }],
+    transform: [{ translateY: (offset ? offset.value : 0) + (1 - progress.value) * TRAVEL }],
   }));
 
   return <Animated.View style={[style, motion]}>{children}</Animated.View>;

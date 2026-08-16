@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { truncate } from '@/core/format';
@@ -27,6 +27,7 @@ import { Spinner } from '@/ui/components/Spinner';
 import { Txt } from '@/ui/components/Text';
 import { colorForTag } from '@/ui/theme';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { bucketOf, dueLabel, PRIORITY_LABEL } from './buckets';
 import { InlineError } from './Feedback';
@@ -286,6 +287,7 @@ function Prerequisites({ task }: { task: Task }) {
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
+  const addPress = usePressScale({ scale: 0.9 });
 
   const edges = graph?.edges ?? [];
   const linked = useMemo(() => new Set(blockers.map((b) => b.id)), [blockers]);
@@ -326,7 +328,7 @@ function Prerequisites({ task }: { task: Task }) {
       compact
       title="Prerequisites"
       right={
-        <Pressable
+        <AnimatedPressable
           accessibilityRole="button"
           accessibilityLabel={adding ? 'Cancel adding a prerequisite' : 'Add a prerequisite'}
           // An 11pt label is a 14pt target; the slop is what makes it 44.
@@ -335,11 +337,13 @@ function Prerequisites({ task }: { task: Task }) {
             setAdding((open) => !open);
             setProblem(null);
           }}
+          {...addPress.handlers}
+          style={addPress.style}
         >
           <Txt variant="micro" tone="accent">
             {adding ? 'CANCEL' : 'ADD'}
           </Txt>
-        </Pressable>
+        </AnimatedPressable>
       }
     >
       {blockers.length === 0 ? (
@@ -362,19 +366,15 @@ function Prerequisites({ task }: { task: Task }) {
                   <Txt variant="caption" style={{ flex: 1 }} numberOfLines={2}>
                     {blocker.title}
                   </Txt>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove prerequisite ${blocker.title}`}
-                    hitSlop={14}
+                  <RemoveButton
+                    label={`Remove prerequisite ${blocker.title}`}
                     onPress={() =>
                       unlink.mutate(
                         { parentId: blocker.id, childId: task.id },
                         { onError: (error) => setProblem(toAppError(error).userMessage) },
                       )
                     }
-                  >
-                    <Ionicons name="close" size={16} color={colors.textTertiary} />
-                  </Pressable>
+                  />
                 </View>
               </View>
             );
@@ -399,20 +399,12 @@ function Prerequisites({ task }: { task: Task }) {
               {matches.map((candidate, i) => (
                 <View key={candidate.id}>
                   {i > 0 ? <Divider inset={13} /> : null}
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Wait on ${candidate.title}`}
-                    onPress={() => add(candidate)}
-                    style={({ pressed }) => [
-                      styles.linkRow,
-                      { backgroundColor: pressed ? colors.surfaceSunken : 'transparent' },
-                    ]}
-                  >
+                  <LinkRow label={`Wait on ${candidate.title}`} onPress={() => add(candidate)}>
                     <Ionicons name="add" size={16} color={colors.accent} />
                     <Txt variant="caption" style={{ flex: 1 }} numberOfLines={1}>
                       {candidate.title}
                     </Txt>
-                  </Pressable>
+                  </LinkRow>
                 </View>
               ))}
             </Card>
@@ -422,6 +414,60 @@ function Prerequisites({ task }: { task: Task }) {
 
       {problem ? <InlineError message={problem} /> : null}
     </Section>
+  );
+}
+
+/* ----------------------------------------------------------------- link row */
+
+/**
+ * A tappable row in one of the dependency cards.
+ *
+ * Extracted for the press state: both lists build their rows in a `map`, and a
+ * hook cannot be called from inside one. The pressed background swap these had
+ * is gone — a row that both flashes and sinks answers one finger twice.
+ *
+ * This whole sheet is inside a React Native `Modal`, so the movement has to
+ * come from a shared value driven by an effect. `usePressScale` is exactly
+ * that; a layout animation here would silently never run.
+ */
+function LinkRow({
+  label,
+  onPress,
+  children,
+}: {
+  label: string;
+  onPress: () => void;
+  children: React.ReactNode;
+}) {
+  const press = usePressScale({ scale: 0.98 });
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      {...press.handlers}
+      style={[styles.linkRow, press.style]}
+    >
+      {children}
+    </AnimatedPressable>
+  );
+}
+
+/** The ✕ on a prerequisite. It had no press feedback at all before. */
+function RemoveButton({ label, onPress }: { label: string; onPress: () => void }) {
+  const { colors } = useTheme();
+  const press = usePressScale({ scale: 0.85 });
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={14}
+      onPress={onPress}
+      {...press.handlers}
+      style={press.style}
+    >
+      <Ionicons name="close" size={16} color={colors.textTertiary} />
+    </AnimatedPressable>
   );
 }
 
@@ -442,15 +488,7 @@ function Dependents({ task, onOpenTask }: { task: Task; onOpenTask: (task: Task)
           {dependents.map((dependent, i) => (
             <View key={dependent.id}>
               {i > 0 ? <Divider inset={38} /> : null}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Open ${dependent.title}`}
-                onPress={() => onOpenTask(dependent)}
-                style={({ pressed }) => [
-                  styles.linkRow,
-                  { backgroundColor: pressed ? colors.surfaceSunken : 'transparent' },
-                ]}
-              >
+              <LinkRow label={`Open ${dependent.title}`} onPress={() => onOpenTask(dependent)}>
                 <Ionicons
                   name={dependent.isLocked === true ? 'lock-closed' : 'arrow-forward'}
                   size={15}
@@ -460,7 +498,7 @@ function Dependents({ task, onOpenTask }: { task: Task; onOpenTask: (task: Task)
                   {dependent.title}
                 </Txt>
                 <Ionicons name="chevron-forward" size={14} color={colors.textTertiary} />
-              </Pressable>
+              </LinkRow>
             </View>
           ))}
         </Card>

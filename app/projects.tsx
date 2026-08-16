@@ -6,6 +6,7 @@
  */
 import { useMemo, useState } from 'react';
 import { View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 
 import { countLabel } from '@/core/format';
@@ -30,6 +31,8 @@ import {
 } from '@/features/projects';
 import { Button, EmptyState, Refresh, Screen, Section, useToast } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
 
 const VOICE_HINT = "Try: 'for my Japan trip, remind me to pack slippers'";
@@ -48,14 +51,23 @@ export default function ProjectsScreen() {
   const [menuFor, setMenuFor] = useState<ProjectSummary | null>(null);
 
   const rows = useMemo(() => summaries.data ?? [], [summaries.data]);
-  const groups = useMemo(
-    () =>
-      STATUS_ORDER.map((status) => ({
-        status,
-        rows: rows.filter((row) => row.project.status === status),
-      })).filter((group) => group.rows.length > 0),
-    [rows],
-  );
+  // `offset` is what makes the arrival one wave down the page rather than one
+  // per heading: the groups are a single list broken by status, and restarting
+  // the count at each heading would read as three lists loading separately.
+  const groups = useMemo(() => {
+    const present = STATUS_ORDER.map((status) => ({
+      status,
+      rows: rows.filter((row) => row.project.status === status),
+    })).filter((group) => group.rows.length > 0);
+
+    let offset = 0;
+    return present.map((group) => {
+      const placed = { ...group, offset };
+      offset += group.rows.length;
+      return placed;
+    });
+  }, [rows]);
+  const arrive = useStaggeredEntry({ from: 'below' });
 
   const activeCount = rows.filter((row) => row.project.status === 'active').length;
 
@@ -155,18 +167,27 @@ export default function ProjectsScreen() {
                 compact
               >
                 <View style={{ gap: spacing.sm }}>
-                  {group.rows.map((summary) => (
-                    <ProjectCard
+                  {group.rows.map((summary, index) => (
+                    // Pausing or finishing a project moves its card to another
+                    // heading entirely; `layout` is what makes that a move
+                    // rather than a card blinking out of one group and into
+                    // another.
+                    <Animated.View
                       key={summary.project.id}
-                      summary={summary}
-                      onPress={() =>
-                        router.push({
-                          pathname: '/project/[id]',
-                          params: { id: summary.project.id },
-                        })
-                      }
-                      onLongPress={() => setMenuFor(summary)}
-                    />
+                      entering={arrive(group.offset + index)}
+                      layout={LinearTransition.duration(REFLOW_MS)}
+                    >
+                      <ProjectCard
+                        summary={summary}
+                        onPress={() =>
+                          router.push({
+                            pathname: '/project/[id]',
+                            params: { id: summary.project.id },
+                          })
+                        }
+                        onLongPress={() => setMenuFor(summary)}
+                      />
+                    </Animated.View>
                   ))}
                 </View>
               </Section>

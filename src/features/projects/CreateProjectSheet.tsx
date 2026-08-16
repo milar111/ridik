@@ -15,6 +15,7 @@ import type { CreateProjectInput, ProjectKind } from '@/repositories/projects';
 import { Button, Chip, Input, Section, SheetCard, Txt } from '@/ui/components';
 import { colorForTag } from '@/ui/theme';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { EMOJI_CHOICES, PROJECT_KINDS, PROJECT_KIND_LABEL } from './constants';
 
@@ -131,30 +132,14 @@ export function CreateProjectSheet({
 
               <Section title="Emoji" compact>
                 <View style={styles.chips}>
-                  {EMOJI_CHOICES.map((choice) => {
-                    const selected = choice === emoji;
-                    return (
-                      <Pressable
-                        key={choice}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Emoji ${choice}`}
-                        accessibilityState={{ selected }}
-                        onPress={() => setEmoji(selected ? null : choice)}
-                        style={{
-                          width: 44,
-                          height: 44,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          borderRadius: radius.sm,
-                          borderWidth: StyleSheet.hairlineWidth,
-                          borderColor: selected ? colors.accent : colors.border,
-                          backgroundColor: selected ? colors.accentMuted : 'transparent',
-                        }}
-                      >
-                        <Txt style={{ fontSize: 19 }}>{choice}</Txt>
-                      </Pressable>
-                    );
-                  })}
+                  {EMOJI_CHOICES.map((choice) => (
+                    <EmojiChoice
+                      key={choice}
+                      choice={choice}
+                      selected={choice === emoji}
+                      onPress={() => setEmoji(choice === emoji ? null : choice)}
+                    />
+                  ))}
                 </View>
               </Section>
 
@@ -188,6 +173,52 @@ export function CreateProjectSheet({
         </SheetCard>
       </KeyboardAvoidingView>
     </Modal>
+  );
+}
+
+/**
+ * One emoji, extracted because it needs its own animation state and a hook
+ * cannot be called from inside a `map`.
+ *
+ * A 44pt swatch with a 19pt glyph in it, and no press feedback before this: the
+ * only sign a tap had registered was the border changing, which is the *result*
+ * and looks identical whether you meant it or hit the wrong one. Inside a
+ * `Modal`, so the press is an effect-driven shared value.
+ */
+function EmojiChoice({
+  choice,
+  selected,
+  onPress,
+}: {
+  choice: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { colors, radius } = useTheme();
+  const press = usePressScale();
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={`Emoji ${choice}`}
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      {...press.handlers}
+      style={[
+        {
+          width: 44,
+          height: 44,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: radius.sm,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: selected ? colors.accent : colors.border,
+          backgroundColor: selected ? colors.accentMuted : 'transparent',
+        },
+        press.style,
+      ]}
+    >
+      <Txt style={{ fontSize: 19 }}>{choice}</Txt>
+    </AnimatedPressable>
   );
 }
 

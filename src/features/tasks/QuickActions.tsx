@@ -1,10 +1,11 @@
-import { Pressable, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { Task } from '@/db/schema';
 import { Card, Divider } from '@/ui/components/Card';
 import { Txt } from '@/ui/components/Text';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { dueLabel } from './buckets';
 import { Sheet } from './Sheet';
@@ -82,20 +83,21 @@ function ActionRow({
   tint: string;
   onPress: () => void;
 }) {
-  const { colors } = useTheme();
+  // These rows live in a `Modal`, where a shared value driven from an effect is
+  // the only mechanism that reliably animates — which is what `usePressScale`
+  // is. Nothing here uses `entering`/`exiting`.
+  const press = usePressScale({ scale: 0.98 });
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.action,
-        { backgroundColor: pressed ? colors.surfaceSunken : 'transparent' },
-      ]}
+      {...press.handlers}
+      style={[styles.action, press.style]}
     >
       <Ionicons name={icon} size={19} color={tint} />
       <Txt variant="body">{label}</Txt>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

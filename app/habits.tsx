@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
@@ -15,6 +16,8 @@ import {
   useLogHabit,
 } from '@/hooks';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
 import {
   Badge,
@@ -67,6 +70,7 @@ export default function HabitsScreen() {
 function HabitList() {
   const { spacing } = useTheme();
   const habits = useHabits();
+  const arrive = useStaggeredEntry({ from: 'below' });
 
   const zone = currentZone();
   // Resolved once per mount: a screen left open across midnight is rarer than
@@ -108,15 +112,27 @@ function HabitList() {
 
   return (
     <View style={{ gap: spacing.sm }}>
-      {ordered.map((habit) => (
-        <HabitCard
+      {ordered.map((habit, index) => (
+        // The card is the unit that arrives, not its 35 grid cells: the grid is
+        // a record you read, and thirty-five things fading in one after another
+        // is a loading bar, not an entrance.
+        //
+        // `layout` is the one that earns its place here. Logging a habit clears
+        // its at-risk flag, which re-sorts the list under your finger — without
+        // this the card you just tapped teleports past the ones above it.
+        <Animated.View
           key={habit.id}
-          habit={habit}
-          today={calendar.today}
-          yesterday={calendar.yesterday}
-          gridStart={calendar.gridStart}
-          days={calendar.days}
-        />
+          entering={arrive(index)}
+          layout={LinearTransition.duration(REFLOW_MS)}
+        >
+          <HabitCard
+            habit={habit}
+            today={calendar.today}
+            yesterday={calendar.yesterday}
+            gridStart={calendar.gridStart}
+            days={calendar.days}
+          />
+        </Animated.View>
       ))}
     </View>
   );

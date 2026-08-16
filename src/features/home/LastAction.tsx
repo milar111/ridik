@@ -8,7 +8,7 @@
  * back when taking it back is safe.
  */
 import { useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import Animated, {
   FadeOut,
@@ -24,6 +24,7 @@ import { useToast } from '@/ui/components';
 import { useVoiceStore } from '@/features/voice/store';
 import { useVoiceUndo } from '@/hooks/useVoiceUndo';
 import { SPRING_ENTER } from '@/ui/motion';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { elevate } from '@/ui/shadow';
 import { lastUndoable } from './undo';
 
@@ -49,6 +50,10 @@ export function LastAction() {
   const undo = useVoiceUndo();
   const reduced = useReducedMotion();
   const [undone, setUndone] = useState<string | null>(null);
+  // Above the `applied.length === 0` return, or the hook order changes the
+  // moment the receipt has nothing to show.
+  const openPress = usePressScale({ scale: 0.98 });
+  const undoPress = usePressScale();
 
   const outcome = useVoiceStore((s) => s.outcome);
   const open = useVoiceStore((s) => s.open);
@@ -95,14 +100,16 @@ export function LastAction() {
         ...elevate('card'),
       }}
     >
-      <Pressable
+      <AnimatedPressable
         accessibilityRole="button"
         accessibilityLabel={`${headline.summary}. Open it.`}
         // No href is not a dead tap: the sheet still holds the full result, and
         // the rest of what a multi-part sentence did lives there too.
         onPress={() => (headline.href ? router.push(headline.href as never) : open())}
-        style={({ pressed }) => [
-          { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start', opacity: pressed ? 0.6 : 1 },
+        {...openPress.handlers}
+        style={[
+          { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' },
+          openPress.style,
         ]}
       >
         <Ionicons
@@ -121,21 +128,24 @@ export function LastAction() {
           ) : null}
         </View>
         <Ionicons name="chevron-forward" size={14} color={colors.textTertiary} />
-      </Pressable>
+      </AnimatedPressable>
 
       {undoable && !isUndone ? (
-        <Pressable
+        <AnimatedPressable
           testID="last-action-undo"
           accessibilityRole="button"
           accessibilityLabel={`Undo ${undoable.summary}`}
           disabled={undo.isPending}
           onPress={runUndo}
-          style={({ pressed }) => [{ alignSelf: 'flex-start', opacity: pressed || undo.isPending ? 0.5 : 1 }]}
+          {...undoPress.handlers}
+          // The in-flight dim stays: it is state, not press feedback, and it is
+          // the only thing saying the undo has been asked for and not answered.
+          style={[{ alignSelf: 'flex-start', opacity: undo.isPending ? 0.5 : 1 }, undoPress.style]}
         >
           <Txt variant="caption" tone="accent" weight="600">
             {undo.isPending ? 'Undoing…' : 'Undo'}
           </Txt>
-        </Pressable>
+        </AnimatedPressable>
       ) : null}
     </Animated.View>
   );

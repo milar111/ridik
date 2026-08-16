@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   FlatList,
-  Pressable,
   StyleSheet,
   View,
   useWindowDimensions,
@@ -16,6 +15,7 @@ import type { CurriculumEntry } from '@/db/schema';
 import { useCalendarRange } from '@/hooks';
 import { Txt } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { classesOnDate, countByDate, densityDots } from './agenda';
 import {
@@ -215,9 +215,13 @@ function DayCell({
 
   const numberColor = selected ? ON_ACCENT : isToday ? colors.accent : weekend ? colors.textTertiary : colors.text;
   const dotColor = selected ? ON_ACCENT : isToday ? colors.accent : colors.textTertiary;
+  // A seventh of the width: small enough for the full press travel. The cell
+  // keeps its `height` and its `flex`, so a scaled cell does not move its
+  // neighbours or shrink the target.
+  const press = usePressScale();
 
   return (
-    <Pressable
+    <AnimatedPressable
       testID={`day-${date}`}
       accessibilityRole="button"
       accessibilityState={{ selected }}
@@ -227,7 +231,8 @@ function DayCell({
         void Haptics.selectionAsync().catch(() => {});
         onSelect(date);
       }}
-      style={({ pressed }) => [styles.cell, { opacity: pressed ? 0.6 : 1 }]}
+      {...press.handlers}
+      style={[styles.cell, press.style]}
     >
       <Txt variant="micro" style={{ color: selected ? ON_ACCENT : colors.textTertiary }}>
         {WEEKDAY_LETTERS[weekdayIndexOf(date, zone)]}
@@ -251,7 +256,7 @@ function DayCell({
           <View key={i} style={[styles.dot, { backgroundColor: dotColor }]} />
         ))}
       </View>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

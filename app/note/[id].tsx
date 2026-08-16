@@ -1,12 +1,5 @@
 import { useEffect, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
@@ -27,6 +20,7 @@ import type { BulletKind, NoteWithBullets } from '@/repositories/notes';
 import { Button, Chip, Divider, EmptyState, Input, Screen, Txt, useToast } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { colorForTag } from '@/ui/theme';
 
 export default function NoteDetailScreen() {
@@ -39,33 +33,42 @@ export default function NoteDetailScreen() {
   const data = note.data ?? null;
   const extras = useNoteMenuExtras(data);
 
+  // Two bare glyphs at the top of the screen: deeper travel, because there is
+  // no fill behind either of them to watch move.
+  const backPress = usePressScale({ scale: 0.88 });
+  const menuPress = usePressScale({ scale: 0.88, disabled: !data });
+
   return (
     <Screen scroll={false} contentStyle={{ flex: 1, gap: spacing.sm }}>
       <View style={[styles.bar, { paddingTop: spacing.sm }]}>
-        <Pressable
+        <AnimatedPressable
           accessibilityRole="button"
           accessibilityLabel="Back"
           hitSlop={12}
           onPress={() => router.back()}
-          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+          {...backPress.handlers}
+          style={backPress.style}
         >
           <Ionicons name="chevron-back" size={24} color={colors.text} />
-        </Pressable>
+        </AnimatedPressable>
 
         <View style={{ flex: 1 }} />
 
         {data?.isPinned ? <Ionicons name="pin" size={16} color={colors.accent} /> : null}
 
-        <Pressable
+        <AnimatedPressable
           accessibilityRole="button"
           accessibilityLabel="Note actions"
           hitSlop={12}
           disabled={!data}
           onPress={() => setMenuOpen(true)}
-          style={({ pressed }) => ({ opacity: pressed ? 0.6 : data ? 1 : 0.3 })}
+          {...menuPress.handlers}
+          // The 0.3 stays static: that is the button saying there is nothing to
+          // act on yet, which is a state and not an answer to a finger.
+          style={[{ opacity: data ? 1 : 0.3 }, menuPress.style]}
         >
           <Ionicons name="ellipsis-horizontal" size={22} color={colors.text} />
-        </Pressable>
+        </AnimatedPressable>
       </View>
 
       {note.isPending ? <SkeletonRows count={7} height={38} /> : null}

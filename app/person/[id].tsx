@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View, type DimensionValue } from 'react-native';
+import { StyleSheet, View, type DimensionValue } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
@@ -36,7 +37,10 @@ import {
   useToast,
 } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { colorForTag } from '@/ui/theme';
 
 /** What to say to fill this screen — the empty state is the tutorial. */
@@ -85,6 +89,7 @@ function PersonBody({ profile }: { profile: CrmEntityProfile }) {
   const dropCommitment = useRemoveCommitment();
   const dropInteraction = useRemoveInteraction();
 
+  const arrive = useStaggeredEntry({ from: 'below' });
   const [composer, setComposer] = useState<'none' | 'commitment' | 'interaction'>('none');
   // Optimistic overrides keyed by commitment id: the checkbox flips now, the
   // refetch drops the entry, and a failure puts the old value straight back.
@@ -205,7 +210,14 @@ function PersonBody({ profile }: { profile: CrmEntityProfile }) {
             ) : (
               <Card padded={false}>
                 {openCommitments.map((c, i) => (
-                  <View key={c.id}>
+                  // Closing a commitment moves it out of this card and into the
+                  // collapsed "closed" list below; `layout` closes the gap it
+                  // leaves rather than snapping the rest of the card up.
+                  <Animated.View
+                    key={c.id}
+                    entering={arrive(i)}
+                    layout={LinearTransition.duration(REFLOW_MS)}
+                  >
                     {i > 0 ? <Divider inset={CHECKBOX_INSET + 12} /> : null}
                     <CommitmentRow
                       commitment={c}
@@ -214,7 +226,7 @@ function PersonBody({ profile }: { profile: CrmEntityProfile }) {
                       onDelete={() => deleteCommitment(c)}
                       deleting={dropCommitment.isPending}
                     />
-                  </View>
+                  </Animated.View>
                 ))}
               </Card>
             )}
@@ -258,6 +270,12 @@ function IdentityBlock({ profile }: { profile: CrmEntityProfile }) {
 
   const [contextDraft, setContextDraft] = useState<string | null>(null);
   const [aliasDraft, setAliasDraft] = useState<string | null>(null);
+  // Fading in place: a wrapped row of chips has no single direction to come
+  // from, and half of them sliding up past the name above reads as a glitch.
+  const arriveAlias = useStaggeredEntry();
+  // Called whether or not the row is drawn: it is swapped for an editor while
+  // the draft is open, and a hook behind that would change the hook order.
+  const contextPress = usePressScale({ scale: 0.98 });
 
   const context = entity.relationshipContext?.trim() ?? '';
 
@@ -341,24 +359,33 @@ function IdentityBlock({ profile }: { profile: CrmEntityProfile }) {
           </View>
         </View>
       ) : (
-        <Pressable
+        <AnimatedPressable
           accessibilityRole="button"
           accessibilityLabel={context ? `Edit relationship: ${context}` : 'Add relationship context'}
           onPress={() => setContextDraft(context)}
           hitSlop={6}
-          style={({ pressed }) => [styles.contextRow, { opacity: pressed ? 0.6 : 1 }]}
+          {...contextPress.handlers}
+          style={[styles.contextRow, contextPress.style]}
         >
           <Ionicons name="pricetag-outline" size={13} color={colors.textTertiary} />
           <Txt variant="caption" tone={context ? 'secondary' : 'tertiary'} style={{ flex: 1 }}>
             {context || 'Add relationship context'}
           </Txt>
           <Ionicons name="create-outline" size={14} color={colors.textTertiary} />
-        </Pressable>
+        </AnimatedPressable>
       )}
 
       <View style={styles.aliasRow}>
-        {aliases.map((alias) => (
-          <Chip key={alias} label={alias} icon="close" size="sm" onPress={() => dropAlias(alias)} />
+        {aliases.map((alias, index) => (
+          // Adding an alias is a chip appearing mid-row and pushing the "+"
+          // along; `layout` is what makes that a shove rather than a re-cut.
+          <Animated.View
+            key={alias}
+            entering={arriveAlias(index)}
+            layout={LinearTransition.duration(REFLOW_MS)}
+          >
+            <Chip label={alias} icon="close" size="sm" onPress={() => dropAlias(alias)} />
+          </Animated.View>
         ))}
         {aliasDraft === null ? (
           <Chip label="alias" icon="add" size="sm" onPress={() => setAliasDraft('')} />
@@ -403,6 +430,9 @@ function CommitmentRow({
   const router = useRouter();
   const task = useTask(commitment.taskId ?? undefined);
   const [asking, setAsking] = useState(false);
+  // Before the `task.data ?` that draws it: the link appears once the query
+  // resolves, and a hook that appeared with it would change the hook order.
+  const linkPress = usePressScale();
 
   const mine = commitment.direction === 'i_owe';
   const overdue = !checked && commitment.dueDate !== null && commitment.dueDate < Date.now();
@@ -434,18 +464,19 @@ function CommitmentRow({
         )}
         {task.data ? (
           // No task detail route exists yet, so the link lands on the task list.
-          <Pressable
+          <AnimatedPressable
             accessibilityRole="link"
             accessibilityLabel={`Open linked task: ${task.data.title}`}
             onPress={() => router.push('/tasks')}
             hitSlop={8}
-            style={({ pressed }) => [styles.taskLink, { opacity: pressed ? 0.6 : 1 }]}
+            {...linkPress.handlers}
+            style={[styles.taskLink, linkPress.style]}
           >
             <Ionicons name="git-branch-outline" size={12} color={colors.accent} />
             <Txt variant="micro" tone="accent" numberOfLines={1}>
               {truncate(task.data.title, 28)}
             </Txt>
-          </Pressable>
+          </AnimatedPressable>
         ) : null}
       </View>
       {asking ? (
@@ -524,16 +555,20 @@ function CompletedCommitments({
 }) {
   const { colors, spacing } = useTheme();
   const [open, setOpen] = useState(false);
+  // The rows mount on the disclosure, so the stagger *is* the unfolding.
+  const arrive = useStaggeredEntry({ from: 'below' });
+  const press = usePressScale({ scale: 0.97 });
 
   return (
     <View style={{ gap: spacing.xs }}>
-      <Pressable
+      <AnimatedPressable
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         accessibilityLabel={`${open ? 'Hide' : 'Show'} ${countLabel(commitments.length, 'closed commitment')}`}
         onPress={() => setOpen((v) => !v)}
         hitSlop={6}
-        style={({ pressed }) => [styles.disclosure, { opacity: pressed ? 0.6 : 1 }]}
+        {...press.handlers}
+        style={[styles.disclosure, press.style]}
       >
         <Ionicons
           name={open ? 'chevron-down' : 'chevron-forward'}
@@ -543,11 +578,16 @@ function CompletedCommitments({
         <Txt variant="micro" tone="tertiary">
           {countLabel(commitments.length, 'closed commitment')}
         </Txt>
-      </Pressable>
+      </AnimatedPressable>
       {open ? (
         <Card padded={false}>
           {commitments.map((c, i) => (
-            <View key={c.id} style={{ paddingHorizontal: spacing.md }}>
+            <Animated.View
+              key={c.id}
+              entering={arrive(i)}
+              layout={LinearTransition.duration(REFLOW_MS)}
+              style={{ paddingHorizontal: spacing.md }}
+            >
               {i > 0 ? <Divider /> : null}
               <ClosedCommitmentRow
                 commitment={c}
@@ -556,7 +596,7 @@ function CompletedCommitments({
                 onDelete={() => onDelete(c)}
                 deleting={deleting}
               />
-            </View>
+            </Animated.View>
           ))}
         </Card>
       ) : null}
@@ -687,6 +727,14 @@ function InteractionComposer({ entityName, onDone }: { entityName: string; onDon
 function MoneySection({ profile }: { profile: CrmEntityProfile }) {
   const { colors, spacing } = useTheme();
   const [showAll, setShowAll] = useState(false);
+  // Two cards, two waves. "Show older" mounts the rows it reveals, so they
+  // arrive as a continuation of the list rather than appearing all at once
+  // where the button used to be.
+  const arriveBalance = useStaggeredEntry({ from: 'below' });
+  const arriveTx = useStaggeredEntry({ from: 'below' });
+  // Called even when nothing is hidden: the row it belongs to disappears the
+  // moment it is tapped, and a hook that went with it would change hook order.
+  const morePress = usePressScale({ scale: 0.97 });
 
   const currencies = useMemo(
     () => Object.keys(profile.netByCurrency).sort(),
@@ -703,7 +751,7 @@ function MoneySection({ profile }: { profile: CrmEntityProfile }) {
           const spent = profile.spentByCurrency[currency] ?? 0;
           const received = profile.receivedByCurrency[currency] ?? 0;
           return (
-            <View key={currency}>
+            <Animated.View key={currency} entering={arriveBalance(i)}>
               {i > 0 ? <Divider /> : null}
               <View style={[styles.balanceRow, { paddingHorizontal: spacing.md }]}>
                 <View style={{ flex: 1, gap: 1 }}>
@@ -720,32 +768,33 @@ function MoneySection({ profile }: { profile: CrmEntityProfile }) {
                   {formatMoney(Math.abs(net), currency)}
                 </Txt>
               </View>
-            </View>
+            </Animated.View>
           );
         })}
       </Card>
 
       <Card padded={false}>
         {rows.map((tx, i) => (
-          <View key={tx.id}>
+          <Animated.View key={tx.id} entering={arriveTx(i)}>
             {i > 0 ? <Divider /> : null}
             <TransactionRow tx={tx} />
-          </View>
+          </Animated.View>
         ))}
         {hidden > 0 ? (
           <>
             <Divider />
-            <Pressable
+            <AnimatedPressable
               accessibilityRole="button"
               accessibilityLabel={`Show ${hidden} older transactions`}
               onPress={() => setShowAll(true)}
-              style={({ pressed }) => [styles.moreRow, { opacity: pressed ? 0.6 : 1 }]}
+              {...morePress.handlers}
+              style={[styles.moreRow, morePress.style]}
             >
               <Txt variant="micro" tone="accent">
                 {`Show ${hidden} older`}
               </Txt>
               <Ionicons name="chevron-down" size={13} color={colors.accent} />
-            </Pressable>
+            </AnimatedPressable>
           </>
         ) : null}
       </Card>
@@ -825,18 +874,31 @@ function HistorySection({
 }) {
   const { colors, spacing } = useTheme();
   const [showAll, setShowAll] = useState(false);
+  // One wave down the whole history, not one per month: the months are a single
+  // list broken by heading, and a count that restarts at every heading would
+  // have January arriving as slowly as the ten rows above it.
+  const arrive = useStaggeredEntry({ from: 'below' });
+  const morePress = usePressScale({ scale: 0.97 });
 
   const hidden = showAll ? 0 : Math.max(0, interactions.length - HISTORY_PREVIEW);
   // Already newest-first out of the repository, so a sequential scan groups it.
   const months = useMemo(() => {
     const visible = showAll ? interactions : interactions.slice(0, HISTORY_PREVIEW);
-    const out: { key: string; label: string; items: CrmInteraction[] }[] = [];
+    // `offset` is the month's place in the flat list, which is what the stagger
+    // counts in.
+    const out: { key: string; label: string; offset: number; items: CrmInteraction[] }[] = [];
     for (const item of visible) {
       const at = epochToLocal(item.occurredAt);
       const key = at.toFormat('yyyy-LL');
       const last = out[out.length - 1];
       if (last && last.key === key) last.items.push(item);
-      else out.push({ key, label: at.toFormat('LLLL yyyy'), items: [item] });
+      else
+        out.push({
+          key,
+          label: at.toFormat('LLLL yyyy'),
+          offset: last ? last.offset + last.items.length : 0,
+          items: [item],
+        });
     }
     return out;
   }, [interactions, showAll]);
@@ -850,30 +912,37 @@ function HistorySection({
           </Txt>
           <Card padded={false}>
             {month.items.map((item, i) => (
-              <View key={item.id}>
+              // Deleting an interaction takes a row out of the middle of a
+              // month, and can empty the month entirely.
+              <Animated.View
+                key={item.id}
+                entering={arrive(month.offset + i)}
+                layout={LinearTransition.duration(REFLOW_MS)}
+              >
                 {i > 0 ? <Divider /> : null}
                 <InteractionRow
                   interaction={item}
                   onDelete={() => onDelete(item)}
                   deleting={deleting}
                 />
-              </View>
+              </Animated.View>
             ))}
           </Card>
         </View>
       ))}
       {hidden > 0 ? (
-        <Pressable
+        <AnimatedPressable
           accessibilityRole="button"
           accessibilityLabel={`Show ${hidden} older interactions`}
           onPress={() => setShowAll(true)}
-          style={({ pressed }) => [styles.disclosure, { opacity: pressed ? 0.6 : 1 }]}
+          {...morePress.handlers}
+          style={[styles.disclosure, morePress.style]}
         >
           <Ionicons name="chevron-down" size={13} color={colors.accent} />
           <Txt variant="micro" tone="accent">
             {`Show ${hidden} older`}
           </Txt>
-        </Pressable>
+        </AnimatedPressable>
       ) : null}
     </Section>
   );
@@ -888,16 +957,19 @@ function HistorySection({
  */
 function TrashButton({ label, onPress }: { label: string; onPress: () => void }) {
   const { colors } = useTheme();
+  // A bare 15pt glyph: deep travel, because the icon is the whole cue.
+  const press = usePressScale({ scale: 0.84 });
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
       hitSlop={8}
-      style={({ pressed }) => [styles.trash, { opacity: pressed ? 0.5 : 1 }]}
+      {...press.handlers}
+      style={[styles.trash, press.style]}
     >
       <Ionicons name="trash-outline" size={15} color={colors.textTertiary} />
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -1034,18 +1106,21 @@ function DeletePerson({ profile }: { profile: CrmEntityProfile }) {
 function ScreenHeader({ profile }: { profile: CrmEntityProfile | undefined }) {
   const router = useRouter();
   const { colors, spacing } = useTheme();
+  // Matches `Screen`'s own back button: a bare chevron takes deeper travel.
+  const press = usePressScale({ scale: 0.9 });
   return (
     <View style={[styles.header, { gap: spacing.sm }]}>
-      <Pressable
+      <AnimatedPressable
         accessibilityRole="button"
         accessibilityLabel="Back to people"
         hitSlop={8}
         // Deep links and notifications can land here with nothing to pop back to.
         onPress={() => (router.canGoBack() ? router.back() : router.replace('/people'))}
-        style={({ pressed }) => [styles.back, { opacity: pressed ? 0.5 : 1 }]}
+        {...press.handlers}
+        style={[styles.back, press.style]}
       >
         <Ionicons name="chevron-back" size={24} color={colors.text} />
-      </Pressable>
+      </AnimatedPressable>
       <Txt variant="micro" tone="tertiary" numberOfLines={1} style={{ flex: 1 }}>
         {profile ? countLabel(profile.interactions.length, 'interaction') : 'People'}
       </Txt>

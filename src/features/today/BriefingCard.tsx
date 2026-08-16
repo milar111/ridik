@@ -1,10 +1,11 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
 import type { BriefingBullet, BriefingIcon } from '@/features/briefing';
 import { useBriefing, useBriefingSpeech } from '@/hooks/useBriefing';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { Card, Txt } from '@/ui/components';
 
 import { InlineError } from './Fallbacks';
@@ -42,6 +43,12 @@ export function BriefingCard() {
   const { colors } = useTheme();
   const briefing = useBriefing('today');
   const speech = useBriefingSpeech();
+  // Both before the error return: an error is a state this card comes back
+  // from, and a hook called only on the happy path changes order when it does.
+  // The speaker is a bare 19pt glyph with no fill behind it, so the travel has
+  // to be larger for the press to register as anything at all.
+  const speakPress = usePressScale({ scale: 0.88, disabled: !briefing.data?.bullets });
+  const bodyPress = usePressScale({ scale: 0.98 });
 
   if (briefing.isError) {
     return (
@@ -62,7 +69,7 @@ export function BriefingCard() {
           <Txt variant="eyebrow" tone="tertiary">
             BRIEFING
           </Txt>
-          <Pressable
+          <AnimatedPressable
             accessibilityRole="button"
             accessibilityLabel={
               speech.isSpeaking ? 'Stop reading the briefing' : 'Read the briefing out loud'
@@ -71,16 +78,18 @@ export function BriefingCard() {
             hitSlop={14}
             disabled={!bullets}
             onPress={() => (speech.isSpeaking ? speech.stop() : speech.play('today'))}
+            {...speakPress.handlers}
+            style={speakPress.style}
           >
             <Ionicons
               name={speech.isSpeaking ? 'stop-circle' : 'volume-high-outline'}
               size={19}
               color={speech.isSpeaking ? colors.accent : colors.textSecondary}
             />
-          </Pressable>
+          </AnimatedPressable>
         </View>
 
-        <Pressable
+        <AnimatedPressable
           testID="today-briefing"
           accessibilityRole="button"
           accessibilityLabel={
@@ -88,7 +97,8 @@ export function BriefingCard() {
           }
           accessibilityHint="Opens the full briefing"
           onPress={() => router.push('/briefing')}
-          style={({ pressed }) => [styles.body, { opacity: pressed ? 0.7 : 1 }]}
+          {...bodyPress.handlers}
+          style={[styles.body, bodyPress.style]}
         >
           {bullets ? (
             bullets.map((bullet, i) => (
@@ -101,7 +111,7 @@ export function BriefingCard() {
               Putting your day together…
             </Txt>
           )}
-        </Pressable>
+        </AnimatedPressable>
       </View>
     </Card>
   );

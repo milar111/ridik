@@ -1,10 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
-import Animated, { FadeInUp, FadeOutUp, LinearTransition } from 'react-native-reanimated';
+import { StyleSheet, View } from 'react-native';
+import Animated, {
+  FadeInUp,
+  FadeOutUp,
+  LinearTransition,
+  ReduceMotion,
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../ThemeProvider';
+import { AnimatedPressable, usePressScale } from '../motionHooks';
 import { Txt } from './Text';
+import { FADE, FADE_OUT, REFLOW_MS } from '../motion';
 import { newId } from '@/db/ids';
 
 export type ToastTone = 'neutral' | 'success' | 'warning' | 'danger' | 'accent';
@@ -120,9 +127,27 @@ function ToastStack({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: st
         return (
           <Animated.View
             key={t.id}
-            entering={FadeInUp.duration(180)}
-            exiting={FadeOutUp.duration(140)}
-            layout={LinearTransition.duration(160)}
+            /*
+             * The one place in the app that uses layout animations, and it can
+             * because the stack renders in the provider tree rather than inside
+             * a `Modal` — see `motionHooks` for why that distinction decides
+             * the mechanism everywhere else.
+             *
+             * The three numbers are the vocabulary's, not this file's: `FADE`
+             * arriving, the shorter `FADE_OUT` leaving (a dismissal that takes
+             * as long as an arrival reads as reluctant), and `REFLOW_MS` for
+             * the stack closing the gap — the same duration as the fade, so a
+             * toast leaving and the ones above it dropping finish together
+             * rather than in two beats.
+             *
+             * `reduceMotion` has to be said out loud here: a builder does not
+             * inherit it from a config the way `withSpring` does, so without
+             * this the one animated surface outside a sheet would be the only
+             * thing still moving for someone who asked the OS to stop.
+             */
+            entering={FadeInUp.duration(FADE.duration).reduceMotion(ReduceMotion.System)}
+            exiting={FadeOutUp.duration(FADE_OUT.duration).reduceMotion(ReduceMotion.System)}
+            layout={LinearTransition.duration(REFLOW_MS).reduceMotion(ReduceMotion.System)}
             style={[
               styles.toast,
               {
@@ -144,28 +169,54 @@ function ToastStack({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: st
                 </Txt>
               ) : null}
             </View>
-            {t.action ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  t.action?.onPress();
-                  onDismiss(t.id);
-                }}
-                hitSlop={8}
-              >
-                <Txt variant="micro" style={{ color: colors.accent }}>
-                  {t.action.label.toUpperCase()}
-                </Txt>
-              </Pressable>
-            ) : (
-              <Pressable accessibilityRole="button" accessibilityLabel="Dismiss" onPress={() => onDismiss(t.id)} hitSlop={8}>
-                <Ionicons name="close" size={15} color={colors.textTertiary} />
-              </Pressable>
-            )}
+            <Trailing
+              action={t.action}
+              onPress={() => {
+                t.action?.onPress();
+                onDismiss(t.id);
+              }}
+            />
           </Animated.View>
         );
       })}
     </View>
+  );
+}
+
+/**
+ * The toast's one control — its action, or the ✕ that stands in for it.
+ *
+ * Extracted because it needs its own animation state and a hook cannot be
+ * called from inside a `map`. Both shapes had no press feedback at all, which
+ * on the undo offer meant the one control in the app with a deadline gave no
+ * sign it had been hit. Deep travel: a word or a 15pt glyph, nothing behind it.
+ */
+function Trailing({
+  action,
+  onPress,
+}: {
+  action: ToastInput['action'];
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  const press = usePressScale({ scale: 0.86 });
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={action ? undefined : 'Dismiss'}
+      onPress={onPress}
+      hitSlop={8}
+      {...press.handlers}
+      style={press.style}
+    >
+      {action ? (
+        <Txt variant="micro" style={{ color: colors.accent }}>
+          {action.label.toUpperCase()}
+        </Txt>
+      ) : (
+        <Ionicons name="close" size={15} color={colors.textTertiary} />
+      )}
+    </AnimatedPressable>
   );
 }
 

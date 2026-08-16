@@ -132,12 +132,15 @@ export function usePressScale(options: PressScaleOptions = {}) {
  */
 export function useMountProgress(spring: WithSpringConfig = SPRING_ENTER) {
   const progress = useSharedValue(0);
+  // Captured at mount rather than tracked: an entrance runs once, and a caller
+  // passing an inline config object would otherwise restart it on every render.
+  const config = useRef(spring).current;
 
   useEffect(() => {
     // The spring carries `ReduceMotion.System`, so this resolves to the settled
     // frame rather than a faster slide for anyone who asked the OS to stop.
-    progress.value = withSpring(1, spring);
-  }, [progress, spring]);
+    progress.value = withSpring(1, config);
+  }, [progress, config]);
 
   return progress;
 }
@@ -186,6 +189,11 @@ export function useMountPop(options: { from?: number; spring?: WithSpringConfig 
  * what turns it off: cancelling and settling, never leaving a half-finished
  * frame behind. A loop is exactly the case `reduceMotion` on a config cannot
  * handle, because a repeat that resolves instantly still repeats.
+ *
+ * `from` is also the held frame, so it should be the value the surface ought to
+ * rest at — a skeleton that breathes between full and dim is
+ * `usePulse({ from: 1, to: 0.5 })`, not the other way round, or switching it
+ * off would leave the page greyed out.
  */
 export function usePulse(
   options: { from?: number; to?: number; ms?: number; active?: boolean } = {},
@@ -262,7 +270,9 @@ export function useCheckPop(on: boolean, options: { peak?: number } = {}) {
  * bar that overshoots its track has visibly lied about the number.
  *
  * `fraction` is clamped to 0–1; a non-finite one (an empty project, `0/0`)
- * reads as empty rather than as a crash.
+ * reads as empty rather than as a crash. Pass a module-level `config` if you
+ * override the default — an object literal is a new identity every render and
+ * would retarget the fill on each one.
  */
 export function useProgressWidth(fraction: number, config: WithTimingConfig = FADE) {
   const target = clamp01(fraction);

@@ -1,4 +1,5 @@
 import { View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
@@ -6,6 +7,8 @@ import { formatDuration, formatTime } from '@/core/time';
 import { countLabel } from '@/core/format';
 import type { ActivityEntry } from '@/db/schema';
 import { Card, Divider, Txt } from '@/ui/components';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
 
 /**
@@ -26,6 +29,7 @@ export function LoggedToday({
 }) {
   const { colors, spacing } = useTheme();
   const router = useRouter();
+  const arrive = useStaggeredEntry({ from: 'below' });
   if (entries.length === 0) return null;
 
   // Newest first: the thing just said should be at the top.
@@ -36,7 +40,14 @@ export function LoggedToday({
   return (
     <Card padded={false} onPress={() => router.push('/activity')}>
       {shown.map((entry, index) => (
-        <View key={entry.id}>
+        // The thing just said arrives at the top and pushes the rest down. The
+        // entrance is what marks it as new; `layout` is what stops the three
+        // rows under it teleporting a row-height while it does.
+        <Animated.View
+          key={entry.id}
+          entering={arrive(index)}
+          layout={LinearTransition.duration(REFLOW_MS)}
+        >
           {index > 0 ? <Divider inset={spacing.md} /> : null}
           <View
             style={{
@@ -62,7 +73,7 @@ export function LoggedToday({
                 : formatTime(entry.loggedAt, zone)}
             </Txt>
           </View>
-        </View>
+        </Animated.View>
       ))}
       <Divider inset={spacing.md} />
       <View style={{ paddingVertical: 7, paddingHorizontal: spacing.md }}>

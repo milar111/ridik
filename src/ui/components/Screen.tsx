@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, View, type ViewStyle } from 'react-native';
+import { ScrollView, StyleSheet, View, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../ThemeProvider';
 import { useFontsReady } from '../fonts';
+import { AnimatedPressable, usePressScale } from '../motionHooks';
 import { Txt } from './Text';
 import { MIC_CLEARANCE } from '../layout';
 
@@ -52,12 +53,18 @@ export function Screen({
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const fontsReady = useFontsReady();
+  // Both are called every render whether or not the button is drawn — a hook
+  // behind a `back ?` would change the hook order the moment a screen sets it.
+  // A bare glyph takes more travel than the 0.96 default: there is no fill to
+  // watch, so the whole cue is how far the icon itself moves.
+  const backPress = usePressScale({ scale: 0.9 });
+  const closePress = usePressScale({ scale: 0.9 });
 
   const header =
     title || right ? (
       <View style={[styles.header, { paddingHorizontal: padded ? spacing.lg : 0 }]}>
         {back ? (
-          <Pressable
+          <AnimatedPressable
             testID="screen-back"
             accessibilityRole="button"
             accessibilityLabel="Go back"
@@ -66,10 +73,11 @@ export function Screen({
             // link can land here with an empty stack, and home is where every
             // route leads anyway.
             onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-            style={({ pressed }) => [styles.back, { opacity: pressed ? 0.5 : 1 }]}
+            {...backPress.handlers}
+            style={[styles.back, backPress.style]}
           >
             <Ionicons name="chevron-back" size={26} color={colors.text} />
-          </Pressable>
+          </AnimatedPressable>
         ) : null}
         <View style={styles.headerText}>
           {title ? <Txt variant="display">{title}</Txt> : null}
@@ -81,16 +89,17 @@ export function Screen({
         </View>
         {right}
         {close ? (
-          <Pressable
+          <AnimatedPressable
             testID="screen-close"
             accessibilityRole="button"
             accessibilityLabel="Close"
             hitSlop={10}
             onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-            style={({ pressed }) => [styles.close, { opacity: pressed ? 0.5 : 1 }]}
+            {...closePress.handlers}
+            style={[styles.close, closePress.style]}
           >
             <Ionicons name="close" size={22} color={colors.text} />
-          </Pressable>
+          </AnimatedPressable>
         ) : null}
       </View>
     ) : null;

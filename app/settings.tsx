@@ -17,7 +17,7 @@
  * something they switched on cannot work yet.
  */
 import { useCallback, useState } from 'react';
-import { Linking, Platform, Pressable, View } from 'react-native';
+import { Linking, Platform, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
@@ -46,6 +46,7 @@ import {
 } from '@/hooks/useSystem';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import type { EmberOption } from '@/ui/theme';
 import { useNavigateOnce } from '@/ui/useNavigateOnce';
 import { Button, Input, Screen, Txt, useToast } from '@/ui/components';
@@ -263,18 +264,17 @@ function EmberRow({
 }) {
   const { colors, scheme, spacing, radius } = useTheme();
   const ramp = option[scheme];
+  const press = usePressScale({ scale: 0.98 });
 
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="radio"
       accessibilityState={{ selected }}
       accessibilityLabel={option.label}
       accessibilityHint={option.note}
       onPress={onSelect}
-      style={({ pressed }) => ({
-        opacity: pressed ? 0.6 : 1,
-        backgroundColor: selected ? colors.accentMuted : 'transparent',
-      })}
+      {...press.handlers}
+      style={[{ backgroundColor: selected ? colors.accentMuted : 'transparent' }, press.style]}
     >
       <View
         style={{
@@ -302,7 +302,7 @@ function EmberRow({
         </View>
         {selected ? <Ionicons name="checkmark-circle" size={20} color={colors.accent} /> : null}
       </View>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

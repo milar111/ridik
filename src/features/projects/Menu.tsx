@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Divider, SheetCard, Txt } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import type { IconName } from './constants';
 
@@ -78,56 +79,64 @@ export function MenuSheet({
           ) : null}
 
           <ScrollView style={{ maxHeight: 380 }} keyboardShouldPersistTaps="handled">
-            {options.map((option, index) => {
-              const tint =
-                option.tone === 'danger'
-                  ? colors.danger
-                  : option.tone === 'accent'
-                    ? colors.accent
-                    : colors.text;
-              return (
-                <Fragment key={`${option.label}-${index}`}>
-                  {option.separated ? (
-                    // Named after what it sets apart: the rule carries no text,
-                    // so a test has no other way to say which option is below it.
-                    <View style={{ marginVertical: spacing.xs }} testID={`rule-above-${option.label}`}>
-                      <Divider />
-                    </View>
-                  ) : null}
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={option.label}
-                    accessibilityState={{ selected: !!option.selected }}
-                    onPress={() => {
-                      // Closing first lets an option open the next menu: both
-                      // updates land in one batch and the option's wins.
-                      onClose();
-                      option.onPress();
-                    }}
-                    style={({ pressed }) => [
-                      styles.option,
-                      {
-                        paddingHorizontal: spacing.lg,
-                        opacity: pressed ? 0.6 : 1,
-                        backgroundColor: pressed ? colors.surfaceRaised : 'transparent',
-                      },
-                    ]}
-                  >
-                    {option.icon ? <Ionicons name={option.icon} size={19} color={tint} /> : null}
-                    <Txt variant="body" style={{ color: tint, flex: 1 }} numberOfLines={1}>
-                      {option.label}
-                    </Txt>
-                    {option.selected ? (
-                      <Ionicons name="checkmark" size={17} color={colors.accent} />
-                    ) : null}
-                  </Pressable>
-                </Fragment>
-              );
-            })}
+            {options.map((option, index) => (
+              <Fragment key={`${option.label}-${index}`}>
+                {option.separated ? (
+                  // Named after what it sets apart: the rule carries no text,
+                  // so a test has no other way to say which option is below it.
+                  <View style={{ marginVertical: spacing.xs }} testID={`rule-above-${option.label}`}>
+                    <Divider />
+                  </View>
+                ) : null}
+                <Option
+                  option={option}
+                  onPress={() => {
+                    // Closing first lets an option open the next menu: both
+                    // updates land in one batch and the option's wins.
+                    onClose();
+                    option.onPress();
+                  }}
+                />
+              </Fragment>
+            ))}
           </ScrollView>
         </SheetCard>
       </View>
     </Modal>
+  );
+}
+
+/**
+ * One option, extracted because each needs its own animation state and a hook
+ * cannot be called from inside a `map`.
+ *
+ * The row used to dim *and* swap its background on press — two cues for one
+ * event, neither of them animated. The scale replaces both: it says the same
+ * thing without asking a colour to mean "your finger is here". This lives in a
+ * `Modal`, where a shared value driven from an effect is the only mechanism
+ * that reliably runs — which is exactly what `usePressScale` is.
+ */
+function Option({ option, onPress }: { option: MenuOption; onPress: () => void }) {
+  const { colors, spacing } = useTheme();
+  const press = usePressScale({ scale: 0.98 });
+  const tint =
+    option.tone === 'danger' ? colors.danger : option.tone === 'accent' ? colors.accent : colors.text;
+
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={option.label}
+      accessibilityState={{ selected: !!option.selected }}
+      onPress={onPress}
+      {...press.handlers}
+      style={[styles.option, { paddingHorizontal: spacing.lg }, press.style]}
+    >
+      {option.icon ? <Ionicons name={option.icon} size={19} color={tint} /> : null}
+      <Txt variant="body" style={{ color: tint, flex: 1 }} numberOfLines={1}>
+        {option.label}
+      </Txt>
+      {option.selected ? <Ionicons name="checkmark" size={17} color={colors.accent} /> : null}
+    </AnimatedPressable>
   );
 }
 

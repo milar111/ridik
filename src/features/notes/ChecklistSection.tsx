@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
 import { countLabel } from '@/core/format';
@@ -12,7 +13,10 @@ import {
 } from '@/hooks';
 import type { ChecklistListSummary } from '@/repositories/checklists';
 import { Button, Checkbox, Divider, Input, Txt, useToast } from '@/ui/components';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { ErrorRow, SkeletonRows } from './Placeholders';
 import { errorMessage } from './errors';
@@ -35,6 +39,8 @@ export function ChecklistSection({
 }) {
   const { colors, spacing } = useTheme();
   const toast = useToast();
+  const arrive = useStaggeredEntry({ from: 'below' });
+  const headerPress = usePressScale({ scale: 0.98 });
 
   const items = useChecklistItems(summary.name, { enabled: expanded });
   const toggleItem = useToggleChecklistItem();
@@ -55,6 +61,11 @@ export function ChecklistSection({
    * The repository already returns open rows first, but an optimistic tick only
    * patches the row in place — without re-sorting here the item would stay put
    * until the refetch landed and then jump, which reads as a glitch.
+   *
+   * The re-sort is still the right call, and it is now the whole reason the
+   * rows carry a `layout` transition: ticking an item sends it to the bottom of
+   * the list, and a row that *teleports* past four others is exactly as
+   * confusing as one that jumps late. Same reorder, travelled rather than cut.
    */
   const rows = useMemo(() => {
     const source = items.data ?? [];
@@ -119,15 +130,16 @@ export function ChecklistSection({
 
   return (
     <View>
-      <Pressable
+      <AnimatedPressable
         accessibilityRole="button"
         accessibilityLabel={`${summary.name}, ${summary.open} of ${summary.total} open`}
         accessibilityState={{ expanded }}
         onPress={onToggleExpanded}
-        style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, minHeight: 44 })}
+        {...headerPress.handlers}
+        style={[{ minHeight: 44 }, headerPress.style]}
       >
         {header}
-      </Pressable>
+      </AnimatedPressable>
 
       {expanded ? (
         <View style={{ paddingLeft: spacing.lg }}>
@@ -148,60 +160,59 @@ export function ChecklistSection({
             </Txt>
           ) : null}
 
-          {rows.map((item) => (
-            <Checkbox
+          {rows.map((item, index) => (
+            <Animated.View
               key={item.id}
-              checked={Boolean(item.isCompleted)}
-              label={item.itemText}
-              onToggle={(next) =>
-                toggleItem.mutate(
-                  {
-                    listName: summary.name,
-                    // The repository only resolves items by their words; the id
-                    // rides along purely so the optimistic patch cannot miss.
-                    itemQuery: item.itemText,
-                    completed: next,
-                    itemId: item.id,
-                  },
-                  {
-                    onError: (error) =>
-                      toast.show({
-                        message: errorMessage(error, 'I could not tick that off.'),
-                        tone: 'danger',
-                      }),
-                  },
-                )
-              }
-              right={
-                <View style={styles.trailing}>
-                  {item.quantity ? (
-                    <Txt variant="micro" tone="tertiary">
-                      ×{item.quantity}
-                    </Txt>
-                  ) : null}
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ${item.itemText}`}
-                    // Deliberately a much smaller target than the 44pt row it
-                    // sits in: removal is the rare intent and the only one here
-                    // that cannot be taken back, so a thumb that misses should
-                    // land on the tick, which is one tap to reverse.
-                    hitSlop={4}
-                    onPress={() =>
-                      removeItem.mutate(item.id, {
-                        onError: (error) =>
-                          toast.show({
-                            message: errorMessage(error, 'I could not remove that item.'),
-                            tone: 'danger',
-                          }),
-                      })
-                    }
-                  >
-                    <Ionicons name="close" size={15} color={colors.textTertiary} />
-                  </Pressable>
-                </View>
-              }
-            />
+              entering={arrive(index)}
+              layout={LinearTransition.duration(REFLOW_MS)}
+            >
+              <Checkbox
+                checked={Boolean(item.isCompleted)}
+                label={item.itemText}
+                onToggle={(next) =>
+                  toggleItem.mutate(
+                    {
+                      listName: summary.name,
+                      // The repository only resolves items by their words; the
+                      // id rides along purely so the optimistic patch cannot
+                      // miss.
+                      itemQuery: item.itemText,
+                      completed: next,
+                      itemId: item.id,
+                    },
+                    {
+                      onError: (error) =>
+                        toast.show({
+                          message: errorMessage(error, 'I could not tick that off.'),
+                          tone: 'danger',
+                        }),
+                    },
+                  )
+                }
+                right={
+                  <View style={styles.trailing}>
+                    {item.quantity ? (
+                      <Txt variant="micro" tone="tertiary">
+                        ×{item.quantity}
+                      </Txt>
+                    ) : null}
+                    <RemoveButton
+                      label={item.itemText}
+                      tint={colors.textTertiary}
+                      onPress={() =>
+                        removeItem.mutate(item.id, {
+                          onError: (error) =>
+                            toast.show({
+                              message: errorMessage(error, 'I could not remove that item.'),
+                              tone: 'danger',
+                            }),
+                        })
+                      }
+                    />
+                  </View>
+                }
+              />
+            </Animated.View>
           ))}
 
           <View style={[styles.footer, { gap: spacing.sm, paddingVertical: spacing.xs }]}>
@@ -261,6 +272,43 @@ export function ChecklistSection({
         </View>
       ) : null}
     </View>
+  );
+}
+
+/**
+ * The row's ✕, extracted because it needs its own animation state and a hook
+ * cannot be called from inside a `map`.
+ *
+ * It had no press feedback of any kind before — the only control on this screen
+ * that could not be taken back was also the only one that never acknowledged
+ * the finger. Deep travel because it is a bare 15pt glyph with nothing behind
+ * it to watch.
+ */
+function RemoveButton({
+  label,
+  tint,
+  onPress,
+}: {
+  label: string;
+  tint: string;
+  onPress: () => void;
+}) {
+  const press = usePressScale({ scale: 0.82 });
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={`Remove ${label}`}
+      // Deliberately a much smaller target than the 44pt row it sits in:
+      // removal is the rare intent and the only one here that cannot be taken
+      // back, so a thumb that misses should land on the tick, which is one tap
+      // to reverse. The scale is visual — slop is measured on the layout box.
+      hitSlop={4}
+      onPress={onPress}
+      {...press.handlers}
+      style={press.style}
+    >
+      <Ionicons name="close" size={15} color={tint} />
+    </AnimatedPressable>
   );
 }
 

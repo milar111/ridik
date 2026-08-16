@@ -1,11 +1,15 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
 import { formatDayHeading } from '@/core/time';
 import type { CommitmentWithEntity } from '@/repositories/crm';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { Badge, Divider, Txt } from '@/ui/components';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 
 /**
  * What you promised someone, and what someone promised you — the subset that
@@ -24,13 +28,20 @@ export function Commitments({
   /** The snapshot's zone, so every row on the screen dates from the same one. */
   zone: string;
 }) {
+  const arrive = useStaggeredEntry({ from: 'below' });
+
   return (
     <View>
       {rows.map((row, index) => (
-        <View key={row.commitment.id}>
+        <Animated.View
+          key={row.commitment.id}
+          entering={arrive(index)}
+          // Settling a promise takes its row out of the middle of the list.
+          layout={LinearTransition.duration(REFLOW_MS)}
+        >
           {index > 0 ? <Divider inset={28} /> : null}
           <Row row={row} now={now} zone={zone} />
-        </View>
+        </Animated.View>
       ))}
     </View>
   );
@@ -44,9 +55,12 @@ function Row({ row, now, zone }: { row: CommitmentWithEntity; now: number; zone:
   const iOwe = commitment.direction === 'i_owe';
   const overdue = commitment.dueDate != null && commitment.dueDate < now;
   const tint = overdue ? colors.danger : iOwe ? colors.warning : colors.textTertiary;
+  // Full-width row: shallow travel. `minHeight: 44` is on the layout box, which
+  // a transform does not move, so the target stays the size it was.
+  const press = usePressScale({ scale: 0.98 });
 
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={
         iOwe
@@ -55,7 +69,8 @@ function Row({ row, now, zone }: { row: CommitmentWithEntity; now: number; zone:
       }
       accessibilityHint={`Opens ${entity.name}`}
       onPress={() => router.push(`/person/${entity.id}`)}
-      style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
+      {...press.handlers}
+      style={[styles.row, press.style]}
     >
       <Ionicons
         name={iOwe ? 'arrow-up-circle-outline' : 'arrow-down-circle-outline'}
@@ -73,7 +88,7 @@ function Row({ row, now, zone }: { row: CommitmentWithEntity; now: number; zone:
       </View>
       {overdue ? <Badge label="Overdue" tone="danger" /> : null}
       <Ionicons name="chevron-forward" size={14} color={colors.textTertiary} />
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

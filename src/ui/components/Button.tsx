@@ -1,7 +1,8 @@
-import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
+import { StyleSheet, View, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../ThemeProvider';
+import { AnimatedPressable, usePressScale } from '../motionHooks';
 import { Spinner } from './Spinner';
 import { Txt } from './Text';
 
@@ -66,19 +67,24 @@ export function Button({
   };
 
   const inactive = disabled || loading;
+  // The press is a scale, not a dim: a button is the most-tapped surface in the
+  // app and the one place where the finger deserves an answer with contact in
+  // it. `opacity` stays static so the disabled 0.45 cannot be fought over.
+  const press = usePressScale({ disabled: !!inactive });
 
   return (
-    <Pressable
+    <AnimatedPressable
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled: !!inactive, busy: !!loading }}
       disabled={inactive}
+      {...press.handlers}
       onPress={() => {
         if (haptic) void Haptics.selectionAsync().catch(() => {});
         onPress?.();
       }}
-      style={({ pressed }) => [
+      style={[
         styles.base,
         {
           backgroundColor: bg[variant],
@@ -86,11 +92,14 @@ export function Button({
           borderRadius: radius.md,
           paddingVertical: dims.padV,
           paddingHorizontal: dims.padH,
-          opacity: inactive ? 0.45 : pressed ? 0.75 : 1,
+          opacity: inactive ? 0.45 : 1,
           alignSelf: fullWidth ? 'stretch' : 'flex-start',
           justifyContent: 'center',
         },
         style,
+        // Last: the transform must survive a caller's `style`, which is passed
+        // for width and margin and never for a transform of its own.
+        press.style,
       ]}
     >
       {loading ? (
@@ -107,7 +116,7 @@ export function Button({
           ) : null}
         </View>
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

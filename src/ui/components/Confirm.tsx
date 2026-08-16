@@ -24,6 +24,7 @@ import { Modal, Pressable, StyleSheet, View } from 'react-native';
 
 import { useTheme } from '../ThemeProvider';
 import { Button } from './Button';
+import { DialogCard } from './DialogCard';
 import { Txt } from './Text';
 import { elevate } from '../shadow';
 
@@ -85,7 +86,12 @@ function ConfirmDialog({
         onPress={onDismiss}
       />
       <View style={[styles.centre, { padding: spacing.xl }]} pointerEvents="box-none">
-        <View
+        {/* The card grows in while the `Modal` crossfades the scrim behind it.
+            A dialog that appears fully formed on a fade reads as a screenshot
+            of the app rather than part of it, and this is the surface the app
+            uses to ask before it destroys something — the one place worth
+            spending a beat on so the question is seen to arrive. */}
+        <DialogCard
           // The pair that makes a screen reader treat this as the only thing on
           // screen: the first is read by iOS, the second by Android. Two props
           // for one behaviour is the platforms disagreeing about spelling, not
@@ -126,7 +132,7 @@ function ConfirmDialog({
               }}
             />
           </View>
-        </View>
+        </DialogCard>
       </View>
     </Modal>
   );

@@ -7,6 +7,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -33,6 +34,7 @@ import type { ActivitySummary } from '@/repositories/activity';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { SheetCard } from '@/ui/components/SheetCard';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import {
   Button,
   Card,
@@ -46,6 +48,8 @@ import {
   useConfirm,
   useToast,
 } from '@/ui/components';
+import { REFLOW_MS } from '@/ui/motion';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { colorForTag } from '@/ui/theme';
 
 type Period = 'day' | 'week' | 'month';
@@ -107,6 +111,9 @@ function ActivityBody({ period }: { period: Period }) {
   const remove = useRemoveActivityEntry();
   const confirm = useConfirm();
   const [exporting, setExporting] = useState(false);
+  // The day is the unit that arrives; its entries come with it. Changing period
+  // rebuilds the day buckets, so the wave doubles as the answer to the tap.
+  const arrive = useStaggeredEntry({ from: 'below' });
 
   const names = useMemo(() => {
     const projects = new Map<string, string>();
@@ -184,8 +191,13 @@ function ActivityBody({ period }: { period: Period }) {
           hint="Try: 'logged 45 minutes of workout'"
         />
       ) : (
-        days.map((day) => (
-          <View key={day.date} style={{ gap: 4 }}>
+        days.map((day, dayIndex) => (
+          <Animated.View
+            key={day.date}
+            entering={arrive(dayIndex)}
+            layout={LinearTransition.duration(REFLOW_MS)}
+            style={{ gap: 4 }}
+          >
             <View style={styles.spread}>
               <Txt variant="micro" tone="tertiary" style={styles.tracked}>
                 {/* The bucket's own local date, not its first entry: a row
@@ -201,7 +213,10 @@ function ActivityBody({ period }: { period: Period }) {
             </View>
             <Card padded={false}>
               {day.entries.map((entry, i) => (
-                <View key={entry.id}>
+                // `layout` only, no second entrance: deleting an entry has to
+                // close the gap it leaves, but the day it belongs to has
+                // already announced itself.
+                <Animated.View key={entry.id} layout={LinearTransition.duration(REFLOW_MS)}>
                   {i > 0 ? <Divider inset={spacing.md} /> : null}
                   <EntryRow
                     entry={entry}
@@ -209,10 +224,10 @@ function ActivityBody({ period }: { period: Period }) {
                     habitName={entry.habitId ? names.habits.get(entry.habitId) : undefined}
                     onDelete={() => confirmDelete(entry)}
                   />
-                </View>
+                </Animated.View>
               ))}
             </Card>
-          </View>
+          </Animated.View>
         ))
       )}
 
@@ -261,8 +276,9 @@ function EntryRow({
   onDelete: () => void;
 }) {
   const { colors, spacing } = useTheme();
+  const press = usePressScale({ scale: 0.98 });
   return (
-    <Pressable
+    <AnimatedPressable
       // A tap has nowhere to go — the row is the record — so delete is exposed
       // as an explicit accessibility action rather than hidden behind a gesture.
       // It stays because voice cannot undo a log: `activity_log` writes, and no
@@ -274,10 +290,8 @@ function EntryRow({
         if (event.nativeEvent.actionName === 'longpress') onDelete();
       }}
       onLongPress={onDelete}
-      style={({ pressed }) => [
-        styles.entryRow,
-        { paddingHorizontal: spacing.md, opacity: pressed ? 0.6 : 1 },
-      ]}
+      {...press.handlers}
+      style={[styles.entryRow, { paddingHorizontal: spacing.md }, press.style]}
     >
       <View style={{ flex: 1, gap: 3 }}>
         <Txt variant="body" numberOfLines={2}>
@@ -300,7 +314,7 @@ function EntryRow({
           {formatDuration(entry.durationMinutes)}
         </Txt>
       ) : null}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -545,30 +559,12 @@ function ExportSheet({
             {EXPORT_ACTIONS.map((action, i) => (
               <View key={action.key}>
                 {i > 0 ? <Divider inset={44} /> : null}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={action.label}
-                  accessibilityState={{ busy: busy === action.key, disabled: busy !== null }}
+                <ExportRow
+                  action={action}
+                  running={busy === action.key}
                   disabled={busy !== null}
                   onPress={() => run(action)}
-                  style={({ pressed }) => [
-                    styles.actionRow,
-                    { paddingHorizontal: spacing.md, opacity: pressed || busy === action.key ? 0.6 : 1 },
-                  ]}
-                >
-                  <Ionicons name={action.icon} size={19} color={colors.accent} />
-                  <View style={{ flex: 1, gap: 1 }}>
-                    <Txt variant="bodyStrong">{action.label}</Txt>
-                    <Txt variant="micro" tone="tertiary">
-                      {action.hint}
-                    </Txt>
-                  </View>
-                  {busy === action.key ? (
-                    <Ionicons name="ellipsis-horizontal" size={16} color={colors.textTertiary} />
-                  ) : (
-                    <Ionicons name="chevron-forward" size={15} color={colors.textTertiary} />
-                  )}
-                </Pressable>
+                />
               </View>
             ))}
           </Card>
@@ -577,6 +573,58 @@ function ExportSheet({
         </SheetCard>
       </View>
     </Modal>
+  );
+}
+
+/**
+ * One export action, extracted because each needs its own animation state and
+ * a hook cannot be called from inside a `map`.
+ *
+ * `running` keeps its static 0.6 dim — that is the row saying it is working,
+ * not the row answering a finger, and the two must not be the same cue. This
+ * sits in a `Modal`, where an effect-driven shared value is the only mechanism
+ * that reliably runs.
+ */
+function ExportRow({
+  action,
+  running,
+  disabled,
+  onPress,
+}: {
+  action: ExportAction;
+  running: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const { colors, spacing } = useTheme();
+  const press = usePressScale({ scale: 0.98, disabled });
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={action.label}
+      accessibilityState={{ busy: running, disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      {...press.handlers}
+      style={[
+        styles.actionRow,
+        { paddingHorizontal: spacing.md, opacity: running ? 0.6 : 1 },
+        press.style,
+      ]}
+    >
+      <Ionicons name={action.icon} size={19} color={colors.accent} />
+      <View style={{ flex: 1, gap: 1 }}>
+        <Txt variant="bodyStrong">{action.label}</Txt>
+        <Txt variant="micro" tone="tertiary">
+          {action.hint}
+        </Txt>
+      </View>
+      {running ? (
+        <Ionicons name="ellipsis-horizontal" size={16} color={colors.textTertiary} />
+      ) : (
+        <Ionicons name="chevron-forward" size={15} color={colors.textTertiary} />
+      )}
+    </AnimatedPressable>
   );
 }
 

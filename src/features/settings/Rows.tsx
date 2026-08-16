@@ -7,24 +7,43 @@
  * is how two screens quietly drift apart.
  */
 import { Children, useEffect, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useSetSecret, type SecretSlot } from '@/hooks/useSystem';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
+import { still, tap } from '@/ui/motion';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { Button, Card, Divider, Input, Section, Toggle, Txt, useToast } from '@/ui/components';
 
+/**
+ * Every row on Settings and on the developer screen goes through here, so the
+ * arrival is written once — the same reasoning as `RowCard` on the task lists.
+ *
+ * Each card runs its own wave from zero. Settings is read heading by heading,
+ * and a single count across the whole screen would leave the last group waiting
+ * on twenty rows above it that the user is not looking at.
+ *
+ * `entering` and no `layout`: these rows are keyed by *position*, because a
+ * settings row has no id of its own. A row appearing or disappearing — a
+ * permission warning resolving, a group growing a field — therefore renumbers
+ * its neighbours, and a layout transition on identities that shuffle animates
+ * the wrong rows towards the wrong places.
+ */
 export function Group({ title, children }: { title: string; children: ReactNode }) {
   const { spacing } = useTheme();
+  const arrive = useStaggeredEntry({ from: 'below' });
   const rows = Children.toArray(children);
   return (
     <Section title={title}>
       <Card padded={false}>
         {rows.map((row, index) => (
-          <View key={index}>
+          <Animated.View key={index} entering={arrive(index)}>
             {index > 0 ? <Divider inset={spacing.md} /> : null}
             {row}
-          </View>
+          </Animated.View>
         ))}
       </Card>
     </Section>
@@ -49,6 +68,9 @@ export function Row({
   onPress?: () => void;
 }) {
   const { colors, spacing } = useTheme();
+  // A settings row runs the full width of a card; 0.98 is as far as something
+  // that wide can travel before the card looks like it is being squeezed.
+  const press = usePressScale({ scale: 0.98 });
   const body = (
     <View style={[styles.row, { paddingHorizontal: spacing.md, gap: spacing.md }]}>
       {icon ? <Ionicons name={icon} size={19} color={tone ? colors[tone] : colors.textSecondary} /> : null}
@@ -70,14 +92,15 @@ export function Row({
   );
   if (!onPress) return body;
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+      {...press.handlers}
+      style={press.style}
     >
       {body}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -149,6 +172,21 @@ export function SliderRow({
   };
   const fraction = max === min ? 0 : (shown - min) / (max - min);
 
+  // The fill and the thumb are driven from one shared value so they cannot
+  // disagree by a frame. While the finger is down it lands instantly — a spring
+  // under a drag reads as lag, not as weight. Everywhere else it springs: the
+  // snap to the nearest step on release, a rollback putting the old number
+  // back, and a VoiceOver increment, none of which have a finger to follow.
+  const travel = useSharedValue(fraction);
+  useEffect(() => {
+    travel.value = dragging ? still(fraction) : tap(fraction);
+  }, [fraction, dragging, travel]);
+
+  const fillStyle = useAnimatedStyle(() => ({ width: `${travel.value * 100}%` as `${number}%` }));
+  const thumbStyle = useAnimatedStyle(() => ({
+    left: Math.max(0, Math.min(Math.max(0, width - 16), travel.value * width - 8)),
+  }));
+
   const handleTouch = (x: number) => {
     if (width <= 0) return;
     setDragging(true);
@@ -187,24 +225,19 @@ export function SliderRow({
         style={styles.sliderTrackArea}
       >
         <View style={{ height: 4, borderRadius: radius.pill, backgroundColor: colors.surfaceSunken }}>
-          <View
-            style={{
-              height: 4,
-              borderRadius: radius.pill,
-              backgroundColor: colors.accent,
-              width: `${Math.round(fraction * 100)}%`,
-            }}
+          <Animated.View
+            style={[
+              { height: 4, borderRadius: radius.pill, backgroundColor: colors.accent },
+              fillStyle,
+            ]}
           />
         </View>
-        <View
+        <Animated.View
           pointerEvents="none"
           style={[
             styles.sliderThumb,
-            {
-              backgroundColor: colors.accent,
-              borderColor: colors.bg,
-              left: Math.max(0, Math.min(Math.max(0, width - 16), fraction * width - 8)),
-            },
+            { backgroundColor: colors.accent, borderColor: colors.bg },
+            thumbStyle,
           ]}
         />
       </View>

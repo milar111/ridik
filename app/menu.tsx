@@ -12,9 +12,11 @@
  * of, and then the things you set once.
  */
 import { View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Card, Divider, Screen, Section, Txt } from '@/ui/components';
+import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
 import { useNavigateOnce } from '@/ui/useNavigateOnce';
 
@@ -82,47 +84,60 @@ const GROUPS: { title: string; entries: Entry[] }[] = [
 export default function MenuScreen() {
   const nav = useNavigateOnce();
   const { colors, spacing } = useTheme();
+  // Five groups, not thirteen rows. `GROUPS` is a constant, so a per-row wave
+  // would be animating a fixed layout for its own sake — and with the cap at
+  // four steps the last eight rows would land together anyway, which reads as
+  // a stutter rather than a cascade. The headings are the list here.
+  //
+  // This screen is a sheet, but a *navigator* one — `presentation: 'modal'`,
+  // not a React Native `Modal` — so it is still inside the root view and gets
+  // the layout pass `entering` needs. The rule about layout animations in a
+  // `Modal` is about the component, not about anything that looks like a sheet.
+  const arrive = useStaggeredEntry({ from: 'below' });
 
   return (
     // Default bottom clearance, not none: the floating mic comes back on every
     // screen that is not home, and the last row has to stay clear of it.
     <Screen close title="Menu">
-      {GROUPS.map((group) => (
-        <Section key={group.title} title={group.title}>
-          <Card padded={false}>
-            {group.entries.map((entry, i) => (
-              <View key={entry.href}>
-                {i > 0 ? <Divider inset={48} /> : null}
-                <Card
-                  padded={false}
-                  // Replace, not push: the menu is a junction, not a step. Back
-                  // from Tasks should reach home, not the list you came through.
-                  onPress={() => nav.replace(entry.href as never)}
-                  style={{ borderWidth: 0, backgroundColor: 'transparent' }}
-                >
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: spacing.md,
-                      paddingVertical: 12,
-                      paddingHorizontal: spacing.md,
-                    }}
+      {GROUPS.map((group, index) => (
+        <Animated.View key={group.title} entering={arrive(index)}>
+          <Section title={group.title}>
+            <Card padded={false}>
+              {group.entries.map((entry, i) => (
+                <View key={entry.href}>
+                  {i > 0 ? <Divider inset={48} /> : null}
+                  <Card
+                    padded={false}
+                    // Replace, not push: the menu is a junction, not a step.
+                    // Back from Tasks should reach home, not the list you came
+                    // through.
+                    onPress={() => nav.replace(entry.href as never)}
+                    style={{ borderWidth: 0, backgroundColor: 'transparent' }}
                   >
-                    <Ionicons name={entry.icon} size={20} color={colors.accent} />
-                    <View style={{ flex: 1, gap: 1 }}>
-                      <Txt variant="bodyStrong">{entry.label}</Txt>
-                      <Txt variant="caption" tone="tertiary">
-                        {entry.hint}
-                      </Txt>
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: spacing.md,
+                        paddingVertical: 12,
+                        paddingHorizontal: spacing.md,
+                      }}
+                    >
+                      <Ionicons name={entry.icon} size={20} color={colors.accent} />
+                      <View style={{ flex: 1, gap: 1 }}>
+                        <Txt variant="bodyStrong">{entry.label}</Txt>
+                        <Txt variant="caption" tone="tertiary">
+                          {entry.hint}
+                        </Txt>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
                     </View>
-                    <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
-                  </View>
-                </Card>
-              </View>
-            ))}
-          </Card>
-        </Section>
+                  </Card>
+                </View>
+              ))}
+            </Card>
+          </Section>
+        </Animated.View>
       ))}
     </Screen>
   );

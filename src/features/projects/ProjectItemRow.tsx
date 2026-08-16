@@ -6,34 +6,42 @@
  * Both carry the same trailing menu button, so checkbox / move / delete are
  * always in the same place under the thumb.
  */
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { ProjectItem } from '@/db/schema';
 import { Checkbox, Txt } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
+import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { DueChip } from './Bits';
 import { ITEM_KIND_ICON, ITEM_KIND_LABEL } from './constants';
 
 function MenuButton({ label, onPress }: { label: string; onPress: () => void }) {
   const { colors } = useTheme();
+  // A bare 16pt glyph in a 32×44 box: nothing but the icon moves, so the travel
+  // has to be deeper than the default for the press to read at all. The box
+  // itself is untouched — a transform does not resize a hit target.
+  const press = usePressScale({ scale: 0.86 });
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={`Actions for ${label}`}
       onPress={onPress}
       hitSlop={8}
-      style={({ pressed }) => ({
-        width: 32,
-        height: 44,
-        alignItems: 'center',
-        justifyContent: 'center',
-        opacity: pressed ? 0.5 : 1,
-      })}
+      {...press.handlers}
+      style={[
+        {
+          width: 32,
+          height: 44,
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+        press.style,
+      ]}
     >
       <Ionicons name="ellipsis-vertical" size={16} color={colors.textTertiary} />
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -47,6 +55,10 @@ export function ProjectItemRow({
   onMenu: () => void;
 }) {
   const { colors, spacing } = useTheme();
+  // Above the `isCheckbox` branch: the same row can flip shape when its kind is
+  // edited, and a hook called in only one of the two returns changes order when
+  // it does.
+  const press = usePressScale({ scale: 0.98 });
 
   const trailing = (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
@@ -71,23 +83,26 @@ export function ProjectItemRow({
   }
 
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={`${ITEM_KIND_LABEL[item.kind]}: ${item.content}`}
       accessibilityHint="Opens item actions"
       onPress={onMenu}
       onLongPress={onMenu}
       testID={`project-item-${item.id}`}
-      style={({ pressed }) => ({
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        minHeight: 44,
-        paddingLeft: spacing.md,
-        paddingRight: spacing.xs,
-        paddingVertical: spacing.sm,
-        opacity: pressed ? 0.6 : 1,
-      })}
+      {...press.handlers}
+      style={[
+        {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 10,
+          minHeight: 44,
+          paddingLeft: spacing.md,
+          paddingRight: spacing.xs,
+          paddingVertical: spacing.sm,
+        },
+        press.style,
+      ]}
     >
       <Ionicons name={ITEM_KIND_ICON[item.kind]} size={16} color={colors.textTertiary} />
       <View style={{ flex: 1, gap: 1 }}>
@@ -99,6 +114,6 @@ export function ProjectItemRow({
         ) : null}
       </View>
       {trailing}
-    </Pressable>
+    </AnimatedPressable>
   );
 }

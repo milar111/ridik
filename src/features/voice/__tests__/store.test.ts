@@ -62,6 +62,51 @@ describe('voice store', () => {
     expect(useVoiceStore.getState().partial).toBe('remind me to');
   });
 
+  /**
+   * One turn at a time.
+   *
+   * Nothing used to stop a second `process()` starting while the first was
+   * still waiting on the model: the Send button is enabled on a non-empty draft
+   * alone, so ten taps in a second ran ten turns in parallel. Every one of them
+   * checked the budget against the same counters, every one of them billed, and
+   * the trial moved by one — which also meant a spent trial could be walked
+   * past by firing the batch before the last increment landed.
+   */
+  it('will not start a second turn while one is still in flight', async () => {
+    const waiting: (() => void)[] = [];
+    const calls: string[] = [];
+    registerVoicePipeline({
+      listen: async () => {},
+      stopListening: async () => {},
+      process: async (transcript) => {
+        calls.push(transcript);
+        await new Promise<void>((resolve) => {
+          waiting.push(resolve);
+        });
+        return { transcript, items: [] };
+      },
+      speak: async () => {},
+      stopSpeaking: async () => {},
+    });
+
+    const first = useVoiceStore.getState().submitText('note the resistors');
+    // Nine more taps on Send while the first is still thinking.
+    await Promise.all(
+      Array.from({ length: 9 }, () => useVoiceStore.getState().submitText('note the resistors')),
+    );
+
+    expect(calls).toHaveLength(1);
+
+    waiting.shift()!();
+    await first;
+
+    // And the dock is usable again the moment the turn lands.
+    const second = useVoiceStore.getState().submitText('and the capacitors');
+    expect(calls).toEqual(['note the resistors', 'and the capacitors']);
+    waiting.shift()!();
+    await second;
+  });
+
   it('flags a device with no recogniser so the UI can offer typing instead', async () => {
     const { impl, fire } = fakePipeline();
     registerVoicePipeline(impl);
