@@ -6,15 +6,7 @@
  * ask, or by keeping the voice path honest.
  */
 export { HomeMic } from './HomeMic';
-export { HomeExamples } from './HomeExamples';
 export { LastAction } from './LastAction';
-export {
-  buildExamples,
-  exampleWindow,
-  EXAMPLE_COUNT,
-  EXAMPLE_ROTATE_MS,
-  type ExampleSources,
-} from './examples';
 export { NextUpLine } from './NextUpLine';
 export { nextUp, type NextUp } from './next';
 export { useDailyBriefing } from './useDailyBriefing';

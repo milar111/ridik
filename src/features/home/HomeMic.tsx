@@ -41,6 +41,33 @@ import { useVoiceStore } from '@/features/voice/store';
 
 const DIAMETER = 138;
 
+/**
+ * How long the disc has to be held before it turns into a keyboard.
+ *
+ * Also passed to `delayLongPress`, so the ring finishing and the sheet opening
+ * are the same instant. Two numbers here would mean a ring that completes and
+ * then waits, or a sheet that opens over a half-drawn one — and a progress
+ * indicator that lies about its own threshold is worse than none.
+ */
+const HOLD_MS = 550;
+
+/**
+ * The resting caption, and the only place the keyboard is advertised.
+ *
+ * Typing used to have a pill beside the disc. It was removed because a second
+ * control next to the one control makes the screen a choice rather than an
+ * instrument — but the reason it existed has not gone away: a long press with
+ * no affordance is undiscoverable, and the people most likely to need typing
+ * are the ones who cannot talk to a phone right now and will not go hunting.
+ * So the gesture keeps an affordance; it is a word rather than a button, on a
+ * line that was already there and already read.
+ */
+const IDLE_CAPTION = 'Tap to speak · hold to type';
+
+/* The same sentence for a screen reader: sentence case rather than the drawn
+   line's shouting, and "hold" spelled out as the instruction it is. */
+const SPOKEN_IDLE = 'Tap to speak, or hold to type instead.';
+
 /** What the button is doing, in the fewest words that are still true. */
 const CAPTION: Record<string, string> = {
   listening: 'Listening · tap to send',
@@ -69,7 +96,7 @@ const SPOKEN: Record<string, string> = {
 };
 
 export function HomeMic() {
-  const { colors, radius, spacing } = useTheme();
+  const { colors, spacing } = useTheme();
   const reduced = useReducedMotion();
 
   const status = useVoiceStore((s) => s.status);
@@ -83,9 +110,11 @@ export function HomeMic() {
   // second tap landing inside the release carries the current velocity instead
   // of restarting the spring from wherever it had got to.
   const press = usePressScale({ scale: 0.94 });
-  const typePress = usePressScale({ scale: 0.94 });
   const lit = useSharedValue(0);
   const ring = useSharedValue(0);
+  // 0→1 across HOLD_MS while the disc is held. The only thing that says a hold
+  // is doing something before it has done it.
+  const hold = useSharedValue(0);
 
   useEffect(() => {
     lit.value = fade(listening ? 1 : 0);
@@ -107,6 +136,40 @@ export function HomeMic() {
     opacity: lit.value * (1 - ring.value) * 0.9,
     transform: [{ scale: 1 + ring.value * 0.42 }],
   }));
+
+  /**
+   * The hold, made visible.
+   *
+   * A collar that closes onto the disc rather than a bar that fills: the disc
+   * is round and under a thumb, so the only free direction is outward, and a
+   * shape arriving at the edge you are already touching reads as "nearly" in a
+   * way a distant progress bar does not. It starts wide and loose and tightens
+   * to the rim exactly as the threshold is met, so the moment the keyboard
+   * appears is the moment the ring lands — see HOLD_MS.
+   *
+   * `colors.text` and not the ember: this sits on the hottest part of the
+   * field, where an accent-coloured hairline disappears.
+   */
+  const holdStyle = useAnimatedStyle(() => ({
+    opacity: hold.value * 0.85,
+    transform: [{ scale: 1.5 - hold.value * 0.46 }],
+  }));
+
+  const startHold = () => {
+    press.onPressIn();
+    if (reduced) return;
+    hold.value = 0;
+    hold.value = withTiming(1, { duration: HOLD_MS, easing: Easing.linear });
+  };
+
+  // Cancelled *and* completed both land here — a hold that succeeded has the
+  // sheet over it, so leaving the collar drawn would park it under the sheet
+  // and reveal it again on dismiss.
+  const endHold = () => {
+    press.onPressOut();
+    cancelAnimation(hold);
+    hold.value = fade(0);
+  };
 
   const icon: keyof typeof Ionicons.glyphMap =
     status === 'thinking' ? 'ellipsis-horizontal' : status === 'speaking' ? 'volume-high' : 'mic';
@@ -134,6 +197,11 @@ export function HomeMic() {
           pointerEvents="none"
           style={[styles.ring, { borderColor: colors.text }, ringStyle]}
         />
+        <Animated.View
+          testID="home-mic-hold"
+          pointerEvents="none"
+          style={[styles.ring, { borderColor: colors.text }, holdStyle]}
+        />
         <AnimatedPressable
           testID="home-mic"
           accessibilityRole="button"
@@ -143,12 +211,14 @@ export function HomeMic() {
           // nothing a screen reader can see. `busy` is the same fact in the one
           // vocabulary both platforms already speak.
           accessibilityState={{ busy: status === 'thinking' || status === 'speaking' }}
-          {...press.handlers}
+          onPressIn={startHold}
+          onPressOut={endHold}
           onPress={() => {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
             if (listening) void stopListening();
             else void startListening();
           }}
+          delayLongPress={HOLD_MS}
           onLongPress={() => {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
             startTyping();
@@ -174,58 +244,10 @@ export function HomeMic() {
         // The drawn line is upper-cased and elided to one line; neither is
         // something to read out. What is spoken is the sentence, or the words
         // heard so far in full.
-        accessibilityLabel={showingPartial ? partial : (spoken ?? 'Tap to speak.')}
+        accessibilityLabel={showingPartial ? partial : (spoken ?? SPOKEN_IDLE)}
       >
-        {(listening && partial ? partial : (CAPTION[status] ?? 'Tap to speak')).toUpperCase()}
+        {(listening && partial ? partial : (CAPTION[status] ?? IDLE_CAPTION)).toUpperCase()}
       </Txt>
-
-      {/*
-        The visible way to type.
-
-        It was a long-press on the disc and nothing else — a gesture with no
-        affordance, which is exactly the wrong thing to hide behind for the
-        people who most need it: nobody talks to a phone on a train, and an
-        infrequent user who cannot see a way in decides the app is not for them
-        rather than discovering one.
-
-        Absolutely positioned, and that is not a detail. The disc is fixed
-        under the thumb by design, so anything added beside it must take no
-        part in the layout that centres it — a control in flow would push the
-        one control the product is built around a few points up the screen.
-        Anchored to the caption's own line, where it reads as part of the same
-        sentence, and hidden once a session is live, when the caption is the
-        transcript and this is a second thing to read.
-      */}
-      {status === 'idle' ? (
-        <AnimatedPressable
-          testID="home-type"
-          accessibilityRole="button"
-          accessibilityLabel="Type instead of speaking"
-          {...typePress.handlers}
-          onPress={() => {
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-            startTyping();
-          }}
-          hitSlop={10}
-          style={[
-            styles.type,
-            {
-              backgroundColor: colors.surface,
-              borderColor: colors.border,
-              borderRadius: radius.pill,
-            },
-            typePress.style,
-          ]}
-        >
-          <Ionicons name="create-outline" size={13} color={colors.textSecondary} />
-          {/* Explicit width and centred: Android does not count `letterSpacing`
-              when it measures a line, so a tracked label sized to its own
-              content is ellipsised a character early. */}
-          <Txt variant="eyebrow" tone="secondary" style={styles.typeLabel}>
-            TYPE
-          </Txt>
-        </AnimatedPressable>
-      ) : null}
     </View>
   );
 }
@@ -251,20 +273,4 @@ const styles = StyleSheet.create({
   // not count `letterSpacing` when it measures a line, so a tracked label sized
   // to its own content gets ellipsised a character or two early — "TAP TO S…".
   caption: { textAlign: 'center', minHeight: 16, width: '100%' },
-  // Out of the flow entirely, on the caption's line at the right edge of the
-  // 300pt column: the caption is centred text and short at rest, so the two
-  // never meet. `bottom: 0` grows it upward into the gap above rather than
-  // downward into the receipt.
-  type: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  typeLabel: { width: 34, textAlign: 'center' },
 });

@@ -1,5 +1,7 @@
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 
@@ -171,7 +173,7 @@ describe('home screen', () => {
     expect(screen.getByTestId('home-mic')).toBeTruthy();
     expect(screen.getByTestId('home-menu')).toBeTruthy();
     expect(screen.getByTestId('home-profile')).toBeTruthy();
-    expect(screen.getByText('TAP TO SPEAK')).toBeTruthy();
+    expect(screen.getByText('TAP TO SPEAK · HOLD TO TYPE')).toBeTruthy();
   });
 
   it('shows what is next and when to leave for it', async () => {
@@ -260,24 +262,20 @@ describe('home screen', () => {
    * the things it counted. So the single undocumented gesture into the text box
    * opened a sheet with every branch false — an invisible affordance that was
    * also broken.
+   *
+   * It is a gesture again, deliberately: a second control beside the one
+   * control turns an instrument into a choice. What may not come back with it
+   * is the invisibility — the caption says the gesture exists, and the collar
+   * says it is being counted while the thumb is still down.
    */
   describe('the way in for somebody who will not talk to a phone', () => {
-    it('puts a visible control beside the caption', async () => {
+    it('says the gesture exists, on the line that was already there', async () => {
       await wrap();
-      expect(screen.getByTestId('home-type')).toBeTruthy();
-      expect(screen.getByText('TYPE')).toBeTruthy();
+      expect(screen.getByText('TAP TO SPEAK · HOLD TO TYPE')).toBeTruthy();
+      // And nothing else to press. The pill is what was removed.
+      expect(screen.queryByTestId('home-type')).toBeNull();
     });
 
-    it('opens the sheet with the box up', async () => {
-      await wrap();
-      await fireEvent.press(screen.getByTestId('home-type'));
-
-      expect(useVoiceStore.getState().typing).toBe(true);
-      expect(useVoiceStore.getState().expanded).toBe(true);
-    });
-
-    /* The gesture still works, and now reaches the same state rather than an
-       empty sheet. */
     it('is what the long press has always meant', async () => {
       await wrap();
       await fireEvent(screen.getByTestId('home-mic'), 'longPress');
@@ -286,17 +284,27 @@ describe('home screen', () => {
       expect(useVoiceStore.getState().expanded).toBe(true);
     });
 
-    /**
-     * The one thing this control may not do. The disc is fixed under the thumb
-     * by design — every launch puts it in the same place — so anything added
-     * beside it has to be out of the flow that centres it.
-     */
-    it('takes no part in the layout that holds the disc still', async () => {
+    /* A hold with no feedback is indistinguishable from a tap that missed, for
+       exactly as long as the hold lasts. */
+    it('draws something while the hold is being counted', async () => {
       await wrap();
-      const style = StyleSheet.flatten(screen.getByTestId('home-type').props.style) as {
-        position?: string;
-      };
-      expect(style.position).toBe('absolute');
+      expect(screen.getByTestId('home-mic-hold')).toBeTruthy();
+    });
+
+    /**
+     * A tap must stay a tap, and the collar must not lie about when it fires.
+     *
+     * Read from the source because the prop is not reachable: `home-mic` is an
+     * animated `Pressable`, and RNTL hands back the host view it renders, which
+     * carries none of Pressable's own props. What matters is not the number but
+     * that there is only *one* of it — a hard-coded `delayLongPress` beside a
+     * separately-timed animation is a collar that completes early or late, and
+     * the drift would only ever show up on a device.
+     */
+    it('times the collar and the gesture from one constant', () => {
+      const source = readFileSync(join(__dirname, '..', 'HomeMic.tsx'), 'utf8');
+      expect(source).toMatch(/delayLongPress=\{HOLD_MS\}/);
+      expect(source).toMatch(/duration: HOLD_MS/);
     });
 
     it('gets out of the way once the caption is a transcript', async () => {
@@ -304,38 +312,28 @@ describe('home screen', () => {
       await act(async () => {
         useVoiceStore.setState({ status: 'listening' });
       });
-      expect(screen.queryByTestId('home-type')).toBeNull();
+      expect(screen.queryByText(/HOLD TO TYPE/)).toBeNull();
     });
   });
 
   /**
-   * The other half of the blank screen. `LastAction` renders nothing until
-   * something has been said, which is every cold start — so a fresh install's
-   * first impression was a microphone and no indication of what to say into it,
-   * or that it takes questions at all.
+   * The resting screen is a microphone and nothing else.
+   *
+   * There was a rotating list of example sentences under it, on the grounds
+   * that a cold start otherwise says nothing about what to say. It was removed:
+   * the empty state is not a rare screen, it is the state the app is in every
+   * time it is opened and not yet spoken to, and furnishing it with suggestions
+   * made the resting product a page of advice rather than an instrument.
    */
-  describe('the cold start', () => {
-    it('suggests things to say, and says that questions count', async () => {
+  describe('the resting screen', () => {
+    it('offers nothing to read under the microphone', async () => {
       await wrap();
 
-      expect(screen.getByText('SAY OR ASK')).toBeTruthy();
-      // Whatever the rotation is showing, one of the three is a question: the
-      // pool alternates, and that is what makes `search` findable at all.
-      expect(screen.getAllByText(/\?”$/).length).toBeGreaterThan(0);
+      expect(screen.queryByText('SAY OR ASK')).toBeNull();
+      expect(screen.getByTestId('home-mic')).toBeTruthy();
     });
 
-    it('draws them from what this person actually keeps', async () => {
-      mockLists = [{ name: 'Hardware' }];
-      mockHabits = [{ name: 'Gym' }];
-
-      await wrap();
-
-      expect(screen.getByText('“What’s on my Hardware list?”')).toBeTruthy();
-      expect(screen.getByText('“Log Gym”')).toBeTruthy();
-    });
-
-    /* Examples are for the empty space, not for the space over a receipt. */
-    it('gives the space back the moment there is something to report', async () => {
+    it('still reports the moment there is something to report', async () => {
       await wrap();
 
       await act(async () => {
@@ -348,32 +346,12 @@ describe('home screen', () => {
       });
 
       expect(await screen.findByText('Logged Gym.')).toBeTruthy();
-      expect(screen.queryByText('SAY OR ASK')).toBeNull();
     });
 
-    /* And not under a failure: the sheet is already open saying why, and a list
-       of other things to try reads as the app changing the subject. */
-    it('stays away after a turn that wrote nothing', async () => {
-      await wrap();
-
-      await act(async () => {
-        useVoiceStore.setState({
-          outcome: {
-            transcript: 'delete everything',
-            items: [{ toolName: 'note_delete', ok: false, summary: 'I could not find that note.' }],
-          },
-        });
-      });
-
-      expect(screen.queryByText('SAY OR ASK')).toBeNull();
-    });
-
-    /* And not over a turn that never produced an outcome at all. A turn that
-       *throws* leaves `outcome` null and its transcript in `recovered`, which
-       home draws directly above this — so keying the examples on `outcome`
-       alone would put a list of cheerful suggestions under "NOT SENT — KEPT",
-       which is the same changing-the-subject failure as the case above. */
-    it('stays away over a transcript the app is still holding', async () => {
+    /* A turn that *throws* leaves `outcome` null and its transcript in
+       `recovered`, which home draws directly above the receipt — the path that
+       is the reason the receipt's own gate is not simply `outcome`. */
+    it('holds a transcript the app could not send', async () => {
       await wrap();
 
       await act(async () => {
@@ -381,22 +359,6 @@ describe('home screen', () => {
       });
 
       expect(screen.getByTestId('unsent-transcript')).toBeTruthy();
-      expect(screen.queryByText('SAY OR ASK')).toBeNull();
-    });
-
-    /* The third shape of a failure: a session that heard nothing has no
-       outcome and nothing to recover, only the error the sheet is showing.
-       Two things hold this — the gate in `LastAction` and `HomeExamples`
-       refusing to draw over a status that is not idle — and it is asserted
-       here as the behaviour rather than as either mechanism. */
-    it('stays away over a session that recorded nothing', async () => {
-      await wrap();
-
-      await act(async () => {
-        useVoiceStore.setState({ status: 'error', error: 'I did not catch that.', heardNothing: true });
-      });
-
-      expect(screen.queryByText('SAY OR ASK')).toBeNull();
     });
   });
 

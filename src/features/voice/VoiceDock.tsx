@@ -400,8 +400,14 @@ export function VoiceDock() {
               {
                 backgroundColor: colors.surface,
                 borderColor: colors.border,
-                borderTopLeftRadius: radius.xl,
-                borderTopRightRadius: radius.xl,
+                // Rounded when it floats, square when it is docked to the
+                // keyboard. A sheet with a big top radius sitting on a
+                // square-cornered keyboard reads as two stacked panels with a
+                // sliver of the page showing between them, which is exactly
+                // what it is and exactly what it should not look like: while
+                // you are typing, the sheet and the keys are one surface.
+                borderTopLeftRadius: typing ? 0 : radius.xl,
+                borderTopRightRadius: typing ? 0 : radius.xl,
                 paddingBottom: insets.bottom + spacing.lg,
                 gap: spacing.md,
               },

@@ -27,7 +27,6 @@ import { useVoiceUndo } from '@/hooks/useVoiceUndo';
 import { SPRING_ENTER } from '@/ui/motion';
 import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { elevate } from '@/ui/shadow';
-import { HomeExamples } from './HomeExamples';
 import { lastUndoable } from './undo';
 
 /**
@@ -97,23 +96,14 @@ export function LastAction() {
   // Nothing applied is several situations and only one of them is empty.
   //
   // Before anything has been said at all — every cold start — this space is the
-  // only room the app has to say what it is for, so it gets examples. After a
-  // turn that went wrong it stays blank: the failure is already on screen with
-  // its reason, and a list of other things to try underneath it reads as the
-  // app changing the subject.
+  // Nothing at all when there is no receipt.
   //
-  // A failure is three different states rather than one, which is why the test
-  // is not simply `outcome`. A turn that ran and wrote nothing has an outcome;
-  // a turn that threw has none but has kept its transcript, and `UnsentTranscript`
-  // is drawn directly above this on home; a session that heard nothing at all
-  // has neither, only the error. Examples belong under none of them.
-  //
-  // Below the announcement above, not above it: this return is conditional and
-  // `useAnnounceOnIOS` is a hook, so moving it up would change the hook order
-  // the moment the receipt had nothing to show.
-  if (!headline || !receipt) {
-    return outcome || recovered || error ? null : <HomeExamples />;
-  }
+  // There used to be a list of example sentences here. It was the only room
+  // the app had to say what it was for, and it was removed deliberately: the
+  // examples were permanent furniture on the resting screen, so the state a
+  // user sees most of the time was a page of suggestions rather than an
+  // instrument at rest. The mic and its caption already say what to do.
+  if (!headline || !receipt) return null;
 
   const runUndo = () => {
     if (!undoable) return;
