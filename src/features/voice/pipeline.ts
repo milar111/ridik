@@ -120,7 +120,7 @@ export const voiceEffects: ExecutorEffects = {
 const mockClient = createLlmClient({ provider: createMockProvider(), logger: log });
 
 let geminiKey: string | null = null;
-let gemini: { model: string | undefined; client: LlmClient } | null = null;
+let gemini: { model: string | undefined; schemaRung: number; client: LlmClient } | null = null;
 
 export type TurnClient = {
   client: LlmClient;
@@ -226,14 +226,21 @@ async function clientForTurn(transcript: string): Promise<TurnClient> {
   if (budget.blocked !== null) return refused(budget);
 
   const model = await preferredGeminiModel();
-  if (!gemini || gemini.model !== model) {
+  const schemaRung = await preferredSchemaRung();
+  // The rung is baked into the provider, so a change to it has to rebuild the
+  // client the same way a model change does — otherwise flipping the setting
+  // appears to do nothing until the app is restarted, which is precisely the
+  // kind of silence that makes a measurement untrustworthy.
+  if (!gemini || gemini.model !== model || gemini.schemaRung !== schemaRung) {
     gemini = {
       model,
+      schemaRung,
       client: createLlmClient({
         // A getter, so a rotated key takes effect without rebuilding anything.
         provider: createGeminiProvider({
           apiKey: () => geminiKey,
           ...(model ? { model } : {}),
+          startRung: schemaRung,
         }),
         logger: log,
       }),
@@ -397,6 +404,20 @@ async function assistantBudget(options: BudgetOptions): Promise<TurnBudget> {
     trial: budget.metersTrial,
     estimatedTokens,
   };
+}
+
+/**
+ * Which rung of the schema ladder to start on. Total: an unreadable setting
+ * must not decide how the assistant talks to the model, so it falls to 0 —
+ * the strict schema, which is the safe end of the trade.
+ */
+async function preferredSchemaRung(): Promise<number> {
+  try {
+    return await getRepositories().settings.get('llmSchemaRung');
+  } catch (error) {
+    log.warn('could not read the schema rung setting', error);
+    return 0;
+  }
 }
 
 /**

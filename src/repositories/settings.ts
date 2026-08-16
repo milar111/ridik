@@ -107,6 +107,22 @@ export const SETTINGS = {
    * if the provider changes its prices. 0 means unlimited. Past the cap, voice
    * still works — it falls back to offline pattern matching.
    */
+  /**
+   * Where Gemini's schema ladder starts. 0 = strict schema, 1 = envelope only.
+   *
+   * The strict schema is ~4,626 tokens of every request — the single largest
+   * line item — and dropping it reads like free money. It is not: it buys
+   * constrained decoding over 22 tools, and the repair calls it prevents cost
+   * more than the tokens it spends. Break-even is an extra repair on 45% of
+   * requests and nothing has yet run against a real key, so this ships at 0
+   * and exists to be measured rather than argued about: `llm_usage.calls`
+   * over `llm_usage.requests` is the repair rate, on whichever rung is set.
+   *
+   * Developer-only. A stranger setting this to 1 would make the assistant
+   * less reliable and cost more, which is exactly the test AGENTS.md sets for
+   * what may not go on the Settings screen.
+   */
+  llmSchemaRung: define(z.union([z.literal(0), z.literal(1)]), () => 0),
   llmDailyRequestCap: define(z.number().int().min(0).max(100_000), () => 200),
   llmMonthlyRequestCap: define(z.number().int().min(0).max(1_000_000), () => 3_000),
 

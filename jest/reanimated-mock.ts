@@ -66,6 +66,18 @@ module.exports = {
 
   useSharedValue,
   useAnimatedStyle: (factory: () => Anything) => factory(),
+  /**
+   * For gesture-handler, not for this app's own code.
+   *
+   * `GestureDetector` calls `Reanimated.useEvent` on every render, so without
+   * it any suite that mounts a sheet — the voice dock, a bottom sheet with a
+   * drag handle — dies before its first assertion. Returns an inert handler
+   * because these tests assert what is on screen, never what a gesture did:
+   * a gesture cannot be driven from RNTL anyway, which is the same reason
+   * AGENTS.md warns that a GestureDetector inside a Modal fails silently.
+   */
+  useEvent: () => () => {},
+  useHandler: () => ({ context: {}, doDependenciesDiffer: false }),
   useDerivedValue: <T,>(factory: () => T) => ({ value: factory() }),
   useAnimatedRef: () => ({ current: null }),
   useAnimatedReaction: () => {},

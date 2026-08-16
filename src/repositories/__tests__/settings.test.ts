@@ -69,6 +69,7 @@ describe('settings repository', () => {
         whisperFallbackEnabled: true,
         ember: 'ember',
         confirmMode: 'irreversible',
+        llmSchemaRung: 0,
       });
     });
 

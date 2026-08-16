@@ -36,6 +36,23 @@ export type GeminiProviderOptions = {
    * unset — the normal case — hands the provider the ladder below.
    */
   responseSchema?: unknown;
+  /**
+   * Where the schema ladder starts. 0 is the strict schema, 1 the envelope.
+   *
+   * The strict schema is ~4,626 tokens of every call and buys constrained
+   * decoding across 22 tools; the envelope leaves `parameters` free-form and
+   * leans on the repair loop instead. Dropping it therefore looks like an
+   * unconditional saving and is not one: at $0.25/M input it saves $0.00116 a
+   * call, and one extra schema repair — which resends the rejected reply plus
+   * the validator's complaints — costs $0.00259. The break-even is an extra
+   * repair on 45% of requests, and no turn has ever been taken against a real
+   * key, so that rate is unmeasured.
+   *
+   * Hence a dial rather than a decision. `llm_usage` already records `calls`
+   * and `requests`, so calls-per-request IS the repair rate: run a while on
+   * each rung and the arithmetic answers itself.
+   */
+  startRung?: number;
 };
 
 /** Exposes which rung of the schema ladder is in force, for tests and diagnostics. */
@@ -149,7 +166,10 @@ export function createGeminiProvider(options: GeminiProviderOptions): GeminiProv
   };
 
   const rungs = options.responseSchema === undefined ? ladder() : null;
-  let rung = 0;
+  // Clamped, not trusted: a hand-edited setting must not index off the end of
+  // the ladder and send `undefined` as the schema, which Gemini rejects with a
+  // 400 that reads as an outage.
+  let rung = Math.min(Math.max(options.startRung ?? 0, 0), rungs ? rungs.length - 1 : 0);
 
   const readKey = (): string => {
     const raw = typeof options.apiKey === 'function' ? options.apiKey() : options.apiKey;
