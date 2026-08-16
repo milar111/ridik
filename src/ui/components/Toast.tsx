@@ -88,8 +88,23 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 function ToastStack({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: string) => void }) {
   const { colors, radius, spacing } = useTheme();
   const insets = useSafeAreaInsets();
-  if (toasts.length === 0) return null;
 
+  /*
+   * The container stays mounted even with nothing in it, and that is not a
+   * tidiness question — it is the difference between a toast appearing and not.
+   *
+   * This used to `return null` while the stack was empty, so the first toast
+   * mounted its `Animated.View` into a host view created in the same commit.
+   * Reanimated starts an `entering` animation from opacity 0 and needs the
+   * parent to have been laid out to schedule it; with the parent brand new the
+   * animation never ran and the toast sat invisible for its whole lifetime,
+   * then "exited". Every toast in the app was affected — the voice receipt, the
+   * undo offer, every error — and nothing looked broken, because a toast that
+   * never appears is indistinguishable from one that was never raised.
+   *
+   * An empty `box-none` view has no pixels and takes no touches, so leaving it
+   * mounted costs nothing.
+   */
   const toneColor: Record<ToastTone, string> = {
     neutral: colors.textSecondary,
     success: colors.success,

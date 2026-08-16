@@ -20,6 +20,8 @@ Worth knowing first, because it decides how much of this is one-time work.
 | **Which plan is badged** | Same metadata → `highlight`: `"monthly"` or `"yearly"` | Same |
 | **Free-trial length** | App Store Connect / Play Console, on the product | Next launch |
 | **Assistant model, spend caps** | In-app: Profile → tap Version ×7 → Developer | Immediately |
+| **The entitlement's name** | RevenueCat, plus `EXPO_PUBLIC_REVENUECAT_ENTITLEMENT` | Next build — no code |
+| **Which RevenueCat / OneSignal project** | `EXPO_PUBLIC_REVENUECAT_*`, `EXPO_PUBLIC_ONESIGNAL_APP_ID` | Next build — no code |
 
 Everything else — screens, copy outside the paywall, the palette — is code and
 needs a release.
@@ -58,34 +60,35 @@ Nothing secret belongs in this repository. Two kinds of value:
    Android package `ai.raisen.ridik`.
 2. Create your subscription products **in the stores first** (§4), then import
    them into RevenueCat.
-3. Create an **entitlement** with the exact identifier `assistant`, and attach
-   every product to it. Plans differ by *allowance*, not by feature, so they all
-   grant the same entitlement — how much it allows is read from the product
-   identifier, which must contain `light`, `standard` or `unlimited`. Anything
-   unrecognised is treated as `standard`: a mis-named product should under-serve
-   and be noticed, never hand out an uncapped assistant by accident.
+3. Create an **entitlement** and attach every product to it. Plans differ by
+   *allowance*, not by feature, so they all grant the same entitlement — how
+   much it allows is read from the product identifier, which must contain
+   `light`, `standard` or `unlimited`. Anything unrecognised is treated as
+   `standard`: a mis-named product should under-serve and be noticed, never hand
+   out an uncapped assistant by accident.
 
-   The entitlement identifier must be exactly `assistant` — the app looks up
-   that string, and a different one silently means nobody is ever subscribed.
+   The app looks up **one** entitlement identifier and a mismatch is silent —
+   everybody simply looks unsubscribed. It defaults to `assistant`, which is
+   what shipped; call it something else (`Ridik Pro`) and set
+   `EXPO_PUBLIC_REVENUECAT_ENTITLEMENT` to match. Rename it in the dashboard and
+   in that variable together and no code changes.
 4. Create an **offering**, mark it current, and add a package per product using
    RevenueCat's standard identifiers: `$rc_monthly` and `$rc_annual`.
 5. Copy the two **public SDK keys** (they start `appl_` and `goog_`).
 
-Then, in `app.config.ts`:
-
-```ts
-extra: {
-  revenueCat: {
-    ios: 'appl_xxxxxxxxxxxxxxxxxxxx',
-    android: 'goog_xxxxxxxxxxxxxxxxxxxx',
-  },
-},
-```
-
-And install the SDK:
+`app.config.ts` reads all three from the environment, so nothing about your
+project is committed:
 
 ```bash
-npx expo install react-native-purchases
+EXPO_PUBLIC_REVENUECAT_IOS_KEY=appl_xxxxxxxxxxxxxxxxxxxx
+EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=goog_xxxxxxxxxxxxxxxxxxxx
+EXPO_PUBLIC_REVENUECAT_ENTITLEMENT=assistant   # only if you renamed it
+```
+
+The SDK is already installed (`react-native-purchases`). After changing any of
+these, rebuild — they are compiled in:
+
+```bash
 npx expo prebuild --clean
 ```
 
@@ -133,6 +136,42 @@ keeps its own calendar and can still mirror to the phone's.
 
 Only for the map picker in Places, and **Android only** — iOS uses Apple Maps
 with no key. Full steps in `SETUP.md` §5c.
+
+### 2.5 OneSignal — remote push (optional)
+
+Only for pushes the *server* sends. Everything the app schedules for itself —
+reminders, the briefing, location alerts — is `expo-notifications` and needs
+none of this.
+
+1. Create a OneSignal app; add both platforms (iOS bundle id and Android
+   package are both `ai.raisen.ridik`).
+2. iOS needs an **APNs .p8 key** uploaded to OneSignal, and push enabled on the
+   provisioning profile. Android needs the **Firebase service account JSON**.
+   Both live in the OneSignal dashboard, never in this repo.
+3. Set the App ID — it is a public identifier, and the SDK takes it at runtime,
+   so it is the only value the app needs:
+
+```bash
+EXPO_PUBLIC_ONESIGNAL_APP_ID=00000000-0000-0000-0000-000000000000
+```
+
+Unset, the app initialises nothing and behaves exactly as it did before push
+existed.
+
+One thing *is* compiled in and cannot be changed from a dashboard: `mode` in the
+`onesignal-expo-plugin` entry writes the `aps-environment` entitlement. Store
+and TestFlight builds must be built with `ONESIGNAL_MODE=production`; anything
+else silently receives no pushes on iOS, because a development entitlement
+listens to the sandbox APNs host and Apple sends to the live one.
+
+```bash
+ONESIGNAL_MODE=production npx expo prebuild --clean
+```
+
+The plugin also adds a **Notification Service Extension** target to the iOS
+project (confirmed delivery, badges, images). It sits alongside the WidgetKit
+target and shares nothing with it but the App Group list, which both plugins
+append to rather than overwrite.
 
 ---
 

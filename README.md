@@ -141,6 +141,18 @@ EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=…
 EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=…
 ```
 
+Subscriptions and remote push are the same shape — publishable identifiers, read
+from the environment, and each subsystem no-ops when its value is missing rather
+than failing. `DEPLOY.md` §2 has the dashboard steps.
+
+```bash
+EXPO_PUBLIC_REVENUECAT_IOS_KEY=appl_…      # unset → the sandbox billing provider
+EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=goog_…
+EXPO_PUBLIC_REVENUECAT_ENTITLEMENT=…       # unset → `assistant`
+EXPO_PUBLIC_ONESIGNAL_APP_ID=…             # unset → no remote push
+ONESIGNAL_MODE=production                  # build-time only; store builds need it
+```
+
 ## Testing
 
 Two Jest projects:

@@ -134,6 +134,13 @@ export default function RootLayout() {
                       swipe is a sheet some people cannot leave. */}
                   <Stack.Screen name="menu" options={SHEET} />
                   <Stack.Screen name="briefing" options={SHEET} />
+                  {/* Where a web purchase lands: Stripe's success_url opens
+                      `ridik:///unlock?session=…` and expo-router matches it
+                      here, the same way every other deep link in this app is
+                      matched. It fades because it is a beat, not a place —
+                      sliding it in from the right would announce a screen the
+                      user is about to be taken straight off again. */}
+                  <Stack.Screen name="unlock" options={{ animation: 'fade' }} />
                 </Stack>
                 {/* Mounted above every route so a thought can be captured from
                     wherever you are. It draws its own floating mic everywhere

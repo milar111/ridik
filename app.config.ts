@@ -183,6 +183,22 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     [
+      // Push, through OneSignal. The App ID is *not* a plugin prop — the SDK
+      // takes it at runtime (`extra.oneSignal.appId` below), so a build carries
+      // the native capability and the dashboard owns which app it talks to.
+      // `mode` is the one thing that must be compiled in: it writes the
+      // `aps-environment` entitlement, and a production build signed with the
+      // development value silently receives no pushes from the live APNs host.
+      'onesignal-expo-plugin',
+      {
+        mode: process.env.ONESIGNAL_MODE === 'production' ? 'production' : 'development',
+        // Must match `expo-build-properties` below. The plugin's own default is
+        // older than this app's floor, and CocoaPods fails the whole workspace
+        // when an extension target undershoots the pods it links.
+        iPhoneDeploymentTarget: '16.4',
+      },
+    ],
+    [
       'expo-build-properties',
       {
         ios: { deploymentTarget: '16.4' },
@@ -240,6 +256,32 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     legal: {
       privacy: process.env.EXPO_PUBLIC_PRIVACY_URL ?? '',
       terms: process.env.EXPO_PUBLIC_TERMS_URL ?? '',
+    },
+    /**
+     * RevenueCat. The two SDK keys are *publishable* — they are meant to be in
+     * the binary — but they still come from the environment so a fork, a demo
+     * build and the store build can each point at their own project without a
+     * diff. `src/services/billing/revenuecat.ts` treats an empty key as "not
+     * configured" and falls back to the development provider.
+     *
+     * `entitlement` is the identifier the dashboard hands out on a successful
+     * purchase, and it is the single string that decides whether anybody is
+     * subscribed. Naming it here means the entitlement can be renamed in
+     * RevenueCat without a release; `assistant` is what shipped, so it stays
+     * the fallback and an unset env var changes nothing.
+     */
+    revenueCat: {
+      ios: process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? '',
+      android: process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? '',
+      entitlement: process.env.EXPO_PUBLIC_REVENUECAT_ENTITLEMENT ?? 'assistant',
+    },
+    /**
+     * OneSignal. Unset means no push app is configured and the runtime must
+     * no-op rather than initialise against a wrong id — the same
+     * capability-detected shape as `revenueCat` above and the widget bridge.
+     */
+    oneSignal: {
+      appId: process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '',
     },
     googleOAuth: {
       iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '',

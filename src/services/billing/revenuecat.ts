@@ -14,11 +14,14 @@
  * To make this the live provider:
  *   1. `npx expo install react-native-purchases`
  *   2. Create the subscription products in App Store Connect and Play Console,
- *      then an entitlement called `assistant` in RevenueCat with both attached,
- *      and an offering whose packages are the monthly and yearly ones.
+ *      then an entitlement in RevenueCat with both attached, and an offering
+ *      whose packages are the monthly and yearly ones. The entitlement is
+ *      `assistant` unless `extra.revenueCat.entitlement` says otherwise.
  *   3. Put the two public SDK keys in `app.config.ts` under
- *      `extra.revenueCat = { ios, android }`. They are publishable keys and
- *      belong in the build; the secret key never goes near the app.
+ *      `extra.revenueCat = { ios, android }` — in practice via the
+ *      `EXPO_PUBLIC_REVENUECAT_*` environment variables that file reads. They
+ *      are publishable keys and belong in the build; the secret key never goes
+ *      near the app.
  *   4. `npx expo prebuild --clean && npx expo run:ios` / `run:android`.
  * Nothing else changes: `isAvailable()` starts returning true and the startup
  * registration picks this over the development provider.
@@ -38,18 +41,35 @@ import {
 
 const log = createLogger('billing/revenuecat');
 
-/** The entitlement identifier configured in the RevenueCat dashboard. */
-const ENTITLEMENT = 'assistant';
+/**
+ * The entitlement identifier configured in the RevenueCat dashboard.
+ *
+ * What shipped, and the fallback for every build that does not say otherwise.
+ * It is a dashboard-owned string, so it is read from config rather than frozen
+ * here — renaming the entitlement in RevenueCat would otherwise mean nobody is
+ * ever subscribed until the next release, and the failure is silent.
+ */
+const DEFAULT_ENTITLEMENT = 'assistant';
 
 /** Package identifiers inside the offering. RevenueCat's own conventions. */
 const PACKAGE_FOR: Record<PlanId, string> = { monthly: '$rc_monthly', yearly: '$rc_annual' };
 
-type Keys = { ios?: string; android?: string };
+type Config = { ios?: string; android?: string; entitlement?: string };
+
+function config(): Config {
+  return ((Constants.expoConfig?.extra ?? {}) as { revenueCat?: Config }).revenueCat ?? {};
+}
 
 function apiKey(): string | null {
-  const extra = (Constants.expoConfig?.extra ?? {}) as { revenueCat?: Keys };
-  const key = Platform.OS === 'ios' ? extra.revenueCat?.ios : extra.revenueCat?.android;
+  const extra = config();
+  const key = Platform.OS === 'ios' ? extra.ios : extra.android;
   return key?.trim() ? key.trim() : null;
+}
+
+/** Read per call, not cached: `expoConfig` is not populated at module load. */
+function entitlementId(): string {
+  const configured = config().entitlement?.trim();
+  return configured ? configured : DEFAULT_ENTITLEMENT;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -84,7 +104,7 @@ const millis = (iso: string | null | undefined): number | null => {
  * which is in the past for the whole of a grace period.
  */
 function toEntitlement(info: any): Entitlement {
-  const active = info?.entitlements?.active?.[ENTITLEMENT];
+  const active = info?.entitlements?.active?.[entitlementId()];
   if (!active) return FREE;
 
   const store: Entitlement['store'] =

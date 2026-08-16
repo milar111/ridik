@@ -11,6 +11,9 @@ import '@/services/focus';
 import '@/services/geofence';
 import '@/services/background';
 import '@/services/billing';
+// Remote push. Registers a bootstrap step that no-ops without an App ID, the
+// same way billing falls back without a store key.
+import '@/services/notifications/push';
 import '@/features/voice/pipeline';
 
 export {};
