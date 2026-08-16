@@ -66,10 +66,10 @@ const SANDBOX_ALLOWED = typeof __DEV__ !== 'undefined' ? Boolean(__DEV__) : proc
  * somebody into thinking a number had been confirmed.
  */
 const PLANS: Plan[] = [
-  { id: 'pro_yearly', tier: 'pro', title: 'Ridik Pro', price: '—', period: 'year', note: 'Sandbox' },
-  { id: 'pro_monthly', tier: 'pro', title: 'Ridik Pro', price: '—', period: 'month', note: 'Sandbox' },
-  { id: 'ridik_yearly', tier: 'base', title: 'Ridik', price: '—', period: 'year', note: 'Sandbox' },
-  { id: 'ridik_monthly', tier: 'base', title: 'Ridik', price: '—', period: 'month', note: 'Sandbox' },
+  { id: 'pro_yearly', tier: 'pro', title: 'Ridik Pro', price: '—', period: 'year', note: 'Sandbox', amount: null, currency: null },
+  { id: 'pro_monthly', tier: 'pro', title: 'Ridik Pro', price: '—', period: 'month', note: 'Sandbox', amount: null, currency: null },
+  { id: 'ridik_yearly', tier: 'base', title: 'Ridik', price: '—', period: 'year', note: 'Sandbox', amount: null, currency: null },
+  { id: 'ridik_monthly', tier: 'base', title: 'Ridik', price: '—', period: 'month', note: 'Sandbox', amount: null, currency: null },
 ];
 
 type Stored = { plan: PlanId; tier: PlanTier; since: number; renewsAt: number; willRenew: boolean };

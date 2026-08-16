@@ -200,6 +200,11 @@ function toPlan(pkg: any): Plan | null {
     // someone being charged in leva.
     price: String(pkg.product?.priceString ?? ''),
     period: PLAN_PERIOD[id],
+    // The same figure as a number, for the one thing the store cannot answer:
+    // what a yearly plan costs per month. `money.ts` owns that arithmetic and
+    // nothing else may do it.
+    amount: typeof pkg.product?.price === 'number' ? pkg.product.price : null,
+    currency: pkg.product?.currencyCode ? String(pkg.product.currencyCode) : null,
   };
 }
 

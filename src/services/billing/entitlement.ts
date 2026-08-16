@@ -182,6 +182,21 @@ export type Plan = {
   price: string;
   /** "month" or "year" — what one `price` buys. */
   period: string;
+  /**
+   * The same price as a number, with its ISO currency, straight from the store.
+   *
+   * Only ever used to *derive* a second figure the store does not sell — the
+   * per-month cost of a yearly plan, which is the whole point of offering one
+   * and which no store returns. `price` stays the authority on what is charged;
+   * this is what makes "$8.33 a month, billed yearly" possible without anybody
+   * typing a number into the app.
+   *
+   * Null when the store did not report it. A missing amount hides the derived
+   * line rather than guessing at one — an invented per-month figure on a real
+   * paywall is a made-up price, whatever it was computed from.
+   */
+  amount: number | null;
+  currency: string | null;
   /** e.g. "Two months free" — only when the store's own numbers support it. */
   note?: string;
 };

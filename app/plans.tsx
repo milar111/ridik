@@ -13,7 +13,8 @@
  * subscription it is billing, and an in-app "Cancel" that merely opened the
  * same link while looking like it did the work would be a lie.
  */
-import { Linking, View } from 'react-native';
+import { useState } from 'react';
+import { Linking, Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { now } from '@/core/clock';
@@ -32,11 +33,23 @@ import {
   describePlanAllowance,
   HIGHLIGHTED_PLAN,
   describeRenewal,
+  isYearly,
   manageSubscriptionUrl,
+  tierFor,
   FREE,
   type Entitlement,
   type Plan,
+  type PlanTier,
 } from '@/services/billing/entitlement';
+import {
+  annualPitch,
+  annualSaving,
+  monthlyPitch,
+  monthlyPrice,
+  planFor,
+  plansBilling,
+  type Cadence,
+} from '@/services/billing/money';
 import { useTheme } from '@/ui/ThemeProvider';
 import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { elevate } from '@/ui/shadow';
@@ -161,44 +174,58 @@ const RECEIPTS_IN: Record<NonNullable<Entitlement['store']>, string> = {
 };
 
 /**
- * A plan, as a thing you choose rather than a button you press.
+ * A tier, as a thing you choose rather than a row you scan.
+ *
+ * One card per tier, not one per product. Four rows was four prices for two
+ * things, and the reader's first job was working out which pairs were the same
+ * plan — the billing period is a *setting*, so it belongs on a control, not in
+ * the catalogue.
+ *
+ * The headline is always the cost per month, whichever way it bills. Comparing
+ * $99.99 to $10.00 is comparing a year to a month, and every reader has to do
+ * that division themselves before the ladder means anything; doing it for them
+ * is the entire reason a yearly plan is worth offering. The total that will
+ * actually be charged is stated underneath, in the store's own words.
  *
  * The price is the largest type on the card and set in the mono face, because
  * it is a figure you compare rather than a phrase you read — the same reason
- * the time on the home screen is a readout. Yearly carries whatever saving the
- * store's own numbers support; nothing here computes a discount, so a price
- * change in App Store Connect cannot leave a stale "Save 30%" behind.
+ * the time on the home screen is a readout.
  */
-function PlanCard({
+function TierCard({
   plan,
+  monthly,
   recommended,
   busy,
   onPress,
 }: {
   plan: Plan;
+  /** The same tier billed monthly, for the "or $X monthly" comparison. */
+  monthly: Plan | null;
   recommended: boolean;
   busy: boolean;
   onPress: () => void;
 }) {
   const { colors, radius, spacing } = useTheme();
-  // The same 0.98 the hand-rolled shared value gave, off the shared hook — and
-  // `disabled` now stops the card answering while the purchase is in flight,
-  // which the old version could not express.
   const press = usePressScale({ scale: 0.98, disabled: busy });
+
+  const yearly = isYearly(plan.id);
+  // The derived figure, or the store's own string when the store gave no
+  // number to derive from. Never a guess: see `money.ts`.
+  const headline = monthlyPrice(plan) ?? plan.price;
+  const pitch = yearly ? annualPitch(plan, monthly) : monthlyPitch();
 
   return (
     <AnimatedPressable
+      testID={`plan-${plan.tier}`}
       accessibilityRole="button"
-      accessibilityLabel={`Subscribe ${plan.title}, ${plan.price}`}
+      accessibilityLabel={`Subscribe to ${plan.title}, ${headline} per month. ${pitch}`}
       accessibilityState={{ busy }}
       disabled={busy}
       {...press.handlers}
       onPress={onPress}
       style={[
         {
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: spacing.md,
+          gap: spacing.sm,
           padding: spacing.lg,
           borderRadius: radius.lg,
           backgroundColor: colors.surface,
@@ -213,20 +240,119 @@ function PlanCard({
         press.style,
       ]}
     >
-      <View style={{ flex: 1, gap: 2 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-          <Txt variant="bodyStrong">{plan.title}</Txt>
-          {plan.note ? <Badge label={plan.note} tone="warning" /> : null}
-        </View>
-        <Txt variant="caption" tone="tertiary">
-          {describeAllowance(plan.tier)}, billed per {plan.period}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <Txt variant="bodyStrong" style={{ flex: 1 }}>
+          {plan.title}
+        </Txt>
+        {recommended ? <Badge label="Best value" /> : null}
+        {plan.note ? <Badge label={plan.note} tone="warning" /> : null}
+      </View>
+
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs }}>
+        <Txt variant="readout" style={{ fontSize: 30, lineHeight: 34 }}>
+          {headline}
+        </Txt>
+        <Txt variant="caption" tone="secondary">
+          / month
         </Txt>
       </View>
-      <Txt variant="readout" style={{ fontSize: 22, lineHeight: 26 }}>
-        {plan.price}
+
+      {/* What is actually charged, and when. The one line on this screen that
+          has to survive somebody reading it twice before paying. */}
+      <Txt variant="caption" tone="tertiary">
+        {pitch}
       </Txt>
-      <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+
+      <Divider />
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <Ionicons name="mic" size={15} color={colors.accent} />
+        <Txt variant="body" style={{ flex: 1 }}>
+          {describeAllowance(plan.tier)}
+        </Txt>
+      </View>
+      <Txt variant="caption" tone="tertiary">
+        {ROUGHLY[plan.tier]}
+      </Txt>
     </AnimatedPressable>
+  );
+}
+
+/**
+ * The allowance as a rate rather than a total.
+ *
+ * "250 a month" is a number people accept without picturing; "about eight a
+ * day" is one they can check against yesterday. Deliberately approximate and
+ * worded as such — nothing meters a day, and a reader who takes "8" literally
+ * and speaks nine times has not broken anything.
+ */
+const ROUGHLY: Record<PlanTier, string> = {
+  base: 'Roughly eight requests a day, every day of the month.',
+  pro: 'Roughly thirty a day — for speaking to it all day, not just filing.',
+};
+
+/**
+ * Monthly or yearly, for the whole page at once.
+ *
+ * A segmented control rather than a per-card choice: the question "how often
+ * do I want to be charged" is asked once, and asking it twice invites the
+ * answer that costs more by accident.
+ */
+function BillingToggle({
+  cadence,
+  onChange,
+  saving,
+}: {
+  cadence: Cadence;
+  onChange: (next: Cadence) => void;
+  saving: number | null;
+}) {
+  const { colors, radius, spacing } = useTheme();
+
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        padding: 3,
+        gap: 3,
+        borderRadius: radius.pill,
+        backgroundColor: colors.surfaceSunken,
+      }}
+    >
+      {(['month', 'year'] as const).map((option) => {
+        const active = option === cadence;
+        return (
+          <Pressable
+            key={option}
+            testID={`billing-${option}`}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: active }}
+            accessibilityLabel={option === 'year' ? 'Billed yearly' : 'Billed monthly'}
+            onPress={() => onChange(option)}
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: spacing.xs,
+              paddingVertical: spacing.sm,
+              borderRadius: radius.pill,
+              backgroundColor: active ? colors.surface : 'transparent',
+              ...(active ? elevate('card') : null),
+            }}
+          >
+            <Txt variant={active ? 'bodyStrong' : 'body'} tone={active ? 'primary' : 'secondary'}>
+              {option === 'year' ? 'Yearly' : 'Monthly'}
+            </Txt>
+            {/* Only ever drawn from the store's own two numbers, and only when
+                the year is genuinely cheaper — see `annualSaving`. */}
+            {option === 'year' && saving != null ? (
+              <Badge label={`Save ${saving}%`} tone="success" />
+            ) : null}
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
@@ -262,11 +388,28 @@ function Offer() {
 
   const available = plans.data ?? [];
   const benefits = marketing.data?.benefits?.length ? marketing.data.benefits : WHAT_YOU_GET;
+
+  /* Yearly first, because it is the badged row and the one the saving is for.
+     A default that opened on monthly would make the discount something you had
+     to go looking for. */
+  const [cadence, setCadence] = useState<Cadence>('year');
+  const shown = plansBilling(available, cadence);
+  const monthlyFor = (tier: PlanTier) =>
+    plansBilling(available, 'month').find((plan) => plan.tier === tier) ?? null;
+  /* One badge for the page, from the tier the badge is on — both tiers are
+     discounted by the same fraction, and two different percentages on one
+     control would be a pricing table pretending to be a switch. */
+  const saving = annualSaving(monthlyFor('pro'), planFor(available, HIGHLIGHTED_PLAN));
   // `HIGHLIGHTED_PLAN`, not a literal. This read `?? 'yearly'` — a plan id that
   // stopped existing when a plan became a tier AND a duration, so with no
   // dashboard metadata the badge matched nothing and every row rendered plain.
   // Typecheck could not catch it: comparing `PlanId` against `PlanId | 'yearly'`
   // is a legal comparison that is simply never true.
+  // Compared by *tier*, not by id. Keyed on the id, the badge vanished the
+  // moment the toggle moved to monthly — the highlighted plan is a yearly one,
+  // so no monthly card matched it and the page lost its anchor on half its
+  // states. The recommendation is which tier to buy; how often it bills is the
+  // toggle's question, and it is asked separately for a reason.
   const highlight = marketing.data?.highlight ?? HIGHLIGHTED_PLAN;
 
   return (
@@ -287,11 +430,13 @@ function Offer() {
         ))}
       </Card>
 
+      <BillingToggle cadence={cadence} onChange={setCadence} saving={saving} />
+
       {plans.isLoading && available.length === 0 ? (
         <Txt variant="caption" tone="tertiary">
           Loading prices from the store…
         </Txt>
-      ) : available.length === 0 ? (
+      ) : shown.length === 0 ? (
         <Card accent={colors.warning}>
           <Txt variant="bodyStrong" tone="warning">
             No plans available
@@ -303,11 +448,12 @@ function Offer() {
         </Card>
       ) : (
         <View style={{ gap: spacing.sm }}>
-          {available.map((option) => (
-            <PlanCard
-              key={`${option.tier}-${option.id}`}
+          {shown.map((option) => (
+            <TierCard
+              key={option.id}
               plan={option}
-              recommended={option.id === highlight}
+              monthly={monthlyFor(option.tier)}
+              recommended={option.tier === tierFor(highlight)}
               busy={purchase.isPending}
               onPress={() =>
                 purchase.mutate(option, {
