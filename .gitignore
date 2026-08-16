@@ -32,6 +32,13 @@ yarn-error.*
 
 # local env files
 .env*.local
+# ...and the plain one, which the Expo template does NOT cover. Publishable
+# keys live in app.config.ts -> extra and are meant to ship; a provider key in
+# .env is not, and a repo going public cannot rely on nobody running
+# `git add -A`.
+.env
+.env.*
+!.env.example
 
 # typescript
 *.tsbuildinfo

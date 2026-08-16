@@ -15,7 +15,28 @@ import {
   type LlmRequest,
 } from './types';
 
-export const DEFAULT_GEMINI_MODEL = 'gemini-flash-latest';
+/**
+ * Pinned, not `gemini-flash-latest`.
+ *
+ * That alias is what shipped, and on 16 August 2026 a single call reported
+ * `modelVersion: gemini-3.7-flash` — the top of the Flash family, at $0.75/M
+ * input and $3.75/M output today and DOUBLE that from 1 January 2027. Google
+ * does not price the alias on its own page, and it can move to another model
+ * without a deploy on this side: a rate change arriving as a silent 2x is not
+ * something a spend cap can defend against, because the cap is denominated in
+ * the very number that moved.
+ *
+ * Pinning changes nothing about what the user gets today — this IS what the
+ * alias resolved to. It only removes the app's exposure to a decision made
+ * somewhere else.
+ *
+ * `gemini-3.1-flash-lite` is 3x cheaper on input and 2.5x on output and is the
+ * obvious candidate to move to, but that is a question about answer quality on
+ * 28-tool structured output, not about price. `llm_usage` records `calls` and
+ * `requests`, so calls-per-request is the repair rate: run a while on each and
+ * the comparison is measured rather than argued.
+ */
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.7-flash';
 export const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
 const DEFAULT_TEMPERATURE = 0.1;

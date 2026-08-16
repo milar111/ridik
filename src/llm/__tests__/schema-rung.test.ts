@@ -19,7 +19,11 @@
  */
 import { MODEL_RATES, estimateCostMicros } from '../usage';
 import { strictResponseSchema } from '../provider/geminiSchema';
-import { createGeminiProvider, RESPONSE_SCHEMA } from '../provider/gemini';
+import {
+  DEFAULT_GEMINI_MODEL,
+  createGeminiProvider,
+  RESPONSE_SCHEMA,
+} from '../provider/gemini';
 
 /** What `estimateTextTokens` uses; kept here so the two cannot silently diverge. */
 const CHARS_PER_TOKEN = 3.6;
@@ -138,5 +142,28 @@ describe('the rate table cannot silently bill nothing', () => {
       const ratio = (rate.cachedInputPerMillion ?? rate.inputPerMillion) / rate.inputPerMillion;
       expect({ model, ratio: Math.round(ratio * 100) / 100 }).toEqual({ model, ratio: 0.1 });
     }
+  });
+});
+
+describe('the model is pinned, not aliased', () => {
+  /**
+   * `gemini-flash-latest` shipped as the default and resolved, when finally
+   * measured against a real key, to `gemini-3.7-flash` — the top of the Flash
+   * family, at 3x the input price of the Flash-Lite every cost model in this
+   * repo was built on, and double again from 1 January 2027.
+   *
+   * The deeper problem was not the price but that an alias can move without a
+   * deploy. A spend cap cannot defend against a rate change, because the cap is
+   * denominated in the number that moved.
+   */
+  it('names a version rather than a moving alias', () => {
+    expect(DEFAULT_GEMINI_MODEL).not.toMatch(/latest/);
+    expect(DEFAULT_GEMINI_MODEL).toMatch(/^gemini-\d/);
+  });
+
+  /* And whatever it is pinned to must be priced, or `estimateCostMicros` falls
+     to the pessimistic fallback and every figure in the app is a guess. */
+  it('is a model the rate table can price', () => {
+    expect(MODEL_RATES[DEFAULT_GEMINI_MODEL]).toBeDefined();
   });
 });
