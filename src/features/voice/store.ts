@@ -18,8 +18,14 @@ export type VoiceOutcome = {
   transcript: string;
   /** False suppresses TTS for this turn without hiding the text. */
   speak?: boolean;
-  /** A one-off explanation shown above the results, e.g. a spend cap being hit. */
+  /** An explanation shown above the results, e.g. a spend cap or trial being spent. */
   notice?: string;
+  /**
+   * The one thing that would fix what the notice describes — the paywall, for
+   * a spent trial. A notice about money with no way to act on it is how a user
+   * ends up believing the app broke.
+   */
+  noticeAction?: { label: string; href: string };
   feedback?: string;
   items: VoiceOutcomeItem[];
   clarification?: { question: string; pending?: string };
@@ -177,6 +183,16 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       set({ status: 'error', error: 'Nothing to send.', needsRetry: true });
       return;
     }
+    // One turn at a time. Nothing above this stopped a second `process()`
+    // starting while the first was still waiting on the model: the Send button
+    // is enabled on a non-empty draft alone, so ten taps in a second ran ten
+    // turns in parallel. Every one of them passed the budget check against the
+    // same counters and every one of them billed, which turned "worst case the
+    // trial overruns by one" into an unbounded overrun and let a spent trial be
+    // walked past by firing the batch before the last increment landed. The
+    // counters are atomic now too; this is the half that stops the calls being
+    // made at all.
+    if (get().status === 'thinking') return;
     if (!impl) {
       set({ status: 'error', error: 'Voice is still starting up.' });
       return;

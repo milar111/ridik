@@ -141,7 +141,11 @@ export function createInterpretHandler(deps: Deps) {
 
     const payload = (await upstream.json().catch(() => null)) as {
       choices?: { message?: { content?: string } }[];
-      usage?: { prompt_tokens?: number; completion_tokens?: number };
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number };
+      };
       model?: string;
     } | null;
 
@@ -150,6 +154,12 @@ export function createInterpretHandler(deps: Deps) {
 
     const input = payload?.usage?.prompt_tokens ?? 0;
     const output = payload?.usage?.completion_tokens ?? 0;
+    // Part of `input`, not extra: what the provider served from its prompt
+    // cache. Forwarded because this is the one place caching can pay — the
+    // static half of Ridik's system prompt is identical for every user of this
+    // proxy, so one warm prefix serves the fleet — and the app cannot tell
+    // whether that is happening unless the number comes back with the answer.
+    const cached = payload?.usage?.prompt_tokens_details?.cached_tokens ?? 0;
     // Counted after success: a failed call the user never got an answer from
     // should not consume their allowance.
     await deps.quota.increment(caller.userId, { input, output }).catch(() => {});
@@ -157,7 +167,7 @@ export function createInterpretHandler(deps: Deps) {
     return json(200, {
       text,
       model: payload?.model ?? deps.model ?? DEFAULT_MODEL,
-      usage: { input, output },
+      usage: { input, cached, output },
     });
   };
 }

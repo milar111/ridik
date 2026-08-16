@@ -36,11 +36,14 @@ import {
 } from '@/features/voice/store';
 import { createLlmClient, type LlmClient } from '@/llm/client';
 import { createOrchestrator, type TurnOutcome } from '@/llm/orchestrator';
-import { createUsageMeter } from '@/llm/usage';
+import { createUsageMeter, estimateTextTokens, TYPICAL_TURN_TOKENS } from '@/llm/usage';
 import type { ExecutorEffects } from '@/llm/executor';
 import { createGeminiProvider, createHostedProvider, createMockProvider } from '@/llm/provider';
 import { getRepositories } from '@/repositories';
-import { currentEntitlement, monthlyAllowance } from '@/services/billing/entitlement';
+import { defaultSettings, type SettingsValues } from '@/repositories/settings';
+import { resolveAssistantBudget, type BudgetAction } from '@/services/billing/allowance';
+import { currentEntitlement, isStoreBuild } from '@/services/billing/entitlement';
+import { chargeTrial, readTrialLedger } from '@/services/billing/trialLedger';
 import { pushEventNow } from '@/services/calendar';
 import { focusEffects } from '@/services/focus';
 import { refresh as refreshGeofences } from '@/services/geofence';
@@ -119,7 +122,32 @@ const mockClient = createLlmClient({ provider: createMockProvider(), logger: log
 let geminiKey: string | null = null;
 let gemini: { model: string | undefined; client: LlmClient } | null = null;
 
-export type TurnClient = { client: LlmClient; metered: boolean; capped: string | null };
+export type TurnClient = {
+  client: LlmClient;
+  /** True when this turn's provider costs money and the meter must count it. */
+  metered: boolean;
+  /** True when the lifetime free trial is what is paying for it. */
+  trial: boolean;
+  /**
+   * What to tell the user about the money side of this turn: a cap that bit, a
+   * trial running out, or a trial already spent. Shown whether the turn was
+   * allowed or not — an assistant that has quietly stopped calling the model is
+   * the failure the receipt exists to prevent.
+   */
+  notice: string | null;
+  /** Where that notice can be acted on. */
+  action: BudgetAction | null;
+  /**
+   * What this turn was projected to draw. Kept so a turn that billed and then
+   * failed to say how much can still be charged something honest.
+   */
+  estimatedTokens: number;
+};
+
+/** A turn that never reaches a paid provider costs nothing and says nothing. */
+function unmetered(client: LlmClient, estimatedTokens: number): TurnClient {
+  return { client, metered: false, trial: false, notice: null, action: null, estimatedTokens };
+}
 
 
 
@@ -136,18 +164,28 @@ let hosted: LlmClient | null = null;
  *                 leaves your server. This is what ships to a store.
  *   personal-key  no backend, but a key in the device keychain — your own
  *                 builds, running on your own free-tier quota.
- *   offline       neither, or the local spend cap is spent: the mock
- *                 provider's pattern matcher.
+ *   offline       neither, or the budget is spent: the mock provider's pattern
+ *                 matcher.
  *
- * Hitting the cap degrades rather than silences, the same path a missing key
+ * **Both paid modes go through the same gate.** The hosted one used to return
+ * before the budget was ever consulted, on the grounds that quotas belong to
+ * the server — which is true of the *authoritative* answer and was read as
+ * meaning the client should not have one. The result was that every line of
+ * the free-tier lock was dead code on the only configuration that ships: the
+ * trial, the entitlement check and the meter all ran on personal builds, where
+ * the invoice belongs to whoever pasted the key, and none of them ran on the
+ * build where it belongs to the operator. The server still decides; this is the
+ * half that stops an unbilled request being made at all, and the half that
+ * records what the turn cost so a caching change can be seen to have worked.
+ *
+ * Hitting a cap degrades rather than silences, the same path a missing key
  * takes, because a budget control that bricks the mic only teaches people to
- * raise the budget.
+ * raise the budget. It is never silent, though: whatever `assistantBudget()`
+ * decided rides back on the turn as a notice.
  */
-async function clientForTurn(): Promise<TurnClient> {
+async function clientForTurn(transcript: string): Promise<TurnClient> {
   const endpoint = assistantApiUrl();
   if (endpoint) {
-    // Quotas belong to the server here — it is the only party that can see
-    // across a user's devices, and the only one the user cannot edit.
     if (!hosted) {
       hosted = createLlmClient({
         provider: createHostedProvider({
@@ -157,17 +195,35 @@ async function clientForTurn(): Promise<TurnClient> {
         logger: log,
       });
     }
-    return { client: hosted, metered: false, capped: null };
+    // A build that carries a backend URL is a build whose model key is the
+    // operator's, whether or not RevenueCat happened to be keyed at compile
+    // time — so it is a store build for the purposes of the lock even if the
+    // billing provider fell back to the one that cannot sell.
+    const budget = await assistantBudget({
+      transcript,
+      storeBuild: true,
+      // The developer sliders are hidden on a hosted build and cannot be
+      // adjusted there, so letting their defaults cap an Unlimited subscriber
+      // at 3,000 a month would be a ceiling nobody could see or raise.
+      developerCaps: false,
+    });
+    return budget.blocked !== null
+      ? refused(budget)
+      : {
+          client: hosted,
+          metered: true,
+          trial: budget.trial,
+          notice: budget.notice,
+          action: budget.action,
+          estimatedTokens: budget.estimatedTokens,
+        };
   }
 
   geminiKey = await readSecret(LLM_API_KEY_STORE_KEY);
-  if (!geminiKey) return { client: mockClient, metered: false, capped: null };
+  if (!geminiKey) return unmetered(mockClient, 0);
 
-  const allowed = await withinBudget();
-  if (allowed !== null) {
-    log.warn('assistant budget reached', allowed);
-    return { client: mockClient, metered: false, capped: allowed };
-  }
+  const budget = await assistantBudget({ transcript, developerCaps: true });
+  if (budget.blocked !== null) return refused(budget);
 
   const model = await preferredGeminiModel();
   if (!gemini || gemini.model !== model) {
@@ -183,46 +239,164 @@ async function clientForTurn(): Promise<TurnClient> {
       }),
     };
   }
-  return { client: gemini.client, metered: true, capped: null };
+  return {
+    client: gemini.client,
+    metered: true,
+    trial: budget.trial,
+    notice: budget.notice,
+    action: budget.action,
+    estimatedTokens: budget.estimatedTokens,
+  };
+}
+
+/** A turn the budget refused: offline engine, and say why on every one. */
+function refused(budget: TurnBudget): TurnClient {
+  log.warn('assistant budget reached', { reason: budget.blocked });
+  return {
+    client: mockClient,
+    metered: false,
+    trial: false,
+    notice: budget.blocked,
+    action: budget.action,
+    estimatedTokens: budget.estimatedTokens,
+  };
+}
+
+type TurnBudget = {
+  /** The sentence to say instead of calling the model, or null to go ahead. */
+  blocked: string | null;
+  /** Worth saying either way — a trial with three requests left, for instance. */
+  notice: string | null;
+  action: BudgetAction | null;
+  /** True when going ahead spends one of the lifetime trial's requests. */
+  trial: boolean;
+  /** What this turn was projected to draw, in tokens. */
+  estimatedTokens: number;
+};
+
+type BudgetOptions = {
+  /** What the user said. Its length is most of what makes a turn expensive. */
+  transcript: string;
+  /** Whether the developer screen's own ceilings apply to this build. */
+  developerCaps: boolean;
+  /** Forced true by the hosted path; otherwise read off the billing provider. */
+  storeBuild?: boolean;
+};
+
+/**
+ * What this turn will draw, before it is sent.
+ *
+ * The prompt's own baseline plus the transcript, because the transcript is the
+ * one part nobody clamps: the prompt's sections are all bounded, but the typed
+ * box takes a paste and hands it straight to the provider. Projecting only the
+ * baseline is what let a megabyte of text through a token ceiling — the
+ * rolling average `check()` falls back to describes turns *already recorded*,
+ * so the first big one is always waved through at the size of a small one.
+ */
+function projectTurnTokens(transcript: string): number {
+  return TYPICAL_TURN_TOKENS + estimateTextTokens(transcript);
 }
 
 /**
- * Returns the reason the paid provider is off limits, or null when it is fine.
+ * Whether this turn may cost money, and what to say about it.
  *
- * Two ceilings, and the lower one wins. The plan's allowance is what was bought
- * and is the one that matters in a store build; the developer setting is a
- * local brake for a build running on your own key, where nobody is metering you
- * but your provider's invoice. Taking the minimum means neither can be raised
- * past the other by accident.
+ * One decision, then one measurement, in that order and nowhere else.
+ * `resolveAssistantBudget` says who may spend and hands down the ceilings — a
+ * personal build keeps the developer caps, a subscriber gets their plan floored
+ * by them, and a free user on a store build gets a lifetime trial and then
+ * nothing. `createUsageMeter().check()` then enforces exactly those ceilings,
+ * in whichever units they were stated. Nothing in between reinterprets them,
+ * which is what stops the two from disagreeing about what 0 means.
  *
- * A build with no store at all keeps the old behaviour — `monthlyAllowance`
- * returns 0 for free, which reads as "uncapped" to the meter, and the developer
- * setting is then the only limit. That is correct: there is nothing to have
- * bought, and locking the assistant on a personal build would be absurd.
+ * The trial's counters are kept outside the meter entirely, because they are a
+ * *lifetime* budget and the meter only knows about today and this month — a
+ * lifetime budget expressed as a monthly one is a budget you can wait out, and
+ * the table it would be measured in has no idea whose traffic is in it.
+ *
+ * Failure is not one answer here. A store that cannot be reached reads as
+ * *unknown* and changes nothing about the turn, while a database that will not
+ * open must not hand out a fresh trial — so an unreadable counter counts as
+ * *spent* rather than unspent. The personal build is untouched by either: it
+ * never consults the trial, and never even opens the keychain to look.
  */
-async function withinBudget(): Promise<string | null> {
-  try {
-    const repos = getRepositories();
-    const settings = await repos.settings.getAll();
-    const plan = monthlyAllowance(await currentEntitlement());
-    const monthly =
-      plan > 0 && settings.llmMonthlyRequestCap > 0
-        ? Math.min(plan, settings.llmMonthlyRequestCap)
-        : plan > 0
-          ? plan
-          : settings.llmMonthlyRequestCap;
+async function assistantBudget(options: BudgetOptions): Promise<TurnBudget> {
+  const estimatedTokens = projectTurnTokens(options.transcript);
 
-    const verdict = await createUsageMeter(repos.db).check({
-      daily: settings.llmDailyRequestCap,
-      monthly,
-    });
-    return verdict.ok ? null : verdict.error.userMessage;
+  // `currentEntitlement` does not throw; it reports a store failure as unknown
+  // rather than as free, which is what stops an outage looking like a decision
+  // not to pay.
+  const entitlement = await currentEntitlement();
+
+  let repos: ReturnType<typeof getRepositories> | null = null;
+  let stored: SettingsValues | null = null;
+  try {
+    repos = getRepositories();
+    stored = await repos.settings.getAll();
   } catch (error) {
-    // A meter that cannot be read must not block the assistant; the provider's
-    // own cap is still underneath us.
-    log.warn('could not read the assistant budget', error);
-    return null;
+    log.warn('could not read the assistant caps; assuming the strictest ones', error);
   }
+
+  const settings = stored ?? defaultSettings();
+  const developerCaps = options.developerCaps
+    ? { daily: settings.llmDailyRequestCap, monthly: settings.llmMonthlyRequestCap }
+    : { daily: 0, monthly: 0 };
+  const storeBuild = options.storeBuild ?? (isStoreBuild() || settings.simulateStoreBuild);
+
+  // Only read on a build that has a trial. There is no trial on a personal one,
+  // and the ledger's durable half is a keychain item — an I/O round trip per
+  // utterance to answer a question nothing downstream will ask.
+  const trial = storeBuild ? await readTrialLedger() : { requestsUsed: 0, tokensUsed: 0 };
+
+  const budget = resolveAssistantBudget({
+    storeBuild,
+    entitlement,
+    trial,
+    caps: developerCaps,
+    estimatedTokens,
+  });
+
+  if (!budget.allowed) {
+    return {
+      blocked: budget.message,
+      notice: budget.message,
+      action: budget.action,
+      trial: false,
+      estimatedTokens,
+    };
+  }
+
+  if (repos) {
+    try {
+      // The projection is handed down rather than left to the meter's rolling
+      // average: the average is of turns already recorded, and the turn that
+      // matters is the one nobody has seen yet.
+      const verdict = await createUsageMeter(repos.db).check(budget.caps, {
+        estimate: { tokens: estimatedTokens },
+      });
+      if (!verdict.ok) {
+        const message = verdict.error.userMessage;
+        return {
+          blocked: message,
+          notice: message,
+          action: budget.action,
+          trial: false,
+          estimatedTokens,
+        };
+      }
+    } catch (error) {
+      // A meter that cannot be read must not block the assistant; the plan
+      // decision above already stands, and the provider's own cap is under us.
+      log.warn('could not read the assistant usage', error);
+    }
+  }
+
+  return {
+    blocked: null,
+    notice: budget.notice,
+    action: budget.action,
+    trial: budget.metersTrial,
+    estimatedTokens,
+  };
 }
 
 /**
@@ -311,7 +485,7 @@ export function createVoicePipeline(): VoicePipeline {
 
     async process(transcript, options): Promise<VoiceOutcome> {
       const repos = getRepositories();
-      const turn = await clientForTurn();
+      const turn = await clientForTurn(transcript);
       // Read per turn rather than captured once: the pipeline is installed at
       // startup and lives for the session, so a mode captured at construction
       // would keep the value the app booted with until it was killed.
@@ -339,17 +513,51 @@ export function createVoicePipeline(): VoicePipeline {
           .record({
             model: outcome.usage.model,
             inputTokens: outcome.usage.inputTokens,
+            // Zero on the direct path — nothing in a Gemini request from this
+            // app is long enough to cache (see the note in provider/gemini.ts)
+            // — and non-zero on the hosted one, which is the half where
+            // caching can actually pay: the proxy sends a byte-identical
+            // prefix on behalf of every user. Recording it is the only way a
+            // caching change can afterwards be shown to have worked.
+            cachedTokens: outcome.usage.cachedTokens,
             outputTokens: outcome.usage.outputTokens,
+            // One utterance, however many times the reply had to be repaired
+            // to answer it. The repairs are counted beside it rather than
+            // added to it: they are the app's own retries, and charging them
+            // to an allowance sold in requests bills the user for them.
+            requests: 1,
+            calls: outcome.usage.calls,
           })
           .catch((error: unknown) => log.warn('could not record assistant usage', error));
+      }
+
+      // Deliberately not gated on `outcome.usage`, which the orchestrator omits
+      // both when it never called the model and when the call ladder failed
+      // after billing five attempts. The one case that truly costs nothing is a
+      // pending clarification answered yes or no, and that is the one exempted
+      // here; everything else charges the trial whether it worked or not.
+      if (turn.trial && (outcome.usage || !options?.pending)) {
+        const billed =
+          (outcome.usage?.inputTokens ?? 0) + (outcome.usage?.outputTokens ?? 0);
+        await chargeTrial({
+          // One utterance is one of the 25, whatever it cost to answer — that
+          // is the unit the user was told about. What it cost is the line
+          // below, summed across every call the repair ladder made, which is
+          // the only thing that can tell a "hello" from a pasted novel.
+          requests: 1,
+          // A turn that billed and then could not say how much is charged an
+          // ordinary turn rather than nothing: unknown must not be free.
+          tokens: billed > 0 ? billed : TYPICAL_TURN_TOKENS,
+        });
       }
 
       return {
         transcript: outcome.transcript,
         speak: outcome.speak !== false,
-        // Said once, on the turn the cap bit, so the user learns why the
-        // answers suddenly got simpler instead of assuming it broke.
-        ...(turn.capped ? { notice: turn.capped } : {}),
+        // Repeated on every affected turn, not said once: the whole point is
+        // that the user never has to work out why the answers got simpler.
+        ...(turn.notice ? { notice: turn.notice } : {}),
+        ...(turn.notice && turn.action ? { noticeAction: turn.action } : {}),
         ...(outcome.feedback ? { feedback: outcome.feedback } : {}),
         items: toOutcomeItems(outcome),
         ...(outcome.clarification ? { clarification: outcome.clarification } : {}),
@@ -387,6 +595,9 @@ export function resetVoicePipeline(): void {
   installed = false;
   gemini = null;
   geminiKey = null;
+  // The hosted client captures the endpoint it was built with, so a suite that
+  // changes the build config would otherwise keep talking to the old one.
+  hosted = null;
 }
 
 registerBootstrapStep({

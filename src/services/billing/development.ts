@@ -32,6 +32,23 @@ const log = createLogger('billing/development');
 
 const DAY = 86_400_000;
 
+declare const __DEV__: boolean | undefined;
+
+/**
+ * Whether a local, money-free "purchase" may be granted at all.
+ *
+ * This provider is registered whenever the real store is missing, and "missing"
+ * includes the way it goes missing by accident: a release build produced
+ * without `EXPO_PUBLIC_REVENUECAT_IOS_KEY` set has no SDK key, so
+ * `revenuecat.isAvailable()` is false and this file is what gets registered.
+ * Without this guard the paywall in that build would write a local row that
+ * `toEntitlement` reports as a live Unlimited subscription — an uncapped
+ * assistant, granted by tapping Buy, with no money moving and a "Sandbox" note
+ * as the only thing standing in the way. A badge is not an enforcement
+ * mechanism, so the sandbox is switched off outside a debug build entirely.
+ */
+const SANDBOX_ALLOWED = typeof __DEV__ !== 'undefined' ? Boolean(__DEV__) : process.env.NODE_ENV !== 'production';
+
 /**
  * Prices are obviously placeholders and say so. Real ones come from the store,
  * already formatted in the buyer's currency — this provider cannot know that,
@@ -83,6 +100,7 @@ export function createDevelopmentProvider(): BillingProvider {
     if (stored.renewsAt <= now()) return FREE;
     return {
       active: true,
+      known: true,
       plan: stored.plan,
       tier: stored.tier,
       renewsAt: stored.renewsAt,
@@ -95,13 +113,26 @@ export function createDevelopmentProvider(): BillingProvider {
 
   return {
     name: 'development',
+    // No money can move here, so nothing about a free entitlement in this build
+    // is a decision the user made. The assistant keeps the developer caps it
+    // has always had; the free-tier lock belongs to builds with a real store.
+    sells: false,
 
     async configure() {
+      if (!SANDBOX_ALLOWED) {
+        log.error(
+          'no store is configured in a release build; nothing can be sold and no plan can be granted',
+        );
+        return;
+      }
       log.warn('no store is configured; purchases are local to this device and buy nothing');
     },
 
     async plans() {
-      return PLANS;
+      // A release build that reached this provider has no store behind it, so
+      // there is genuinely nothing for sale. An empty paywall is the honest
+      // rendering; a list of buyable-looking rows is not.
+      return SANDBOX_ALLOWED ? PLANS : [];
     },
 
     async marketing() {
@@ -110,10 +141,16 @@ export function createDevelopmentProvider(): BillingProvider {
     },
 
     async current() {
+      // A row left behind by a debug build must not become a subscription in a
+      // release one, so the stored state is not even read outside the sandbox.
+      if (!SANDBOX_ALLOWED) return FREE;
       return toEntitlement(await read());
     },
 
     async purchase(plan, tier) {
+      if (!SANDBOX_ALLOWED) {
+        throw new Error('Purchases are not available in this build.');
+      }
       const at = now();
       const existing = await read();
       const stored: Stored = {
@@ -130,6 +167,7 @@ export function createDevelopmentProvider(): BillingProvider {
     async restore() {
       // Nothing to restore from: there is no receipt and no account, only this
       // device's own row. Returning what is here is the honest answer.
+      if (!SANDBOX_ALLOWED) return FREE;
       return toEntitlement(await read());
     },
 

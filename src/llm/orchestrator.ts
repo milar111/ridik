@@ -53,8 +53,23 @@ export type TurnItem = {
 
 /** Structurally `VoiceOutcome` from '@/features/voice/store'. */
 export type TurnOutcome = {
-  /** Present only when a provider was actually called; feeds the spend meter. */
-  usage?: { model: string; inputTokens?: number | undefined; outputTokens?: number | undefined };
+  /**
+   * Present only when a provider was actually called; feeds the spend meter.
+   *
+   * `calls` is how many billable calls the turn made — a repaired reply costs
+   * several, and every token of every one of them is already summed into the
+   * counts beside it. It is reported separately from the turn itself because
+   * the two are charged to different people: the tokens to whoever holds the
+   * key, the turn to whatever allowance the user bought.
+   */
+  usage?: {
+    model: string;
+    inputTokens?: number | undefined;
+    /** Of `inputTokens`, how many came from the provider's prompt cache. */
+    cachedTokens?: number | undefined;
+    outputTokens?: number | undefined;
+    calls?: number | undefined;
+  };
   /**
    * False when every result asked to stay quiet — a briefing the user tapped
    * for rather than spoke for. The dock still shows it; TTS skips it.
@@ -409,7 +424,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
       return { transcript, feedback, items: [] };
     }
 
-    const { response, raw, model, usage, degraded } = interpretation.value;
+    const { response, raw, model, usage, calls, degraded } = interpretation.value;
     const executor = executorFor(startedAt);
     const results =
       response.actions.length > 0 ? await executor.executeAll(response.actions) : [];
@@ -463,7 +478,13 @@ export function createOrchestrator(options: OrchestratorOptions) {
       feedback,
       items: results.map(toItem),
       speak: shouldSpeak(results),
-      usage: { model, inputTokens: usage?.input, outputTokens: usage?.output },
+      usage: {
+        model,
+        inputTokens: usage?.input,
+        cachedTokens: usage?.cached,
+        outputTokens: usage?.output,
+        calls: Math.max(1, calls),
+      },
       ...(clarification ? { clarification } : {}),
     };
   }

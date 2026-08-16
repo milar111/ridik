@@ -50,6 +50,7 @@ const ENDPOINT = 'https://api.example.com/v1/billing/web-unlock';
 
 const ACTIVE: Entitlement = {
   active: true,
+  known: true,
   plan: 'monthly',
   tier: 'standard',
   renewsAt: 1_760_000_000_000,

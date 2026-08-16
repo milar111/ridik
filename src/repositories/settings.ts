@@ -111,6 +111,38 @@ export const SETTINGS = {
   llmMonthlyRequestCap: define(z.number().int().min(0).max(1_000_000), () => 3_000),
 
   /**
+   * How many of the free trial's requests this install has already spent, for
+   * the whole life of the install.
+   *
+   * A counter, not a budget: the budget is `TRIAL_TOTAL_REQUESTS` in
+   * `src/services/billing/allowance.ts`, a compile-time constant, because a
+   * number that decides whether the operator pays for a stranger's traffic must
+   * not be editable by the stranger. This only ever goes up, and nothing resets
+   * it on a date — waiting out a month is precisely what it must not allow.
+   * Untouched on a build with no store in it, where there is no trial.
+   */
+  llmTrialRequestsUsed: define(z.number().int().min(0).max(1_000_000), () => 0),
+  /**
+   * The same counter in the unit the provider actually bills in.
+   *
+   * A request is a poor proxy for spend — one turn dragging a huge pasted
+   * context, or repaired twice so it billed three times, costs many times an
+   * ordinary one and still moves the counter above by exactly one. This is the
+   * ceiling that catches that, and it has to be a lifetime figure for the same
+   * reason: `llm_usage` measures a day and a calendar month, both of which are
+   * windows on a clock the user can set, and neither of which knows whether the
+   * traffic in it was paid for.
+   */
+  llmTrialTokensUsed: define(z.number().int().min(0).max(1_000_000_000), () => 0),
+  /**
+   * Pretend a store is compiled in, so the free-tier lock can be walked through
+   * on a simulator that has no RevenueCat keys. Developer screen only, and the
+   * worst it can do is lock the assistant on a personal build — which the same
+   * screen can undo, and which never touches the offline path.
+   */
+  simulateStoreBuild: define(z.boolean(), () => false),
+
+  /**
    * Reveals the engineering surface — model override, thresholds, spend caps,
    * the diagnostics log. Off by default and unlocked by tapping the version
    * row, because every one of those knobs can make the app worse and none of
@@ -224,6 +256,40 @@ export function createSettingsRepository(
       const encoded = encode(key, value);
       await serialised(db, () => writeMany([{ key, value: encoded }]));
       return decode(key, encoded);
+    },
+
+    /**
+     * Adds to a numeric setting, atomically against every other write on this
+     * connection.
+     *
+     * `get` then `set` is a lost update, and the one counter written this way
+     * is the free trial's. Nothing serialises a caller's read against its own
+     * later write — `set` only serialises the write — so ten taps on Send in
+     * one second ran ten turns that each read the same number and each wrote
+     * that number plus one. Ten billable calls, one request spent, and the same
+     * race let a spent trial be walked straight past. Doing the read *inside*
+     * the queued job is what makes the pair whole.
+     *
+     * Clamped to the key's own schema rather than allowed to throw: this runs
+     * after the model has already answered, and losing the count is better than
+     * losing the turn.
+     */
+    async bump<K extends SettingKey>(
+      key: SettingsValues[K] extends number ? K : never,
+      by: number,
+    ): Promise<number> {
+      return serialised(db, async () => {
+        const [row] = await db.select().from(appSettings).where(eq(appSettings.key, key));
+        const current = decode(key, row?.value) as number;
+        const next = Math.max(0, Math.trunc(current) + Math.max(0, Math.trunc(by)));
+        const definition = SETTINGS[key] as SettingDefinition<number>;
+        // A counter that has run past its own ceiling stays at the ceiling; it
+        // is a gate, and everything above the top of it means the same thing.
+        const safe = definition.schema.safeParse(next);
+        const value = safe.success ? next : current;
+        await writeMany([{ key, value: JSON.stringify(value) }]);
+        return value;
+      });
     },
 
     async setMany(patch: Partial<SettingsValues>): Promise<SettingsValues> {

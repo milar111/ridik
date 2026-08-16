@@ -50,6 +50,9 @@ describe('settings repository', () => {
         llmApiKeyPresent: false,
         llmDailyRequestCap: 200,
         llmMonthlyRequestCap: 3_000,
+        llmTrialRequestsUsed: 0,
+        llmTrialTokensUsed: 0,
+        simulateStoreBuild: false,
         developerMode: false,
         sandboxSubscription: null,
         voiceConfidenceThreshold: 0.7,
@@ -116,6 +119,20 @@ describe('settings repository', () => {
       writeRaw('ember', JSON.stringify('teal'));
       expect(await repo.get('ember')).toBe('ember');
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('ember'), expect.anything());
+    });
+
+    /* The free trial's counter is the only setting whose worst value costs the
+       operator money: a negative one would read as credit and hand out a fresh
+       trial to anyone who could write the row. It is refused on the way in and
+       ignored on the way out. */
+    it('will not accept a trial counter that reads as credit', async () => {
+      await expect(repo.set('llmTrialRequestsUsed', -10)).rejects.toThrow(/not a valid value/i);
+
+      writeRaw('llmTrialRequestsUsed', JSON.stringify(-10));
+      expect(await repo.get('llmTrialRequestsUsed')).toBe(0);
+
+      await repo.set('llmTrialRequestsUsed', 26);
+      expect(await repo.get('llmTrialRequestsUsed')).toBe(26);
     });
 
     it('stores null distinctly from absent', async () => {
@@ -226,6 +243,54 @@ describe('settings repository', () => {
       const quiet = createSettingsRepository(t.db);
       writeRaw('silenceTimeoutMs', 'not-json');
       expect(await quiet.get('silenceTimeoutMs')).toBe(1500);
+    });
+  });
+
+  /**
+   * The free trial's counter is a lifetime budget on somebody else's invoice,
+   * and it used to be moved with a `get` followed by a `set`.
+   *
+   * Nothing serialises that pair — `set` only serialises its own write — so
+   * concurrent turns each read the same number and each wrote it back plus one.
+   * Ten taps on Send in a second bought ten billable calls for one request off
+   * the counter, and the same race walked straight past a counter that was
+   * already spent.
+   */
+  describe('bump', () => {
+    it('loses nothing when every increment races', async () => {
+      await Promise.all(Array.from({ length: 20 }, () => repo.bump('llmTrialRequestsUsed', 1)));
+
+      expect(await repo.get('llmTrialRequestsUsed')).toBe(20);
+    });
+
+    it('races safely against an unrelated write on the same connection', async () => {
+      await Promise.all([
+        repo.bump('llmTrialTokensUsed', 7_500),
+        repo.set('ttsEnabled', true),
+        repo.bump('llmTrialTokensUsed', 7_500),
+        repo.set('llmModel', 'gemini-3-flash'),
+      ]);
+
+      expect(await repo.get('llmTrialTokensUsed')).toBe(15_000);
+      expect(await repo.get('ttsEnabled')).toBe(true);
+      expect(await repo.get('llmModel')).toBe('gemini-3-flash');
+    });
+
+    it('starts from the stored value rather than from the default', async () => {
+      await repo.set('llmTrialRequestsUsed', 24);
+      expect(await repo.bump('llmTrialRequestsUsed', 1)).toBe(25);
+    });
+
+    /* It runs after the model has already answered, so it may not throw: losing
+       the count is bad, losing the user's turn on top of it is worse. */
+    it('never goes backwards or below zero', async () => {
+      await repo.set('llmTrialRequestsUsed', 5);
+      expect(await repo.bump('llmTrialRequestsUsed', -100)).toBe(5);
+    });
+
+    it('stops at the key’s own ceiling instead of failing validation', async () => {
+      await repo.set('llmTrialRequestsUsed', 1_000_000);
+      expect(await repo.bump('llmTrialRequestsUsed', 1)).toBe(1_000_000);
     });
   });
 

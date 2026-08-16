@@ -55,6 +55,29 @@ describe('hosted assistant provider', () => {
     expect(JSON.stringify(sent)).not.toMatch(/api[_-]?key/i);
   });
 
+  /**
+   * The proxy is the half of the app where prompt caching can pay, so the only
+   * thing the client insists on is being told when it did: `cached` is a slice
+   * of `input`.
+   *
+   * This test stops at the provider boundary, which is as far as it can see.
+   * The rest of the chain — a hosted turn being metered at all, and the count
+   * reaching `llm_usage.cached_tokens` — is asserted in
+   * `features/voice/__tests__/pipeline.test.ts`, because for one release it was
+   * not true: hosted turns skipped `record()` entirely, so the column this
+   * number exists to fill could never move.
+   */
+  it("carries the backend's cached-token count through to the meter", async () => {
+    const fetchImpl = respond(200, {
+      text: '{"actions":[]}',
+      usage: { input: 2500, cached: 2100, output: 300 },
+    });
+
+    const completion = await provider(fetchImpl).complete(REQUEST);
+
+    expect(completion.usage).toEqual({ input: 2500, cached: 2100, output: 300 });
+  });
+
   it('refuses to send an anonymous request', async () => {
     const fetchImpl = respond(200, { text: 'x' });
     await expect(provider(fetchImpl, null).complete(REQUEST)).rejects.toMatchObject({

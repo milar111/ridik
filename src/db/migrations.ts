@@ -448,10 +448,46 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 );
 `;
 
+/**
+ * Cached input tokens, so prompt caching can be judged rather than assumed.
+ *
+ * A provider that serves part of the prompt from a cache charges roughly a
+ * tenth for those tokens and reports them as a *subset* of the input count —
+ * which means without this column a cache hit is completely invisible: the same
+ * request count, the same input tokens, and a cost estimate that quietly bills
+ * every cached token at full price. Separate column rather than a smaller
+ * `input_tokens`, because the two numbers answer different questions ("how big
+ * is a turn" and "how much of it was free").
+ */
+const m004_llm_usage_cached = /* sql */ `
+ALTER TABLE llm_usage ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0;
+`;
+
+/**
+ * Billable provider calls, kept apart from the requests the user made.
+ *
+ * `requests` is one per utterance and always was — it is the unit the spend
+ * sliders are labelled in and the unit a plan is sold in ("300 requests a
+ * month"). One utterance can cost the provider more than one call, though: a
+ * transport retry, or a reply the schema rejected and the model was asked to
+ * repair, each of which is a full request carrying everything before it. Adding
+ * those to `requests` made a turn that failed twice eat three of the user's
+ * three hundred, which is charging somebody for the app's own retries.
+ *
+ * So the two numbers get two columns. Money is already honest without this one
+ * — tokens and cost are summed across every call — but "this turn billed three
+ * times" is otherwise invisible, and it is the thing worth noticing.
+ */
+const m005_llm_usage_calls = /* sql */ `
+ALTER TABLE llm_usage ADD COLUMN calls INTEGER NOT NULL DEFAULT 0;
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'initial_schema', sql: m001_initial },
   { version: 2, name: 'notes_fts5', sql: m002_notes_fts },
   { version: 3, name: 'llm_usage', sql: m003_llm_usage },
+  { version: 4, name: 'llm_usage_cached_tokens', sql: m004_llm_usage_cached },
+  { version: 5, name: 'llm_usage_calls', sql: m005_llm_usage_calls },
 ];
 
 /** Migrations that must be skipped (not failed) when FTS5 is unavailable. */

@@ -116,6 +116,9 @@ function toEntitlement(info: any): Entitlement {
 
   return {
     active: true,
+    // We got an answer out of the SDK, so this is a fact rather than a guess —
+    // including when RevenueCat served it from its own offline cache.
+    known: true,
     plan: String(active.productIdentifier ?? '').includes('year') ? 'yearly' : 'monthly',
     tier: tierFor(String(active.productIdentifier ?? '')),
     renewsAt: millis(active.expirationDate),
@@ -167,6 +170,10 @@ function toPlan(pkg: any): Plan | null {
 export function createRevenueCatProvider(): BillingProvider {
   return {
     name: 'revenuecat',
+    // Only constructed when `isAvailable()` says the SDK is compiled in and
+    // keyed, so this is the build that can take money — and therefore the build
+    // where a free entitlement means somebody chose not to pay.
+    sells: true,
 
     async configure() {
       const Purchases = load();

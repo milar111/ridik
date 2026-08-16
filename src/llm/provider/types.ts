@@ -26,6 +26,17 @@ export type LlmRequest = {
 
 export type LlmUsage = {
   input?: number;
+  /**
+   * How many of `input`'s tokens the provider served from a prompt cache.
+   *
+   * A *subset* of `input`, never an addition to it: both Gemini
+   * (`cachedContentTokenCount` inside `promptTokenCount`) and OpenAI
+   * (`prompt_tokens_details.cached_tokens` inside `prompt_tokens`) count a
+   * cached token in the total and then tell you separately that it was cheap.
+   * Undefined means the provider said nothing, which is not the same as zero —
+   * a provider with no caching at all never reports the field.
+   */
+  cached?: number;
   output?: number;
 };
 

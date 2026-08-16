@@ -454,6 +454,12 @@ export function useDatabaseStats(): UseQueryResult<DatabaseStats> {
  * Empties every table, then hands the regions back to the OS and drops the
  * queued notifications. The wipe itself lives in `@/db/wipe` so it can be run
  * against a real SQLite database in the logic suite.
+ *
+ * "Every table" has two documented exceptions, both spend controls rather than
+ * anything the user wrote — see `PRESERVED_TABLES` in that file. This button
+ * used to reset the free trial and the whole spend meter along with the notes,
+ * which made it a one-tap way to buy another 25 requests on somebody else's
+ * key at the price of a database the person doing it did not want.
  */
 export function useEraseAllData(): UseMutationResult<number, Error, void> {
   const client = useQueryClient();
@@ -468,7 +474,7 @@ export function useEraseAllData(): UseMutationResult<number, Error, void> {
 
       return cleared;
     },
-    // Nothing survived, so nothing cached is true any more.
+    // Nothing the user can see survived, so nothing cached is true any more.
     onSettled: () => invalidateKeys(client, [qk.all]),
   });
 }

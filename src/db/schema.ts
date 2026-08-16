@@ -457,8 +457,13 @@ export const appSettings = sqliteTable('app_settings', {
 
 export const llmUsage = sqliteTable('llm_usage', {
   localDate: text('local_date').primaryKey(),
+  /** Utterances. One per turn, whatever the turn cost to answer. */
   requests: integer('requests').notNull().default(0),
+  /** Billable provider calls behind those turns — retries and repairs included. */
+  calls: integer('calls').notNull().default(0),
   inputTokens: integer('input_tokens').notNull().default(0),
+  /** Of `inputTokens`, the ones a prompt cache served at the discounted rate. */
+  cachedTokens: integer('cached_tokens').notNull().default(0),
   outputTokens: integer('output_tokens').notNull().default(0),
   /** Micro-units of the provider's currency; integers avoid float drift. */
   costMicros: integer('cost_micros').notNull().default(0),

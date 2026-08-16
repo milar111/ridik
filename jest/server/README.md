@@ -73,11 +73,29 @@ heavy one. The `dailyLimit` on `Caller` is what stops a pathological user — or
 stolen token — from inverting that. Start it at 150/day; almost nobody speaks to
 an app more than that, and the ones who do are your best users, not your problem.
 
-**Prompt caching is the biggest remaining lever.** Ridik's system prompt is large
-and almost entirely static, which is precisely the shape caching rewards — the
-GPT-5.x family discounts cached input by up to 90%. Adding a cache breakpoint
-after the static preamble would cut the input side of the bill by roughly an
-order of magnitude. Not implemented here; worth doing before you have many users.
+**Prompt caching is the biggest remaining lever, and it is a lever only you can
+pull.** Ridik's system prompt is 12.8 kB, of which 9,904 characters (~2,500
+tokens) are a compile-time constant — the identity header, the tool list, the
+rules and the examples, byte-identical for every user of this proxy forever.
+That is the shape caching rewards, but only from *this* side: caching discounts
+a matching **prefix**, and the app puts its NOW and CONTEXT blocks at character
+571, ahead of all of it, so the byte-identical prefix of two consecutive
+requests is 606 characters — under every cache minimum the Gemini family has
+ever used, so as sent it cannot cache at all. Reordering would put ~2,700
+tokens in front instead, which is above some of those minimums and below
+others; `src/llm/__tests__/prompt-cache.test.ts` measures it and deliberately
+does not guess which.
+
+So the caching work belongs here. You control the model, the ordering you send
+upstream and — unlike a phone — a request rate that keeps a cache warm; one
+cache object amortises across every user, which is the difference between
+caching paying for itself and costing more in storage than it saves. Two things
+to do: hoist the static half of `body.system` into your own preamble (or a cache
+breakpoint) so the prefix matches across users, and keep returning
+`usage.cached`. The handler already forwards it from
+`prompt_tokens_details.cached_tokens`, and the app records it per day in
+`llm_usage.cached_tokens` and prices it at the cached rate — which means the
+first thing you will be able to say about a caching change is whether it worked.
 
 ## Before this is production
 

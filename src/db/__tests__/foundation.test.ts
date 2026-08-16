@@ -1,6 +1,8 @@
 import { eq } from 'drizzle-orm';
 import { createTestDatabase, type TestDatabase } from '../testing';
-import { LATEST_VERSION } from '../migrator';
+import { MIGRATIONS } from '../migrations';
+import { NodeSqliteClient } from '../node-client';
+import { LATEST_VERSION, runMigrations } from '../migrator';
 import { newId, idTimestamp } from '../ids';
 import { projects, projectItems, tasks, taskDependencies, notes, noteBullets } from '../schema';
 
@@ -23,6 +25,38 @@ describe('database foundation', () => {
     expect(again.report.applied.length).toBeGreaterThan(0);
     expect(again.report.to).toBe(before?.user_version);
     again.close();
+  });
+
+  /**
+   * The half of an append-only migration nobody sees in development, where
+   * every database is created at the latest version: an install that has been
+   * running since before the column existed has to gain it *and* keep the rows
+   * it already had.
+   */
+  it('adds cached_tokens to an llm_usage table that predates it', () => {
+    const client = new NodeSqliteClient(':memory:');
+    for (const migration of MIGRATIONS.filter((m) => m.version <= 3)) {
+      client.execSync(migration.sql);
+      client.execSync(`PRAGMA user_version = ${migration.version};`);
+    }
+    client.execSync(
+      "INSERT INTO llm_usage (local_date, requests, input_tokens, output_tokens, cost_micros," +
+        " updated_at) VALUES ('2026-08-10', 5, 100, 10, 7, 1)",
+    );
+
+    const report = runMigrations(client);
+
+    expect(report.from).toBe(3);
+    expect(report.to).toBe(LATEST_VERSION);
+    const row = client.getFirstSync<{ cached_tokens: number; requests: number }>(
+      'SELECT cached_tokens, requests FROM llm_usage',
+      [],
+    );
+    // Nothing was cached before the column existed, and the day's tally is
+    // still the day's tally.
+    expect(row?.cached_tokens).toBe(0);
+    expect(row?.requests).toBe(5);
+    client.closeSync();
   });
 
   it('creates every declared table', () => {

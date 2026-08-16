@@ -37,7 +37,15 @@ export type HostedProviderOptions = {
 type HostedResponse = {
   text?: string;
   model?: string;
-  usage?: { input?: number; output?: number };
+  /**
+   * `cached` is the part of `input` the backend's provider served from a prompt
+   * cache. The proxy is the half of this app where caching can actually pay:
+   * it sends a byte-identical static prefix on behalf of every user, so one
+   * cache object amortises across the whole fleet rather than one phone. The
+   * client cannot cause that to happen and does not try — it only insists on
+   * being told, because a saving nobody can see is a saving nobody maintains.
+   */
+  usage?: { input?: number; cached?: number; output?: number };
   error?: { message?: string; code?: string };
   /** Seconds until the caller's quota window resets, when it is exhausted. */
   retryAfterSeconds?: number;

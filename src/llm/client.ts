@@ -104,8 +104,27 @@ export type Interpretation = {
   /** Provider time summed across every attempt. */
   latencyMs: number;
   attempts: number;
-  /** Token counts the provider reported, when it reported any. */
-  usage?: { input?: number | undefined; output?: number | undefined };
+  /**
+   * Provider calls that actually returned a completion — the billable ones.
+   * A transport failure produced no tokens and no charge, so it is an
+   * `attempt` but not a `call`. One utterance can bill several: each rung of
+   * the schema-repair ladder is a full request, and each carries more history
+   * than the last.
+   */
+  calls: number;
+  /**
+   * Token counts the provider reported, **summed across every call this turn
+   * made**. Reporting only the last one meant a turn that repaired twice was
+   * metered at a third of what it cost.
+   *
+   * `cached` is the slice of `input` that came from a prompt cache, carried all
+   * the way to the meter so a caching change can be judged on evidence.
+   */
+  usage?: {
+    input?: number | undefined;
+    cached?: number | undefined;
+    output?: number | undefined;
+  };
   /**
    * Set when the model never produced a valid reply and the offline engine
    * answered instead. The response is real and safe to apply; it is just much
@@ -119,11 +138,36 @@ export type Interpretation = {
 
 type CallState = {
   attempts: number;
+  /** Calls that returned a completion, i.e. the ones the provider billed. */
+  calls: number;
   latencyMs: number;
   /** The last provider that actually answered; null until one does. */
   model: string | null;
   usage: LlmCompletion['usage'];
 };
+
+/**
+ * Tokens are additive across a turn and the meter is the only thing that sees
+ * them, so they are summed here rather than overwritten. `undefined` stays
+ * `undefined` — a provider that reports nothing must not be recorded as zero,
+ * which would read as "this call was free".
+ */
+function addUsage(a: LlmCompletion['usage'], b: LlmCompletion['usage']): LlmCompletion['usage'] {
+  if (!a) return b;
+  if (!b) return a;
+  const sum = (x?: number, y?: number) =>
+    x === undefined && y === undefined ? undefined : (x ?? 0) + (y ?? 0);
+  const input = sum(a.input, b.input);
+  const cached = sum(a.cached, b.cached);
+  const output = sum(a.output, b.output);
+  return {
+    ...(input === undefined ? {} : { input }),
+    // A subset of `input` on each call, so it stays a subset of the sum. A
+    // repaired turn caches the same prefix twice and both hits are real.
+    ...(cached === undefined ? {} : { cached }),
+    ...(output === undefined ? {} : { output }),
+  };
+}
 
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
@@ -148,9 +192,10 @@ export function createLlmClient(options: LlmClientOptions) {
       state.attempts++;
       try {
         const completion = await provider.complete(req);
+        state.calls++;
         state.latencyMs += completion.latencyMs;
         state.model = completion.model;
-        state.usage = completion.usage;
+        state.usage = addUsage(state.usage, completion.usage);
         return ok(completion);
       } catch (error) {
         const providerError = asProviderError(error);
@@ -191,7 +236,13 @@ export function createLlmClient(options: LlmClientOptions) {
         ...(input.history ?? []),
         { role: 'user', content: input.transcript },
       ];
-      const state: CallState = { attempts: 0, latencyMs: 0, model: null, usage: undefined };
+      const state: CallState = {
+        attempts: 0,
+        calls: 0,
+        latencyMs: 0,
+        model: null,
+        usage: undefined,
+      };
 
       for (let schemaAttempt = 0; ; schemaAttempt++) {
         // The transport ladder may have eaten the budget on its own.
@@ -226,7 +277,9 @@ export function createLlmClient(options: LlmClientOptions) {
             model: call.value.model,
             latencyMs: state.latencyMs,
             attempts: state.attempts,
-            ...(call.value.usage ? { usage: call.value.usage } : {}),
+            calls: state.calls,
+            // Every call of the repair ladder, not just the one that worked.
+            ...(state.usage ? { usage: state.usage } : {}),
           });
         }
 
@@ -284,6 +337,7 @@ export function createLlmClient(options: LlmClientOptions) {
         model: state.model ?? provider.model,
         latencyMs: state.latencyMs,
         attempts: state.attempts,
+        calls: state.calls,
         degraded: true,
         issues,
         ...(state.usage ? { usage: state.usage } : {}),

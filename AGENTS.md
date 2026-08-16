@@ -24,6 +24,28 @@ you if you do not know them.
   resolve silently destroys the user's data.
 - **Migrations are append-only.** `src/db/migrations.ts` is keyed on `PRAGMA user_version`. Never
   edit a shipped migration; add a new one. `src/db/schema.ts` must be kept in step with it.
+- **Nothing decides who may spend money except `resolveAssistantBudget()`.** Three states that
+  used to be one: no store in the build (personal — keep the developer caps), an active
+  entitlement (the plan, floored by them), and free on a store build (a *lifetime* trial of
+  `TRIAL_TOTAL_REQUESTS`, then no billable call at all). Never branch on `monthlyAllowance()`
+  alone — it answers 0 for both "nothing bought" and the Unlimited tier, and 0 means *uncapped*
+  to `usage.ts`, which is exactly how a free user inherited 200 requests a day of the operator's
+  Gemini budget. `isStoreBuild()` is the only thing that can tell the first two apart, and the
+  trial is counted for the life of the install (`llmTrialRequestsUsed`) because a free monthly
+  allowance is a subscription nobody is charged for. When the door shuts, voice still runs
+  through the offline matcher and the turn carries a `notice` saying so — a silently dumber
+  assistant is the failure `LastAction` exists to prevent.
+- **One decision, then one measurement.** `resolveAssistantBudget()` says *who* may spend and
+  hands its ceilings straight to `createUsageMeter().check()`, which says *how much has been*.
+  Nothing sits between them reinterpreting a number, because that gap is where the two used to
+  disagree about what `0` meant. Ceilings travel as `Cap`, never as a bare number:
+  `developerCap(n)` is the only thing allowed to read the developer rows' `0` as "no ceiling",
+  and `limitOf(0)` refuses every call. A ceiling may be stated in requests, tokens or
+  `costMicros` and the first unit crossed stops the turn — the free trial says both, because
+  25 requests is 25 *turns* and one turn dragging a huge context bills like fifty. Tokens and
+  money are estimated before the call from this user's own rolling average and reconciled after
+  from what the provider reported, and the estimate errs towards refusing: one unnecessary
+  offline answer costs less than one uncapped call.
 
 ## The shape of the app
 
@@ -139,6 +161,54 @@ green ticks is a developer's view of the system. The screen tells you about a
 permission only when something you switched on cannot work without it, and sends
 a hard-blocked one to system settings instead of offering a button the OS will
 never honour again.
+
+**The developer screen is behind a switch, not behind a gesture.** Seven taps
+set `developerMode`; expo-router will match `ridik:///developer` regardless, so
+`app/developer.tsx` redirects on the switch itself. Anything added there is
+reachable by deep link until that check says otherwise.
+
+## The money path
+
+One decision, then one measurement, and four states that must never collapse
+into each other. `src/services/billing/allowance.ts` is the whole decision and
+it is pure; everything else feeds it.
+
+- **"Free" and "we could not ask" are different answers.** `Entitlement.known`
+  is the difference. A store read that throws returns `UNKNOWN`, and a turn on
+  an unknown entitlement changes nothing — no lock, no trial charge, nothing
+  said to the user about money. Collapsing the two hard-locked paying
+  subscribers out of the assistant on the first network blink, and marched
+  their trial counter towards the lock while it did it.
+- **A cap is a `Cap`, never a number.** `0` means "unlimited" in the developer
+  rows and "nothing bought" in a tier allowance. Only `developerCap()` may read
+  a 0 as unlimited; `limitOf(0)` refuses everything.
+- **`requests` is utterances; `calls` is what the provider billed.** One turn
+  can bill three times when a reply has to be repaired. Plans are sold in
+  requests, so repairs go in `calls` — adding them to `requests` charges the
+  user for the app's own retries.
+- **The trial is a lifetime ledger, not a meter window.** It lives in
+  `services/billing/trialLedger.ts` in two units and two stores, and `llm_usage`
+  never enforces it: that table counts a local day and a calendar month, both
+  of which are windows on a clock the user can set, and neither of which knows
+  whether the traffic in it was paid for. Move the trial into the meter and a
+  subscriber is refused their first free turn because of their own paid ones.
+- **Nothing may lower `llmTrialRequestsUsed` or `llmTrialTokensUsed`.** Not a
+  button, not "Erase everything" (`db/wipe.ts` preserves those rows and
+  `llm_usage`), not a reinstall (SecureStore mirrors them; iOS Keychain
+  survives deletion, Android does not — the backend is the real anchor there).
+  `services/billing/__tests__/reset-surfaces.test.ts` reads the source and
+  fails if a new one appears.
+- **A build with a backend URL is a store build**, whatever the billing
+  provider says. `revenuecat.isAvailable()` is false when an environment
+  variable is missing, which silently registers the provider that reports
+  `sells: false` — so the hosted path forces `storeBuild: true` rather than
+  asking. It also applies no developer caps, because those sliders are hidden
+  on that build and an invisible 3,000/month would cap an Unlimited subscriber.
+- **The meter's clock only ratchets.** `snapshot()` measures the later of the
+  device's local date and the newest date ever recorded, so winding the clock
+  back cannot open an empty window. Winding it *forward* still can, and is left
+  alone: it is indistinguishable from time passing, and the server owns the
+  authoritative quota on the build where that matters.
 
 ## Environment gotchas
 

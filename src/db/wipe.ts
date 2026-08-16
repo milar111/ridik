@@ -17,6 +17,31 @@ import type { SqliteClient } from './sqlite-client';
  */
 const FTS_SHADOW = /_(data|idx|content|docsize|config)$/;
 
+/**
+ * The spend ledger, which is not the user's data and does not go.
+ *
+ * "Erase everything" is about what the user wrote — their notes, their tasks,
+ * their calendar. `llm_usage` is none of that: it is the record of what has
+ * been spent on somebody else's API key, and emptying it is how a day's cap, a
+ * month's plan allowance and the free trial's backstop all reset at once. The
+ * button was a full reset of every spend control in the app, reachable with no
+ * developer mode and no reinstall, and its cost to somebody who only wanted
+ * free model calls was a database they did not care about.
+ *
+ * Nothing in here identifies anything: five integers and a date per day.
+ */
+const PRESERVED_TABLES = new Set(['llm_usage']);
+
+/**
+ * Settings rows that survive a wipe, for the same reason.
+ *
+ * These two are the free trial's lifetime counters. Everything else in
+ * `app_settings` is a preference and goes. Kept as literals rather than
+ * imported from `@/repositories/settings` so this file stays a leaf over the
+ * raw client; `__tests__/wipe.test.ts` asserts they are still real keys.
+ */
+export const PRESERVED_SETTINGS = ['llmTrialRequestsUsed', 'llmTrialTokensUsed'] as const;
+
 /** Every table a user's data can live in, newest schema included. */
 export function listUserTables(client: SqliteClient): string[] {
   return client
@@ -35,14 +60,24 @@ export function listUserTables(client: SqliteClient): string[] {
  * ordered by dependency: an order is a list that rots the next time a table is
  * added, and every row is going anyway. The pragma is a no-op inside a
  * transaction, hence the sequencing.
+ *
+ * Two exceptions, both spend controls rather than anything the user wrote —
+ * see `PRESERVED_TABLES` and `PRESERVED_SETTINGS`.
  */
 export function wipeAllTables(client: SqliteClient): number {
-  const tables = listUserTables(client);
+  const tables = listUserTables(client).filter((name) => !PRESERVED_TABLES.has(name));
+  const keep = PRESERVED_SETTINGS.map((key) => `'${key}'`).join(', ');
 
   client.execSync('PRAGMA foreign_keys = OFF');
   client.execSync('BEGIN');
   try {
-    for (const table of tables) client.execSync(`DELETE FROM "${table}"`);
+    for (const table of tables) {
+      client.execSync(
+        table === 'app_settings'
+          ? `DELETE FROM "app_settings" WHERE key NOT IN (${keep})`
+          : `DELETE FROM "${table}"`,
+      );
+    }
     client.execSync('COMMIT');
   } catch (error) {
     client.execSync('ROLLBACK');

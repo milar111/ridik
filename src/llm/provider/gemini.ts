@@ -98,7 +98,12 @@ type GeminiPayload = {
     finishReason?: string;
   }[];
   promptFeedback?: { blockReason?: string };
-  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    /** Tokens of `promptTokenCount` that were served from a prompt cache. */
+    cachedContentTokenCount?: number;
+  };
 };
 
 const FINISH_MESSAGES: Record<string, string> = {
@@ -179,6 +184,31 @@ export function createGeminiProvider(options: GeminiProviderOptions): GeminiProv
       const startedAt = now();
       for (;;) {
         const schema = onLadder ? rungs[rung] : pinned;
+        // Prompt caching, and why this request is not reordered to chase it.
+        //
+        // Measured on this repo (src/llm/__tests__/prompt-cache.test.ts keeps
+        // the numbers honest): a full turn is ~29.4 kB — a 12.8 kB system
+        // instruction plus a 16.7 kB `responseSchema` — about 7,300 tokens.
+        //
+        //  - Caching discounts a *prefix*, and `responseSchema` is not part of
+        //    one. `CachedContent` holds `contents`, `systemInstruction`,
+        //    `tools` and `toolConfig`; there is no `generationConfig` on it,
+        //    and implicit caching keys on the same fields. The 16.7 kB is
+        //    billed as input on every call and cannot be cached where it sits.
+        //  - What is left — the static prose of the system instruction — is
+        //    9,904 characters, ~2,500 tokens, and it is a compile-time
+        //    constant that no amount of user data can grow. Gemini 3.x Flash
+        //    needs 4,096 tokens before a prefix is cacheable at all, so moving
+        //    NOW and CONTEXT to the tail would buy a prefix that still never
+        //    caches. Reordering was therefore deliberately not done.
+        //
+        // The move that would change the arithmetic is sending the strict
+        // schema as `tools[].functionDeclarations` instead: `tools` *is* a
+        // cached field, which would put ~6,900 tokens inside the prefix. That
+        // is a response-mode change (function calls, not JSON text), not a
+        // reorder, and it needs a real key to verify. Until then the honest
+        // number for cache savings on this path is zero — which is exactly
+        // what `usage.cached` below will keep reporting.
         const body = {
           systemInstruction: { parts: [{ text: req.system }] },
           contents: req.messages.map((m) => ({ role: m.role, parts: [{ text: m.content }] })),
@@ -211,6 +241,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): GeminiProv
 
         const payload = await readPayload(response);
         const text = extractText(payload);
+        const cached = payload.usageMetadata?.cachedContentTokenCount;
 
         return {
           text,
@@ -219,6 +250,10 @@ export function createGeminiProvider(options: GeminiProviderOptions): GeminiProv
           usage: {
             input: payload.usageMetadata?.promptTokenCount,
             output: payload.usageMetadata?.candidatesTokenCount,
+            // Only when Google actually reported it. Recorded rather than
+            // ignored because it is the one number that says whether prompt
+            // caching is doing anything; see the note above `body`.
+            ...(typeof cached === 'number' ? { cached } : {}),
           },
         };
       }

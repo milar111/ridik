@@ -1,5 +1,7 @@
+import { isSettingKey } from '@/repositories/settings';
+
 import { createTestDatabase, type TestDatabase } from '../testing';
-import { listUserTables, wipeAllTables } from '../wipe';
+import { listUserTables, wipeAllTables, PRESERVED_SETTINGS } from '../wipe';
 
 describe('wipeAllTables', () => {
   let database: TestDatabase;
@@ -56,6 +58,79 @@ describe('wipeAllTables', () => {
         [],
       ),
     ).toEqual([{ note_id: 'n2' }]);
+  });
+
+  /**
+   * "Erase everything" was a full reset of every spend control in the app.
+   *
+   * It walks `sqlite_master`, so it took `app_settings` — the only home of the
+   * free trial's lifetime counters — and `llm_usage`, the only home of the
+   * spend meter. Burn the 25 free requests, tap Delete, type ERASE, and the
+   * next utterance reads a fresh trial over a zeroed day and month. Repeat
+   * forever, no reinstall and no developer mode. Somebody whose goal is free
+   * model calls has nothing to lose by deleting notes they never wrote.
+   */
+  describe('what a wipe must not reset', () => {
+    const spend = () => {
+      database.client.runSync(
+        `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, 1)`,
+        ['llmTrialRequestsUsed', '25'],
+      );
+      database.client.runSync(
+        `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, 1)`,
+        ['llmTrialTokensUsed', '600000'],
+      );
+      database.client.runSync(
+        `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, 1)`,
+        ['ttsEnabled', 'true'],
+      );
+      database.client.runSync(
+        `INSERT INTO llm_usage (local_date, requests, input_tokens, output_tokens, cost_micros, updated_at)
+         VALUES ('2026-08-16', 180, 1000000, 40000, 300000, 1)`,
+        [],
+      );
+    };
+
+    const setting = (key: string): string | undefined =>
+      database.client.getFirstSync<{ value: string }>(
+        'SELECT value FROM app_settings WHERE key = ?',
+        [key],
+      )?.value;
+
+    it('keeps the free trial’s lifetime counters', () => {
+      spend();
+      wipeAllTables(database.client);
+
+      expect(setting('llmTrialRequestsUsed')).toBe('25');
+      expect(setting('llmTrialTokensUsed')).toBe('600000');
+    });
+
+    it('keeps the spend meter', () => {
+      spend();
+      wipeAllTables(database.client);
+
+      const row = database.client.getFirstSync<{ requests: number }>(
+        'SELECT requests FROM llm_usage WHERE local_date = ?',
+        ['2026-08-16'],
+      );
+      expect(row?.requests).toBe(180);
+    });
+
+    /* Everything the user actually wrote still goes, preferences included —
+       the exemption is two integers about somebody else's invoice, not a
+       licence to keep state the user asked to be rid of. */
+    it('still erases every ordinary preference', () => {
+      spend();
+      wipeAllTables(database.client);
+
+      expect(setting('ttsEnabled')).toBeUndefined();
+    });
+
+    /* The list is written out as literals so `wipe.ts` stays a leaf over the
+       raw client. A typo there would silently preserve nothing. */
+    it('names only keys the settings repository actually has', () => {
+      for (const key of PRESERVED_SETTINGS) expect(isSettingKey(key)).toBe(true);
+    });
   });
 
   /* Migrations key on PRAGMA user_version; a wipe that reset it would re-run

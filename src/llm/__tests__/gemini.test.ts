@@ -291,7 +291,31 @@ describe('gemini provider', () => {
     expect(completion.text).toBe('{"actions":[]}');
     expect(completion.model).toBe('gemini-3-pro');
     expect(completion.usage).toEqual({ input: 10, output: 4 });
+    expect(completion.usage?.cached).toBeUndefined();
     expect(completion.latencyMs).toBeGreaterThanOrEqual(0);
+  });
+
+  /**
+   * The only signal that prompt caching did anything. `promptTokenCount`
+   * already counts these tokens, so without the separate number a cache hit and
+   * a cache miss are the same row in the meter.
+   */
+  it('captures the cached slice of the prompt when Gemini reports one', async () => {
+    const { impl } = stubFetch(() =>
+      jsonResponse({
+        candidates: [{ content: { parts: [{ text: '{"actions":[]}' }] }, finishReason: 'STOP' }],
+        usageMetadata: {
+          promptTokenCount: 7_300,
+          candidatesTokenCount: 90,
+          cachedContentTokenCount: 6_900,
+        },
+      }),
+    );
+    const completion = await createGeminiProvider({ apiKey: 'k', fetchImpl: impl }).complete(
+      request,
+    );
+
+    expect(completion.usage).toEqual({ input: 7_300, cached: 6_900, output: 90 });
   });
 
   it.each([

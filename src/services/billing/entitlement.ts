@@ -51,11 +51,13 @@ export function describeAllowance(tier: PlanTier): string {
 }
 
 /**
- * The monthly cap to enforce for an entitlement.
+ * The monthly cap a *paid* entitlement buys, in requests. 0 means uncapped.
  *
- * Free is zero: no plan, no assistant. It is not a small allowance — a trial
- * that quietly runs out is worse than an honest lock, and the free app is
- * genuinely complete without it.
+ * Zero for free as well, which is why nothing may branch on this number alone:
+ * "nothing bought" and "bought the Unlimited tier" answer identically here, and
+ * treating that 0 as a cap is exactly how a free user inherited the operator's
+ * developer caps. What a free install gets is `resolveAssistantBudget()` in
+ * `./allowance`, and it is a lifetime trial rather than a monthly allowance.
  */
 export function monthlyAllowance(entitlement: Entitlement): number {
   if (!entitlement.active || !entitlement.tier) return 0;
@@ -93,6 +95,21 @@ export type Plan = {
 export type Entitlement = {
   /** False means the assistant is off; everything local still works. */
   active: boolean;
+  /**
+   * Whether the store actually answered.
+   *
+   * `active: false` has two completely different causes and they deserve
+   * opposite treatment: the store said "nothing bought", or the store could not
+   * be asked at all. Collapsing them is how a paying subscriber whose network
+   * blinked got told they had used up a free trial they never started — the
+   * store read failed, the entitlement came back free, and the free-tier lock
+   * fired on somebody holding a receipt.
+   *
+   * False means *we do not know*. Nothing may charge a trial, lock the
+   * assistant, or tell the user anything about what they have paid for while
+   * this is false; see `resolveAssistantBudget`'s `unknown` state.
+   */
+  known: boolean;
   plan: PlanId | null;
   /** Which allowance they bought. Null on free. */
   tier: PlanTier | null;
@@ -118,8 +135,10 @@ export type Entitlement = {
   store: 'app-store' | 'play-store' | 'sandbox' | null;
 };
 
+/** The store answered, and nothing is bought. */
 export const FREE: Entitlement = {
   active: false,
+  known: true,
   plan: null,
   tier: null,
   renewsAt: null,
@@ -128,6 +147,16 @@ export const FREE: Entitlement = {
   inGracePeriod: false,
   store: null,
 };
+
+/**
+ * The store did not answer.
+ *
+ * Shaped like `FREE` so every screen keeps rendering something sane, but the
+ * money path must branch on `known` rather than on `active` — this is the value
+ * a subscriber holds during an outage, a failed `configure()`, or the first
+ * launch after a reinstall while offline.
+ */
+export const UNKNOWN: Entitlement = { ...FREE, known: false };
 
 /**
  * What a store SDK has to provide. Deliberately small: anything more and the
@@ -149,6 +178,17 @@ export type BillingProvider = {
   manageUrl(): string;
   /** Shown in the developer screen so it is never a mystery which one is live. */
   readonly name: string;
+  /**
+   * Whether this provider can actually take money.
+   *
+   * The one fact `current()` can never carry: a free entitlement means "nothing
+   * bought" on a store build and "there was nothing to buy" on a personal one,
+   * and those two deserve opposite answers about the assistant. True only for a
+   * real store — the SDK compiled in and keyed. The development provider writes
+   * a row to this device and sells nothing, so it is false there, and a build
+   * carrying it keeps the developer caps it always had.
+   */
+  readonly sells: boolean;
 };
 
 let provider: BillingProvider | null = null;
@@ -202,12 +242,29 @@ export function billingProviderName(): string | null {
 }
 
 /**
- * The current entitlement, or free.
+ * True when this build can sell a subscription.
+ *
+ * Synchronous and total on purpose: it is asked on the money path of every
+ * voice turn, before the network, and "we could not find out" would have to be
+ * answered one way or the other anyway. Nothing registered yet reads as no
+ * store, which is the safe direction — it withholds the lock, never the app.
+ */
+export function isStoreBuild(): boolean {
+  return provider?.sells === true;
+}
+
+/**
+ * The current entitlement, or an explicit "we could not find out".
  *
  * Never throws and never blocks a screen. A store that cannot be reached is not
- * evidence that someone has stopped paying — but it is not evidence they have
- * either, so an unreachable store reads as free and the UI says the status is
- * unknown rather than accusing them of not paying.
+ * evidence that someone has stopped paying, so the failure is reported as
+ * `UNKNOWN` rather than as free: the two used to be the same value, and the
+ * money path could not tell "chose not to pay" from "could not ask", which cost
+ * a subscriber their assistant every time the network blinked.
+ *
+ * A build with no provider registered at all is a different fact again — there
+ * is nothing to have bought — and `FREE` is the honest answer there, with
+ * `isStoreBuild()` false to say so.
  */
 export async function currentEntitlement(): Promise<Entitlement> {
   await whenReady();
@@ -215,8 +272,10 @@ export async function currentEntitlement(): Promise<Entitlement> {
   try {
     return await provider.current();
   } catch (error) {
-    log.warn('could not read the entitlement; treating as free for now', { error });
-    return FREE;
+    log.warn('could not read the entitlement; the plan is unknown until the store answers', {
+      error,
+    });
+    return UNKNOWN;
   }
 }
 
@@ -270,6 +329,9 @@ export async function configureBilling(): Promise<void> {
 
 /** One line describing where the plan stands. */
 export function describePlan(entitlement: Entitlement): string {
+  // Not "Free": telling somebody who pays that they are on the free tier
+  // because their train went into a tunnel is the one wrong answer here.
+  if (!entitlement.known) return 'Checking…';
   if (!entitlement.active) return 'Free';
   if (entitlement.inGracePeriod) return 'Payment failed';
   if (!entitlement.willRenew) return 'Cancelled';
@@ -281,6 +343,9 @@ export function describePlan(entitlement: Entitlement): string {
  * charge again, it will stop, or something is wrong with the card.
  */
 export function describeRenewal(entitlement: Entitlement, format: (at: number) => string): string {
+  if (!entitlement.known) {
+    return 'Could not reach the store. Your plan is unchanged; this screen will catch up.';
+  }
   if (!entitlement.active) return 'The assistant is off. Everything you have written stays yours.';
   if (entitlement.inGracePeriod) {
     return 'Your last payment did not go through. Update your card at the store to keep the assistant.';
