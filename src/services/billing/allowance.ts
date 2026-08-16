@@ -46,6 +46,12 @@ import {
   type UsageCaps,
 } from '@/llm/usage';
 
+import {
+  NO_CREDITS,
+  creditsRemaining,
+  describeCredits,
+  type CreditLedger,
+} from './credits';
 import { monthlyAllowance, type Entitlement } from './entitlement';
 
 /**
@@ -130,7 +136,7 @@ export type BudgetAction = { label: string; href: string };
 export type AssistantBudget =
   | {
       allowed: true;
-      state: 'personal' | 'subscribed' | 'trial' | 'unknown';
+      state: 'personal' | 'subscribed' | 'trial' | 'unknown' | 'credits';
       /**
        * What the meter must still enforce on top of this decision, in its own
        * units. Passed to `check()` unchanged.
@@ -138,6 +144,15 @@ export type AssistantBudget =
       caps: UsageCaps;
       /** True while the lifetime trial is what is paying for this turn. */
       metersTrial: boolean;
+      /**
+       * True while a bought top-up is what is paying for this turn.
+       *
+       * Separate from `metersTrial` and never both: they are two lifetime
+       * balances with opposite meanings — one is a sample, the other was paid
+       * for — and the caller has to draw down the right one. Collapsing them
+       * would spend somebody's $3 on a free trial, or the reverse.
+       */
+      metersCredits: boolean;
       /** Said on the turn, when the user needs to know where they stand. */
       notice: string | null;
       action: BudgetAction | null;
@@ -152,6 +167,19 @@ export type AssistantBudget =
 
 /** The one route that sells anything. */
 const PLANS: BudgetAction = { label: 'See plans', href: '/plans' };
+
+/**
+ * Said on every turn a top-up is paying for.
+ *
+ * Not only when it runs low, and that is deliberate. Credits are the one budget
+ * that gets quietly *smaller* with nothing to refill it, and the user is
+ * spending them at a moment they have already been told they were out of
+ * something else. A balance that only speaks up at the end is a balance whose
+ * disappearance is a surprise twice.
+ */
+function creditsNotice(ledger: CreditLedger): string {
+  return `${describeCredits(ledger)}. These are your top-up requests, not a plan.`;
+}
 
 /**
  * What the user is told when the trial is gone.
@@ -226,6 +254,14 @@ export type BudgetInput = {
   entitlement: Entitlement;
   /** What this install has already spent of its lifetime free trial. */
   trial: TrialLedger;
+  /**
+   * Requests bought outright, and how many of them are gone.
+   *
+   * Consulted only once every other budget has refused — see `fromCredits`.
+   * Optional so every existing caller keeps compiling with no credits, which
+   * is also the correct reading for a build that has never sold one.
+   */
+  credits?: CreditLedger;
   /** The developer screen's own ceilings, in requests, 0 for "no ceiling". */
   caps: DeveloperCaps;
   /**
@@ -253,11 +289,43 @@ export function resolveAssistantBudget(input: BudgetInput): AssistantBudget {
   const monthly = developerCap(cap(input.caps.monthly));
   const projected = Math.max(0, Math.trunc(input.estimatedTokens ?? TYPICAL_TURN_TOKENS));
 
+  /**
+   * A turn paid for out of the top-up balance.
+   *
+   * Reached only from `refuse`, and that ordering is the whole design: credits
+   * are spent *last*, after the subscription's month and after the free trial,
+   * because they are the only budget here that somebody paid cash for and does
+   * not get back. Consulting them first would charge a $3 purchase for turns a
+   * subscription had already covered.
+   *
+   * The day and month ceilings still apply. They are the operator's ceilings —
+   * about the size of the bill rather than who is entitled to it — and a bought
+   * balance does not buy the right to exhaust them.
+   */
+  const fromCredits = (): AssistantBudget | null => {
+    if (creditsRemaining(input.credits ?? NO_CREDITS) <= 0) return null;
+    if (projected > MAX_TURN_TOKENS) return null;
+    return {
+      allowed: true,
+      state: 'credits',
+      caps: { daily: { requests: daily }, monthly: { requests: monthly } },
+      metersTrial: false,
+      metersCredits: true,
+      notice: creditsNotice(input.credits ?? NO_CREDITS),
+      action: PLANS,
+    };
+  };
+
   const refuse = (
     state: 'trial-spent' | 'turn-too-large',
     message: string,
     action: BudgetAction | null,
-  ): AssistantBudget => ({ allowed: false, state, message, action });
+  ): AssistantBudget =>
+    // A bought balance answers before the door shuts, whatever shut it: a
+    // spent trial and an exhausted plan are the same question to somebody
+    // holding credits, and refusing one of them would have sold a top-up that
+    // could not be used.
+    fromCredits() ?? { allowed: false, state, message, action };
 
   // Paid first, so a subscriber is never asked about a trial they bought their
   // way past — including on a build with no store, where the sandbox provider
@@ -274,6 +342,7 @@ export function resolveAssistantBudget(input: BudgetInput): AssistantBudget {
         monthly: { requests: subscribedMonthly(monthlyAllowance(input.entitlement), monthly) },
       },
       metersTrial: false,
+      metersCredits: false,
       notice: null,
       action: null,
     };
@@ -302,6 +371,7 @@ export function resolveAssistantBudget(input: BudgetInput): AssistantBudget {
       state: 'unknown',
       caps: { daily: { requests: daily }, monthly: { requests: monthly } },
       metersTrial: false,
+      metersCredits: false,
       notice: null,
       action: null,
     };
@@ -316,6 +386,7 @@ export function resolveAssistantBudget(input: BudgetInput): AssistantBudget {
       // the invoice belongs to whoever pasted the key.
       caps: { daily: { requests: daily }, monthly: { requests: monthly } },
       metersTrial: false,
+      metersCredits: false,
       notice: null,
       action: null,
     };
@@ -342,6 +413,7 @@ export function resolveAssistantBudget(input: BudgetInput): AssistantBudget {
   return {
     allowed: true,
     state: 'trial',
+    metersCredits: false,
     // The lifetime ledger above is the gate. What is left here is the
     // operator's own day and month ceilings, which are about the size of the
     // bill rather than about who is entitled to it — and which the trial's 25

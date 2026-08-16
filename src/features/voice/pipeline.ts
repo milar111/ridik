@@ -52,6 +52,9 @@ import { getRepositories } from '@/repositories';
 import { defaultSettings, type SettingsValues } from '@/repositories/settings';
 import { resolveAssistantBudget, type BudgetAction } from '@/services/billing/allowance';
 import { currentEntitlement, isStoreBuild } from '@/services/billing/entitlement';
+import { NO_CREDITS, purchasedFrom } from '@/services/billing/credits';
+import { chargeCredits, readCreditsUsed } from '@/services/billing/creditsLedger';
+import { topUpsPurchased } from '@/services/billing/entitlement';
 import { chargeTrial, readTrialLedger } from '@/services/billing/trialLedger';
 import { pushEventNow } from '@/services/calendar';
 import { focusEffects } from '@/services/focus';
@@ -140,6 +143,8 @@ export type TurnClient = {
   metered: boolean;
   /** True when the lifetime free trial is what is paying for it. */
   trial: boolean;
+  /** True when a bought top-up is what is paying for it. Never both. */
+  credits: boolean;
   /**
    * What to tell the user about the money side of this turn: a cap that bit, a
    * trial running out, or a trial already spent. Shown whether the turn was
@@ -158,7 +163,15 @@ export type TurnClient = {
 
 /** A turn that never reaches a paid provider costs nothing and says nothing. */
 function unmetered(client: LlmClient, estimatedTokens: number): TurnClient {
-  return { client, metered: false, trial: false, notice: null, action: null, estimatedTokens };
+  return {
+    client,
+    metered: false,
+    trial: false,
+    credits: false,
+    notice: null,
+    action: null,
+    estimatedTokens,
+  };
 }
 
 
@@ -233,6 +246,7 @@ async function clientForTurn(transcript: string): Promise<TurnClient> {
           client: hosted,
           metered: true,
           trial: budget.trial,
+          credits: budget.credits,
           notice: budget.notice,
           action: budget.action,
           estimatedTokens: budget.estimatedTokens,
@@ -270,6 +284,7 @@ async function clientForTurn(transcript: string): Promise<TurnClient> {
     client: gemini.client,
     metered: true,
     trial: budget.trial,
+    credits: budget.credits,
     notice: budget.notice,
     action: budget.action,
     estimatedTokens: budget.estimatedTokens,
@@ -290,6 +305,7 @@ function withheld(consent: AssistantConsent): TurnClient {
     client: mockClient,
     metered: false,
     trial: false,
+    credits: false,
     notice: consentNotice(consent),
     action: { ...CONSENT_ACTION },
     estimatedTokens: 0,
@@ -303,6 +319,7 @@ function refused(budget: TurnBudget): TurnClient {
     client: mockClient,
     metered: false,
     trial: false,
+    credits: false,
     notice: budget.blocked,
     action: budget.action,
     estimatedTokens: budget.estimatedTokens,
@@ -317,6 +334,8 @@ type TurnBudget = {
   action: BudgetAction | null;
   /** True when going ahead spends one of the lifetime trial's requests. */
   trial: boolean;
+  /** True when it spends one of the requests bought as a top-up. Never both. */
+  credits: boolean;
   /** What this turn was projected to draw, in tokens. */
   estimatedTokens: number;
 };
@@ -393,11 +412,17 @@ async function assistantBudget(options: BudgetOptions): Promise<TurnBudget> {
   // and the ledger's durable half is a keychain item — an I/O round trip per
   // utterance to answer a question nothing downstream will ask.
   const trial = storeBuild ? await readTrialLedger() : { requestsUsed: 0, tokensUsed: 0 };
+  // Same reasoning as the trial: only a build that can sell a top-up can have
+  // one, and the balance costs a store round trip plus a keychain read.
+  const credits = storeBuild
+    ? { purchased: purchasedFrom(await topUpsPurchased()), used: await readCreditsUsed() }
+    : NO_CREDITS;
 
   const budget = resolveAssistantBudget({
     storeBuild,
     entitlement,
     trial,
+    credits,
     caps: developerCaps,
     estimatedTokens,
   });
@@ -408,6 +433,7 @@ async function assistantBudget(options: BudgetOptions): Promise<TurnBudget> {
       notice: budget.message,
       action: budget.action,
       trial: false,
+      credits: false,
       estimatedTokens,
     };
   }
@@ -427,6 +453,7 @@ async function assistantBudget(options: BudgetOptions): Promise<TurnBudget> {
           notice: message,
           action: budget.action,
           trial: false,
+          credits: false,
           estimatedTokens,
         };
       }
@@ -442,6 +469,7 @@ async function assistantBudget(options: BudgetOptions): Promise<TurnBudget> {
     notice: budget.notice,
     action: budget.action,
     trial: budget.metersTrial,
+    credits: budget.metersCredits,
     estimatedTokens,
   };
 }
@@ -653,6 +681,14 @@ export function createVoicePipeline(): VoicePipeline {
       // after billing five attempts. The one case that truly costs nothing is a
       // pending clarification answered yes or no, and that is the one exempted
       // here; everything else charges the trial whether it worked or not.
+      // A bought request is drawn down on exactly the turns the trial would
+      // have been — same unit, same exemption for a yes/no that never reached
+      // the model. Never both: `resolveAssistantBudget` sets one flag or the
+      // other, because the two balances mean opposite things.
+      if (turn.credits && (outcome.usage || !options?.pending)) {
+        await chargeCredits(1);
+      }
+
       if (turn.trial && (outcome.usage || !options?.pending)) {
         const billed =
           (outcome.usage?.inputTokens ?? 0) + (outcome.usage?.outputTokens ?? 0);

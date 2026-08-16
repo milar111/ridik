@@ -35,12 +35,21 @@ const PRESERVED_TABLES = new Set(['llm_usage']);
 /**
  * Settings rows that survive a wipe, for the same reason.
  *
- * These two are the free trial's lifetime counters. Everything else in
- * `app_settings` is a preference and goes. Kept as literals rather than
- * imported from `@/repositories/settings` so this file stays a leaf over the
- * raw client; `__tests__/wipe.test.ts` asserts they are still real keys.
+ * Two are the free trial's lifetime counters. The third is how much of a paid
+ * top-up has been spent, kept for a sharper version of the same reason: the
+ * trial's counters going back to zero hands out a sample twice, and this one
+ * going back to zero refunds a purchase the operator has already delivered.
+ * Everything else in `app_settings` is a preference and goes.
+ *
+ * Kept as literals rather than imported from `@/repositories/settings` so this
+ * file stays a leaf over the raw client; `__tests__/wipe.test.ts` asserts they
+ * are still real keys.
  */
-export const PRESERVED_SETTINGS = ['llmTrialRequestsUsed', 'llmTrialTokensUsed'] as const;
+export const PRESERVED_SETTINGS = [
+  'llmTrialRequestsUsed',
+  'llmTrialTokensUsed',
+  'llmCreditsUsed',
+] as const;
 
 /** Every table a user's data can live in, newest schema included. */
 export function listUserTables(client: SqliteClient): string[] {

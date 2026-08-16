@@ -30,6 +30,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 import { createLogger } from '@/core/logger';
+import { TOPUP_PRODUCT } from './credits';
 import {
   FREE,
   PLAN_IDS,
@@ -299,6 +300,82 @@ export function createRevenueCatProvider(): BillingProvider {
       const Purchases = load();
       if (!Purchases) throw new Error('Purchases are not available in this build.');
       return toEntitlement(await Purchases.restorePurchases());
+    },
+
+    /**
+     * How many top-ups this user has ever bought.
+     *
+     * `nonSubscriptionTransactions` is RevenueCat's own ledger of consumables,
+     * and it is deliberately the only source for this number: the balance the
+     * app enforces is `bought - spent`, the spent half lives on the device, and
+     * a device that can edit both halves can mint requests on the operator's
+     * key. Counted rather than summed, because one transaction is one purchase
+     * whatever it cost in the local currency.
+     */
+    async topUpsPurchased() {
+      const Purchases = load();
+      if (!Purchases) return 0;
+      try {
+        const info: any = await Purchases.getCustomerInfo();
+        const all: any[] = info?.nonSubscriptionTransactions ?? [];
+        return all.filter((tx) => String(tx?.productIdentifier ?? '') === TOPUP_PRODUCT).length;
+      } catch (error) {
+        // The count is a balance, and an unreadable balance must read as zero
+        // rather than as "unchanged": guessing upwards here is free requests.
+        log.warn('could not read the top-up count', { error });
+        return 0;
+      }
+    },
+
+    /**
+     * The consumable, fetched by product id rather than out of an offering.
+     *
+     * An offering is a *choice between plans* — RevenueCat's own guidance is
+     * that consumables need not sit in one, and putting it there would make it
+     * a fifth thing the paywall has to filter out of its two cards. Asking for
+     * the product directly also means the top-up needs no dashboard change to
+     * work, so it cannot be broken by somebody rearranging the offering.
+     */
+    async topUpProduct() {
+      const Purchases = load();
+      if (!Purchases) return null;
+      try {
+        const products: any[] = await Purchases.getProducts([TOPUP_PRODUCT], 'NON_SUBSCRIPTION');
+        const product = products.find(
+          (item) => String(item?.identifier ?? '') === TOPUP_PRODUCT,
+        );
+        if (!product) return null;
+        return {
+          price: String(product.priceString ?? ''),
+          amount: typeof product.price === 'number' ? product.price : null,
+          currency: product.currencyCode ? String(product.currencyCode) : null,
+        };
+      } catch (error) {
+        log.warn('could not read the top-up product', { error });
+        return null;
+      }
+    },
+
+    async topUp() {
+      const Purchases = load();
+      if (!Purchases) throw new Error('Purchases are not available in this build.');
+      const products: any[] = await Purchases.getProducts([TOPUP_PRODUCT], 'NON_SUBSCRIPTION');
+      const product = products.find((item) => String(item?.identifier ?? '') === TOPUP_PRODUCT);
+      if (!product) throw new Error('Top-ups are not available right now.');
+
+      try {
+        await Purchases.purchaseStoreProduct(product);
+      } catch (error: any) {
+        // Backing out of the store sheet is not a failure. The count is asked
+        // for again either way, so a cancel simply reports what was already
+        // owned.
+        if (error?.userCancelled) return this.topUpsPurchased!();
+        throw error;
+      }
+      // Asked again rather than incremented locally. The store is the authority
+      // on what was bought, and a purchase that succeeded on the device but not
+      // at the till must not add to the balance.
+      return this.topUpsPurchased!();
     },
 
     manageUrl() {

@@ -20,12 +20,21 @@ import { Ionicons } from '@expo/vector-icons';
 import { now } from '@/core/clock';
 import { formatDayHeading } from '@/core/time';
 import {
+  useCredits,
   useEntitlement,
   usePlanMarketing,
   usePlans,
   usePurchasePlan,
+  usePurchaseTopUp,
   useRestorePurchases,
+  useTopUpPrice,
 } from '@/hooks/useBilling';
+import {
+  NO_CREDITS,
+  creditsRemaining,
+  describeCredits,
+  describeTopUp,
+} from '@/services/billing/credits';
 import {
   describeAllowance,
   describeBillingPeriod,
@@ -147,6 +156,8 @@ function Subscribed({ plan }: { plan: Entitlement }) {
           />
         ) : null}
       </Card>
+
+      <TopUp />
 
       <Txt variant="caption" tone="tertiary">
         Cancelling stops the next charge. You keep the assistant until the date above, and
@@ -356,6 +367,70 @@ function BillingToggle({
   );
 }
 
+/**
+ * The top-up, and the balance it adds to.
+ *
+ * Under the plans and never above them, because it is the worse deal and
+ * should look like it: 3¢ a request against 1¢ on Ridik Pro. It exists for the
+ * month somebody overshoots, not as a cheaper way in, and putting it first
+ * would sell it to people a plan would serve better.
+ *
+ * Drawn on the paywall *and* on the subscribed screen, because both can run
+ * out — a spent trial and an exhausted month are the same problem to somebody
+ * who just wants to say one more thing.
+ */
+function TopUp() {
+  const { colors, spacing } = useTheme();
+  const toast = useToast();
+  const credits = useCredits();
+  const price = useTopUpPrice();
+  const buy = usePurchaseTopUp();
+
+  const ledger = credits.data ?? NO_CREDITS;
+  const left = creditsRemaining(ledger);
+  // The store's own string, and the button says nothing about money until it
+  // has one — a price is the last thing on this screen that may be a guess.
+  const cost = price.data?.price?.trim() ? price.data.price : null;
+
+  return (
+    <Card style={{ gap: spacing.sm }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <Ionicons name="add-circle-outline" size={17} color={colors.accent} />
+        <Txt variant="bodyStrong" style={{ flex: 1 }}>
+          Need a few more?
+        </Txt>
+      </View>
+
+      <Txt variant="caption" tone="secondary">
+        {describeTopUp()} They are spent only once your plan or trial has run out, so buying one
+        never wastes what you already have.
+      </Txt>
+
+      {/* Only when there is something to report. A row reading "0 left" on a
+          screen for somebody who has never bought one is an error message for
+          a mistake nobody made. */}
+      {left > 0 ? (
+        <Txt testID="credits-balance" variant="bodyStrong" tone="success">
+          {describeCredits(ledger)}
+        </Txt>
+      ) : null}
+
+      <Button
+        testID="buy-topup"
+        label={cost ? `Buy a top-up · ${cost}` : 'Buy a top-up'}
+        variant="secondary"
+        loading={buy.isPending}
+        onPress={() =>
+          buy.mutate(undefined, {
+            onSuccess: () => toast.show({ message: 'Top-up added', tone: 'success' }),
+            onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
+          })
+        }
+      />
+    </Card>
+  );
+}
+
 function Fact({ label, value }: { label: string; value: string }) {
   const { spacing } = useTheme();
   return (
@@ -467,6 +542,8 @@ function Offer() {
           ))}
         </View>
       )}
+
+      <TopUp />
 
       {/* Required by both stores, and it has to be reachable without paying. */}
       <Button

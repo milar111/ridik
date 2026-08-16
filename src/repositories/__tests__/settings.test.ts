@@ -52,6 +52,7 @@ describe('settings repository', () => {
         llmMonthlyRequestCap: 3_000,
         llmTrialRequestsUsed: 0,
         llmTrialTokensUsed: 0,
+        llmCreditsUsed: 0,
         simulateStoreBuild: false,
         developerMode: false,
         sandboxSubscription: null,

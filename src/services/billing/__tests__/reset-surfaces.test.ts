@@ -46,7 +46,7 @@ function sources(): [string, string][] {
   return found;
 }
 
-const TRIAL_KEYS = ['llmTrialRequestsUsed', 'llmTrialTokensUsed'] as const;
+const TRIAL_KEYS = ['llmTrialRequestsUsed', 'llmTrialTokensUsed', 'llmCreditsUsed'] as const;
 
 describe('the trial counters', () => {
   /* `settings.bump` only ever adds, and `readTrialLedger` heals upwards from
@@ -54,6 +54,9 @@ describe('the trial counters', () => {
      goes down, so the two places allowed to write one at all are named. */
   const MAY_WRITE = new Set([
     join('src', 'services', 'billing', 'trialLedger.ts'),
+    // The same rule for the paid balance, in its own ledger: only the file that
+    // owns a lifetime counter may write one, and it only heals upwards.
+    join('src', 'services', 'billing', 'creditsLedger.ts'),
     join('src', 'repositories', 'settings.ts'),
   ]);
 

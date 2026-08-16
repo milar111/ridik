@@ -222,6 +222,8 @@ export const qk = {
     entitlement: () => [ROOT, 'billing', 'entitlement'] as const,
     plans: () => [ROOT, 'billing', 'plans'] as const,
     marketing: () => [ROOT, 'billing', 'marketing'] as const,
+    credits: [ROOT, 'billing', 'credits'] as const,
+    topUp: [ROOT, 'billing', 'topUp'] as const,
   },
   system: {
     all: [ROOT, 'system'] as const,

@@ -192,6 +192,17 @@ export const SETTINGS = {
    */
   llmTrialTokensUsed: define(z.number().int().min(0).max(1_000_000_000), () => 0),
   /**
+   * Bought requests already spent, out of the top-ups this install has paid for.
+   *
+   * Only half the ledger lives here. How many were *bought* is RevenueCat's
+   * answer, not this app's — a number kept locally could be edited upward, and
+   * the store is the only party that watched the money move. This is the other
+   * half, and it only goes up: like the trial counters it survives "Erase
+   * everything" (`db/wipe.ts`) and is mirrored into SecureStore, because a
+   * spend counter somebody can reset is a refund button.
+   */
+  llmCreditsUsed: define(z.number().int().min(0).max(10_000_000), () => 0),
+  /**
    * Pretend a store is compiled in, so the free-tier lock can be walked through
    * on a simulator that has no RevenueCat keys. Developer screen only, and the
    * worst it can do is lock the assistant on a personal build — which the same

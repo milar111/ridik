@@ -172,6 +172,9 @@ export type Marketing = {
   highlight: PlanId | null;
 };
 
+/** The top-up consumable, priced by the store. */
+export type TopUpProduct = { price: string; amount: number | null; currency: string | null };
+
 /** A thing that can be bought, priced by the store in the user's own currency. */
 export type Plan = {
   id: PlanId;
@@ -281,6 +284,18 @@ export type BillingProvider = {
   current(): Promise<Entitlement>;
   /** Opens the store's purchase sheet. Resolves to what the user ended on. */
   purchase(plan: PlanId, tier: PlanTier): Promise<Entitlement>;
+  /**
+   * Buys one top-up, and answers with the store's new count of them.
+   *
+   * A count rather than a balance: the store knows what was bought and this app
+   * knows what has been spent, and neither should be asked the other's
+   * question. Null when this provider sells no consumables.
+   */
+  topUp?(): Promise<number>;
+  /** How many top-ups the store has ever recorded for this user. */
+  topUpsPurchased?(): Promise<number>;
+  /** The consumable's price, as the store formats it. Null when unavailable. */
+  topUpProduct?(): Promise<TopUpProduct | null>;
   /** Required by both stores: a paid user reinstalling must get their plan back. */
   restore(): Promise<Entitlement>;
   /** Where this store lets a person cancel. Only the store can. */
@@ -413,6 +428,47 @@ export async function planMarketing(): Promise<Marketing | null> {
 export async function purchasePlan(plan: PlanId, tier: PlanTier): Promise<Entitlement> {
   if (!provider) throw new Error('Purchases are not available in this build.');
   return provider.purchase(plan, tier);
+}
+
+/**
+ * Buys one top-up. Answers with the store's new count of them.
+ *
+ * Throws when the build cannot sell one, rather than resolving to 0 — a button
+ * that quietly does nothing is worse than one that says why.
+ */
+export async function purchaseTopUp(): Promise<number> {
+  if (!provider?.topUp) throw new Error('Top-ups are not available in this build.');
+  return provider.topUp();
+}
+
+/**
+ * How many top-ups the store has recorded. Zero when it cannot be asked.
+ *
+ * Zero and not "unchanged": this is half of a balance the app enforces, and an
+ * unreadable half must never resolve in the direction that hands out requests.
+ * A user whose store is unreachable keeps their subscription — that path is
+ * `Entitlement.known` — and loses only the extra they bought on top, until it
+ * can be asked again.
+ */
+export async function topUpsPurchased(): Promise<number> {
+  if (!provider?.topUpsPurchased) return 0;
+  try {
+    return await provider.topUpsPurchased();
+  } catch (error) {
+    log.warn('could not read the top-up count', { error });
+    return 0;
+  }
+}
+
+/** What one top-up costs, or null when this build cannot sell one. */
+export async function topUpProduct(): Promise<TopUpProduct | null> {
+  if (!provider?.topUpProduct) return null;
+  try {
+    return await provider.topUpProduct();
+  } catch (error) {
+    log.warn('could not read the top-up product', { error });
+    return null;
+  }
 }
 
 export async function restorePurchases(): Promise<Entitlement> {
