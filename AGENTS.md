@@ -340,6 +340,47 @@ on their behalf.
   "I didn't quite catch that" over a microphone that captured a whole paragraph
   of silence is how somebody finds out days later.
 
+## Offline mode is real, and this is exactly what it does
+
+Audited 17 August 2026 by running `fallbackInterpret()` against real phrases,
+because "there is an offline mode" is the kind of claim that rots into a dead
+branch nobody has executed in a year. It had not rotted. `src/llm/provider/mock.ts`
+is a genuine pattern matcher, and it is what makes three separate promises true:
+declining consent leaves a working app, a spent trial leaves a working app, and
+an install with no key is still worth opening.
+
+Five behaviours, verified:
+
+| Said | Filed |
+| --- | --- |
+| "remind me to call Ivo at 4" | `calendar_add` — title "Call Ivo", the next 16:00, kind `reminder` |
+| "spent 12 on lunch" | `ledger_add` — amount 12, category "lunch" |
+| "add milk to my shopping list" | `checklist_add` — list "shopping", items ["milk"] |
+| "find the wifi password" | `search` — query "wifi password" |
+| anything else | `note_create`, with the sentence as a bullet |
+
+The last row is the important one. **Nothing said offline is ever discarded** —
+an utterance it cannot parse becomes a note rather than an error, so the words
+survive to be dealt with later. That is the same principle as `recovered` in
+`store.ts`, applied to comprehension rather than transport.
+
+Two things that look like bugs and are not:
+
+- **The search branch returns no `conversational_feedback`, deliberately.**
+  `composeFeedback` prefers the model's sentence over the executor's, and for a
+  search the executor's sentence *is* the answer — "Found 3 matches for
+  'resistors'". A canned "Searching (offline)." would spend the one honest tag
+  this engine has on withholding the thing that was asked for.
+- **"cancel my dentist appointment" becomes a note, not a cancellation.** The
+  offline engine never guesses a destructive action. Saving the words is the
+  correct degradation; deleting the wrong event is not.
+
+What it deliberately cannot do: multi-intent (one utterance, one action), any
+resolve against existing rows beyond a list name, and anything the model's
+judgement is for — scheduling inference, travel blocks, dependency chains. The
+turn carries a `notice` saying the assistant is offline, because a silently
+dumber assistant is the failure `LastAction` exists to prevent.
+
 ## Where a file goes
 
 **This repository is public.** Anything an agent writes that is not shipped
