@@ -28,6 +28,7 @@ import { newId } from '@/db/ids';
 import { llmInteractions } from '@/db/schema';
 import type { LlmClient } from '@/llm/client';
 import { actionSchema, type LlmAction, type ToolName } from '@/llm/contract';
+import type { ConfirmMode } from './confirm';
 import { buildLlmContext } from '@/llm/context';
 import { createExecutor, type ActionResult, type ExecutorEffects } from '@/llm/executor';
 import type { LlmMessage } from '@/llm/provider';
@@ -80,6 +81,17 @@ export type OrchestratorOptions = {
   effects?: ExecutorEffects;
   zone?: string;
   logger?: Logger;
+  /**
+   * How much the assistant shows before it writes — the user's Settings
+   * choice, threaded through rather than read here, because this module is
+   * pure and the setting lives behind a hook.
+   *
+   * Omitted means no review gate. The *product* default is
+   * `DEFAULT_CONFIRM_MODE` and the pipeline passes it; a caller that has not
+   * thought about the policy gets the old behaviour rather than a surprise
+   * question it has no surface to answer.
+   */
+  confirmMode?: ConfirmMode;
 };
 
 /** Roughly one breath of speech; longer and the user has stopped listening. */
@@ -256,6 +268,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
       now: at,
       ...(options.effects ? { effects: options.effects } : {}),
       ...(logger ? { logger } : {}),
+      confirmMode: options.confirmMode ?? 'never',
     });
   }
 

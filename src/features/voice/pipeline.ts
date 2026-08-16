@@ -312,12 +312,17 @@ export function createVoicePipeline(): VoicePipeline {
     async process(transcript, options): Promise<VoiceOutcome> {
       const repos = getRepositories();
       const turn = await clientForTurn();
+      // Read per turn rather than captured once: the pipeline is installed at
+      // startup and lives for the session, so a mode captured at construction
+      // would keep the value the app booted with until it was killed.
+      const confirmMode = await repos.settings.get('confirmMode');
       const orchestrator = createOrchestrator({
         repos,
         client: turn.client,
         effects: voiceEffects,
         zone: currentZone(),
         logger: log,
+        confirmMode,
       });
 
       const heard = lastCapture?.transcript.trim() === transcript.trim() ? lastCapture : null;

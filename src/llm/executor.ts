@@ -22,6 +22,13 @@
  */
 import { normalise, scoreText } from '@/core/match';
 import { countLabel, formatMoney, joinNatural, speakMoney, truncate } from '@/core/format';
+import {
+  DEFAULT_CONFIRM_MODE,
+  describeAction,
+  needsConfirmation as gateAsks,
+  previewSentence,
+} from './confirm';
+import type { ActionPreview, ConfirmMode } from './confirm';
 import type { Logger } from '@/core/logger';
 import { AppError, toAppError, type AppErrorCode } from '@/core/result';
 import {
@@ -86,6 +93,11 @@ export type ExecutionContext = {
   now: number;
   effects?: ExecutorEffects;
   logger?: Logger;
+  /**
+   * How much to show the user before writing. Defaults to asking about the
+   * writes `src/features/home/undo.ts` cannot take back.
+   */
+  confirmMode?: ConfirmMode;
 };
 
 export type ActionResult = {
@@ -122,6 +134,17 @@ export type ActionResult = {
     question: string;
     candidates?: { id: string; label: string }[];
     ambiguous?: boolean;
+    /**
+     * The values about to be written, when the question is "is this right?"
+     * rather than "which one did you mean?".
+     *
+     * A spoken question can carry a clash or a deletion because both are about
+     * a thing the user already named. It cannot carry a check of *what was
+     * heard*: "add the meeting?" contains no word that might be wrong, and the
+     * answer to a question with nothing to read in it is always yes. So the
+     * review gate hands over the fields instead, and the sheet shows them.
+     */
+    preview?: ActionPreview;
   };
   entityId?: string;
 };
@@ -1712,6 +1735,30 @@ export function createExecutor(ctx: ExecutionContext) {
 
   async function execute(action: LlmAction, options: ExecuteOptions = {}): Promise<ActionResult> {
     try {
+      /**
+       * The review gate, before anything is written.
+       *
+       * Deliberately here rather than inside each handler: this is the one
+       * place every action passes through, so a tool added later is covered
+       * by having been added to the contract rather than by its author
+       * remembering. The handlers' own `asked()` confirmations — a clash, a
+       * deletion — are a different question and still run underneath this;
+       * `confirmed` releases both, which is correct, because a user who has
+       * read the fields and said yes has answered both questions at once.
+       */
+      if (!options.confirmed) {
+        const mode = ctx.confirmMode ?? DEFAULT_CONFIRM_MODE;
+        if (gateAsks(action.tool_name, mode)) {
+          const preview = describeAction(action, (at) => formatDateTime(at, ctx.zone));
+          return {
+            toolName: action.tool_name,
+            ok: false,
+            summary: preview.title,
+            needsConfirmation: { question: previewSentence(preview), preview },
+          };
+        }
+      }
+
       const outcome = await dispatch(action, options);
       return { toolName: action.tool_name, ...outcome };
     } catch (error) {

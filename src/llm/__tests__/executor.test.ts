@@ -185,7 +185,7 @@ describe('executor', () => {
     // for the on-device handle inside `getRepositories()`, which this never hits.
     repos = createRepositories(t.db);
     fx = recorder();
-    executor = createExecutor({ repos, zone: ZONE, now: NOW, effects: fx.effects });
+    executor = createExecutor({ repos, zone: ZONE, now: NOW, effects: fx.effects , confirmMode: 'never' });
   });
 
   afterEach(() => {
@@ -263,6 +263,7 @@ describe('executor', () => {
 
     it('does not promise a reminder the device could not schedule', async () => {
       const denied = createExecutor({
+        confirmMode: 'never',
         repos,
         zone: ZONE,
         now: NOW,
@@ -919,7 +920,7 @@ describe('executor', () => {
       });
       await repos.tasks.createTask({ title: 'Finish the report', dueDate: at(`${MONDAY}T20:00`) });
 
-      const bare = createExecutor({ repos, zone: ZONE, now: NOW });
+      const bare = createExecutor({ repos, zone: ZONE, now: NOW , confirmMode: 'never' });
       const result = await bare.execute(act('briefing_generate', { scope: 'today' }));
 
       expect(result.ok).toBe(true);
@@ -930,6 +931,7 @@ describe('executor', () => {
 
     it('prefers the injected briefing generator', async () => {
       const custom = createExecutor({
+        confirmMode: 'never',
         repos,
         zone: ZONE,
         now: NOW,
@@ -1008,6 +1010,7 @@ describe('executor', () => {
 
     it('never lets a broken side effect fail the mutation it decorates', async () => {
       const brittle = createExecutor({
+        confirmMode: 'never',
         repos,
         zone: ZONE,
         now: NOW,

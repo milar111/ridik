@@ -35,7 +35,7 @@ describe('executor hardening', () => {
   });
 
   const run = (action: LlmAction, options?: { confirmed?: boolean }) =>
-    createExecutor({ repos, zone: ZONE, now: NOW }).execute(action, options);
+    createExecutor({ repos, zone: ZONE, now: NOW , confirmMode: 'never' }).execute(action, options);
 
   it('keeps notes, priority and estimate on a task that also has prerequisites', async () => {
     const result = await run({

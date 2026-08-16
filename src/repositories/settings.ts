@@ -23,6 +23,8 @@ import { appSettings } from '@/db/schema';
 // loading it under plain Node. Naming the embers here as well would put the one
 // list this app has of them in two places.
 import { DEFAULT_EMBER, EMBER_NAMES, type EmberName } from '@/ui/theme';
+import { DEFAULT_CONFIRM_MODE } from '@/llm/confirm';
+import type { ConfirmMode } from '@/llm/confirm';
 
 import { serialised, transactional } from './transaction';
 
@@ -74,6 +76,25 @@ export const SETTINGS = {
    * resolve. The palettes themselves live in `@/ui/theme`.
    */
   ember: define<EmberName>(z.enum(EMBER_NAMES as [EmberName, ...EmberName[]]), () => DEFAULT_EMBER),
+  /**
+   * How much the assistant shows you before it writes.
+   *
+   * Speaking is fast because you do not have to look, which is exactly what
+   * makes a mis-heard word dangerous: "James" and "Jason" are one phoneme
+   * apart and the wrong one lands silently. The receipt catches that
+   * afterwards for anything undoable; `src/llm/confirm.ts` covers what the
+   * receipt cannot, and this is the dial on it.
+   *
+   * `irreversible` by default — a question in front of every write would sit
+   * in front of the fastest thing about the app, and a prompt shown every time
+   * is a prompt nobody reads. A closed set for the same reason `ember` is one:
+   * a hand-edited row decodes to the default instead of to a policy nothing
+   * can resolve.
+   */
+  confirmMode: define<ConfirmMode>(
+    z.enum(['never', 'irreversible', 'always']),
+    () => DEFAULT_CONFIRM_MODE,
+  ),
   googleCalendarId: define<string | null>(z.string().min(1).nullable(), () => null),
   googleAccountEmail: define<string | null>(z.string().min(1).nullable(), () => null),
   onboardingComplete: define(z.boolean(), () => false),

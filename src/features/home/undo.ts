@@ -49,6 +49,18 @@ const UNDOABLE: Partial<Record<VoiceOutcomeItem['toolName'], UndoKind>> = {
 };
 
 /**
+ * The same list, as names.
+ *
+ * `src/llm/confirm.ts` decides which actions to show the user *before* they
+ * run, and its rule is the complement of this one: a mistake the receipt can
+ * take back does not need a question first, and a mistake it cannot does.
+ * That module cannot import this map's values without pulling the voice store
+ * behind it, so it keeps its own copy and `confirm.test.ts` asserts the two
+ * are the same set. Exported for that assertion, not for callers.
+ */
+export const UNDOABLE_TOOLS = Object.keys(UNDOABLE) as VoiceOutcomeItem['toolName'][];
+
+/**
  * The undo for an outcome item, or null when there is not one that is safe.
  *
  * A failed action is never undoable: it wrote nothing, and its `entityId` — if

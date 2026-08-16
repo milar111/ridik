@@ -65,6 +65,7 @@ describe('settings repository', () => {
         weekStartsOn: 1,
         whisperFallbackEnabled: true,
         ember: 'ember',
+        confirmMode: 'irreversible',
       });
     });
 

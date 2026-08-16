@@ -1,4 +1,5 @@
 import { freezeClock } from '@/core/clock';
+import type { ConfirmMode } from '../confirm';
 import { localToEpoch, setZoneOverride } from '@/core/time';
 import type { RidikDatabase } from '@/db/migrator';
 import { llmInteractions } from '@/db/schema';
@@ -180,10 +181,10 @@ describe('orchestrator', () => {
     t.close();
   });
 
-  function harness(options: MockProviderOptions) {
+  function harness(options: MockProviderOptions, confirmMode: ConfirmMode = 'never') {
     const provider = createMockProvider(options);
     const client = createLlmClient({ provider, sleep: async () => {} });
-    const orchestrator = createOrchestrator({ repos, client, zone: ZONE });
+    const orchestrator = createOrchestrator({ repos, client, zone: ZONE, confirmMode });
     return { provider, orchestrator };
   }
 
@@ -573,6 +574,65 @@ describe('orchestrator', () => {
     const outcome = await orchestrator.interpretAndExecute({ transcript: 'note the resistors' });
     expect(outcome.items[0]!.ok).toBe(true);
     expect(outcome.feedback).toBe('Noted.');
+  });
+  /**
+   * The review gate, through the real turn.
+   *
+   * Asserted here rather than only in `confirm.test.ts` because the unit there
+   * proves the *rule* and this proves the *plumbing*: that a parked write really
+   * writes nothing, that the question reaches the user with the mis-hearable
+   * words in it, and that yes applies the same action rather than re-asking. The
+   * yes/no path already existed for clashes and deletions; this is the first
+   * thing to ride it that the model was not itself unsure about.
+   */
+  describe('the review gate', () => {
+    const NOTE_REPLY = JSON.stringify({
+      actions: [
+        {
+        tool_name: 'note_create',
+        parameters: { title_summary: 'Shopping', category_tag: 'errands', bullets: ['milk'] },
+      },
+      ],
+      speech: 'Saved.',
+    });
+
+    it('writes nothing and asks, naming what it heard', async () => {
+      const { orchestrator } = harness({ responses: [NOTE_REPLY] }, 'irreversible');
+      const outcome = await orchestrator.interpretAndExecute({ transcript: 'note milk on shopping' });
+
+      expect(await repos.notes.listNotes()).toHaveLength(0);
+      const asked = outcome.clarification?.question ?? outcome.feedback ?? '';
+      expect(asked).toContain('Shopping');
+      expect(asked).toContain('milk');
+    });
+
+    it('applies it once the user says yes', async () => {
+      const { orchestrator } = harness({ responses: [NOTE_REPLY] }, 'irreversible');
+      const asked = await orchestrator.interpretAndExecute({ transcript: 'note milk on shopping' });
+      expect(await repos.notes.listNotes()).toHaveLength(0);
+
+      await orchestrator.interpretAndExecute({
+        transcript: 'yes',
+        ...(asked.clarification?.pending ? { pending: asked.clarification.pending } : {}),
+      });
+      expect(await repos.notes.listNotes()).toHaveLength(1);
+    });
+
+    it('does not stand between the user and a task they can undo', async () => {
+      const { orchestrator } = harness(
+        {
+          responses: [
+            JSON.stringify({
+              actions: [{ tool_name: 'task_add', parameters: { title: 'call Dad' } }],
+              speech: 'Added.',
+            }),
+          ],
+        },
+        'irreversible',
+      );
+      await orchestrator.interpretAndExecute({ transcript: 'add a task to call Dad' });
+      expect(await repos.tasks.listActiveTasks()).toHaveLength(1);
+    });
   });
 });
 
