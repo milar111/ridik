@@ -119,6 +119,29 @@ function lastUserMessage(req: LlmRequest): string {
 const REMIND_RE =
   /\bremind me\s+(?:to\s+|about\s+)?(.+?)\s+(?:at|@)\s*(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?\s*$/i;
 const SPENT_RE = /\b(?:spent|paid)\s+([\d]+(?:[.,]\d{1,2})?)\s*(\S+)?\s+(?:on|for)\s+(.+)/i;
+
+/**
+ * Where a spend category stops and a second sentence begins.
+ *
+ * `SPENT_RE` ends in `(.+)`, which runs to the end of the utterance — so
+ * "spent 12 leva on lunch and I ran 5k this morning" logged an expense
+ * categorised "lunch and I ran 5k this morning" and dropped the run. Silently:
+ * one plausible-looking receipt, half the sentence gone.
+ *
+ * Cutting at every "and" is worse, because "lunch and drinks" is one category
+ * and the commonest shape there is. So the split only happens on a conjunction
+ * followed by something that is unmistakably a NEW instruction — a subject and
+ * a verb ("and I ran"), or an imperative this matcher itself recognises. A bare
+ * noun phrase after "and" stays part of the category, which is the safe
+ * default: over-capturing a category is a wrong label on the right amount,
+ * while over-splitting invents a boundary the user did not say.
+ *
+ * The rest of the utterance is not recovered — this is the degraded engine and
+ * it has one pattern per turn. But `description` keeps the whole sentence, so
+ * what was said survives even when only half of it was understood.
+ */
+const SECOND_INTENT_RE =
+  /\s+(?:and|then|also)\s+(?=(?:i|we|you)\s+\w|(?:add|remind|log|start|note|call|book|schedule)\b)/i;
 const CHECKLIST_RE = /\badd\s+(.+?)\s+to\s+(?:my|the)?\s*(.+?)\s+list\b/i;
 
 const CURRENCY_TOKENS = new Set([
@@ -166,7 +189,7 @@ export function fallbackInterpret(transcript: string): LlmResponse {
     const amount = Number(spent[1].replace(',', '.'));
     const token = spent[2]?.toLowerCase();
     const currency = token && CURRENCY_TOKENS.has(token) ? normaliseCurrency(token) : 'EUR';
-    const category = clamp(strip(spent[3]), 80);
+    const category = clamp(strip(spent[3].split(SECOND_INTENT_RE)[0]!), 80);
     if (Number.isFinite(amount) && amount > 0 && category) {
       return build('Expense logged (offline).', {
         tool_name: 'ledger_add',
