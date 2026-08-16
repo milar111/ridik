@@ -54,22 +54,72 @@ export type ModelRate = {
 };
 
 /**
- * Published list prices as of August 2026, in USD per million tokens. Only used
- * to render an estimate — nothing depends on these being current, and a model
- * we do not recognise simply reports no cost rather than a wrong one.
+ * Published list prices, USD per million tokens, checked against
+ * ai.google.dev/gemini-api/docs/pricing on 16 August 2026.
+ *
+ * The docblock here used to say "nothing depends on these being current". That
+ * stopped being true the day a cost cap started reading `costMicros`: these
+ * numbers now decide when a user is cut off and when the operator's budget is
+ * declared spent. Three of the five rows were wrong when that changed, all in
+ * the dangerous direction — `gemini-3.1-flash-lite` carried Gemini *2.5*
+ * Flash-Lite's prices, understating input 2.5x and output 3.75x, so a cap set
+ * in dollars let through two and a half times the spend it was configured for.
  *
  * The Gemini family prices a cached input token at a tenth of a fresh one, so
  * `cachedInputPerMillion` is one tenth of the row's own input rate and has to be
  * moved with it if that rate is ever corrected. The discount is only applied to
  * tokens the provider itself said were cached; see `estimateCostMicros`.
+ *
+ * Where a rate is time-limited, the LATER and higher rate is the one recorded.
+ * A promotional price that lapses would otherwise silently double every
+ * estimate on a date nobody is watching, and for a spend cap the safe error is
+ * to overstate: cutting a user off slightly early is recoverable, a 2x overrun
+ * on somebody else's invoice is not.
  */
 export const MODEL_RATES: Record<string, ModelRate> = {
-  'gemini-flash-latest': { inputPerMillion: 0.25, outputPerMillion: 1.5, cachedInputPerMillion: 0.025 },
-  'gemini-3-flash': { inputPerMillion: 0.25, outputPerMillion: 1.5, cachedInputPerMillion: 0.025 },
-  'gemini-3-flash-preview': { inputPerMillion: 0.25, outputPerMillion: 1.5, cachedInputPerMillion: 0.025 },
+  // Flash. 3.7 and 3.6 are promotional at 0.75/3.75 until 31 Dec 2026; the
+  // January rate is recorded instead, for the reason in the docblock.
+  'gemini-3.7-flash': { inputPerMillion: 1.5, outputPerMillion: 7.5, cachedInputPerMillion: 0.15 },
   'gemini-3.6-flash': { inputPerMillion: 1.5, outputPerMillion: 7.5, cachedInputPerMillion: 0.15 },
-  'gemini-3.1-flash-lite': { inputPerMillion: 0.1, outputPerMillion: 0.4, cachedInputPerMillion: 0.01 },
+  'gemini-3.5-flash': { inputPerMillion: 1.5, outputPerMillion: 9.0, cachedInputPerMillion: 0.15 },
+  'gemini-2.5-flash': { inputPerMillion: 0.3, outputPerMillion: 2.5, cachedInputPerMillion: 0.03 },
+
+  // Flash-Lite.
+  'gemini-3.5-flash-lite': { inputPerMillion: 0.3, outputPerMillion: 2.5, cachedInputPerMillion: 0.03 },
+  'gemini-3.1-flash-lite': { inputPerMillion: 0.25, outputPerMillion: 1.5, cachedInputPerMillion: 0.025 },
+  'gemini-2.5-flash-lite': { inputPerMillion: 0.1, outputPerMillion: 0.4, cachedInputPerMillion: 0.01 },
 };
+
+/**
+ * What an unrecognised model is billed at.
+ *
+ * `estimateCostMicros` used to return 0 here, which reads as prudent and is the
+ * opposite: a model name this table has not been taught — a rename upstream, a
+ * value typed into the developer screen, or an alias resolving somewhere new —
+ * would have billed as FREE, and a spend cap counting free requests never
+ * trips at all. Zero is the one answer that cannot be right.
+ *
+ * The most expensive row instead. An estimate that is too high shows the user a
+ * cost they did not incur and trips a cap early, both of which are visible and
+ * recoverable; one that is too low is invisible until the invoice.
+ */
+export const FALLBACK_RATE: ModelRate = {
+  inputPerMillion: 1.5,
+  outputPerMillion: 9.0,
+  cachedInputPerMillion: 0.15,
+};
+
+/**
+ * `DEFAULT_GEMINI_MODEL` is `gemini-flash-latest`, which Google does not price
+ * on its own page — it is a moving alias over a family spanning $0.10 to $1.50
+ * per million input tokens. It is deliberately absent from the table above so
+ * that it takes `FALLBACK_RATE` rather than a number somebody guessed: pricing
+ * an alias is pricing a value the vendor can change without a deploy.
+ *
+ * The fix is to pin an explicit version in `provider/gemini.ts`, which is a
+ * product decision about which model answers the user rather than an accounting
+ * one, and is left to whoever makes it.
+ */
 
 /**
  * `cachedTokens` is a *subset* of `inputTokens`, the way every provider reports
@@ -83,8 +133,7 @@ export function estimateCostMicros(
   outputTokens: number,
   cachedTokens = 0,
 ): number {
-  const rate = MODEL_RATES[model];
-  if (!rate) return 0;
+  const rate = MODEL_RATES[model] ?? FALLBACK_RATE;
   const cached = Math.min(Math.max(0, cachedTokens), Math.max(0, inputTokens));
   const fresh = Math.max(0, inputTokens) - cached;
   const dollars =

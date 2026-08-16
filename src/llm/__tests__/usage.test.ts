@@ -39,10 +39,19 @@ describe('assistant spend meter', () => {
     t.close();
   });
 
+  /**
+   * An explicitly versioned model, not `gemini-flash-latest`.
+   *
+   * The alias has no row in `MODEL_RATES` on purpose — Google does not price it
+   * and it moves — so it takes the deliberately pessimistic fallback. Costing a
+   * fixture against it would be asserting the fallback rather than the meter.
+   */
+  const MODEL = 'gemini-3.1-flash-lite';
+
   const spend = (n: number) =>
     Promise.all(
       Array.from({ length: n }, () =>
-        meter.record({ model: 'gemini-flash-latest', inputTokens: 2_500, outputTokens: 300 }),
+        meter.record({ model: MODEL, inputTokens: 2_500, outputTokens: 300 }),
       ),
     );
 
@@ -105,7 +114,7 @@ describe('assistant spend meter', () => {
      'turns against billable calls' below. */
   it('takes a caller’s word for how many utterances a row covers', async () => {
     await meter.record({
-      model: 'gemini-flash-latest',
+      model: MODEL,
       inputTokens: 21_000,
       outputTokens: 900,
       requests: 3,
@@ -122,7 +131,7 @@ describe('assistant spend meter', () => {
     expect(snapshot.today.inputTokens).toBe(10_000);
     expect(snapshot.today.outputTokens).toBe(1_200);
     // 4 × (2500 in + 300 out) at $0.25/$1.50 per million.
-    expect(snapshot.today.costMicros).toBe(4 * estimateCostMicros('gemini-flash-latest', 2_500, 300));
+    expect(snapshot.today.costMicros).toBe(4 * estimateCostMicros(MODEL, 2_500, 300));
   });
 
   /**
@@ -133,7 +142,7 @@ describe('assistant spend meter', () => {
    */
   it('accumulates the cached slice of the input separately', async () => {
     await meter.record({
-      model: 'gemini-flash-latest',
+      model: MODEL,
       inputTokens: 7_300,
       cachedTokens: 6_900,
       outputTokens: 90,
@@ -144,12 +153,12 @@ describe('assistant spend meter', () => {
   });
 
   it('prices a cached token at a tenth of a fresh one', () => {
-    const cold = estimateCostMicros('gemini-flash-latest', 7_300, 90);
-    const warm = estimateCostMicros('gemini-flash-latest', 7_300, 90, 6_900);
+    const cold = estimateCostMicros(MODEL, 7_300, 90);
+    const warm = estimateCostMicros(MODEL, 7_300, 90, 6_900);
     expect(warm).toBeLessThan(cold);
     // 400 fresh + 6,900 cached at 10% costs the same as 1,090 fresh tokens,
     // give or take the rounding to whole micro-units.
-    const equivalent = estimateCostMicros('gemini-flash-latest', 1_090, 90);
+    const equivalent = estimateCostMicros(MODEL, 1_090, 90);
     expect(Math.abs(warm - equivalent)).toBeLessThanOrEqual(1);
   });
 
@@ -157,7 +166,7 @@ describe('assistant spend meter', () => {
     // A provider that says 9,000 of 1,000 input tokens were cached is talking
     // nonsense; it must not produce a negative bill.
     await meter.record({
-      model: 'gemini-flash-latest',
+      model: MODEL,
       inputTokens: 1_000,
       cachedTokens: 9_000,
       outputTokens: 10,
@@ -168,8 +177,8 @@ describe('assistant spend meter', () => {
   });
 
   it('bills a provider that reports no cached tokens exactly as before', () => {
-    expect(estimateCostMicros('gemini-flash-latest', 2_500, 300)).toBe(
-      estimateCostMicros('gemini-flash-latest', 2_500, 300, 0),
+    expect(estimateCostMicros(MODEL, 2_500, 300)).toBe(
+      estimateCostMicros(MODEL, 2_500, 300, 0),
     );
   });
 
@@ -180,7 +189,7 @@ describe('assistant spend meter', () => {
    */
   it('counts a cached token against a token ceiling like any other', async () => {
     await meter.record({
-      model: 'gemini-flash-latest',
+      model: MODEL,
       inputTokens: 9_000,
       cachedTokens: 8_500,
       outputTokens: 100,
@@ -190,20 +199,30 @@ describe('assistant spend meter', () => {
     expect((await meter.check({ daily: { tokens: limitOf(9_500) }, monthly: 0 })).ok).toBe(false);
   });
 
-  it('reports no cost for a model it does not have a price for', () => {
-    expect(estimateCostMicros('some-future-model', 10_000, 10_000)).toBe(0);
+  /* This used to assert 0, which reads as prudence and is the opposite: a spend
+     cap that counts unknown models as free never trips, so a rename upstream or
+     a value typed into the developer screen switched the protection off. The
+     safe error for a cap is to overstate. */
+  it('bills a model it does not know at the most expensive rate it does', () => {
+    const unknown = estimateCostMicros('some-future-model', 10_000, 10_000);
+    const dearest = estimateCostMicros('gemini-3.5-flash', 10_000, 10_000);
+
+    expect(unknown).toBeGreaterThan(0);
+    expect(unknown).toBe(dearest);
   });
 
   it('prices a realistic utterance at a fraction of a cent', () => {
-    // The whole point of the default model choice: this must be negligible.
-    const micros = estimateCostMicros('gemini-flash-latest', 2_500, 300);
+    // An explicit version rather than `gemini-flash-latest`: that is an alias
+    // Google does not price, so it now takes the deliberately pessimistic
+    // fallback and is not a fair test of what a turn actually costs.
+    const micros = estimateCostMicros('gemini-3.1-flash-lite', 2_500, 300);
     expect(micros).toBeGreaterThan(0);
     expect(micros).toBeLessThan(2_000); // under $0.002
     expect(formatCostMicros(micros)).toMatch(/^\$0\.00/);
   });
 
   it('survives a request the provider reported no token counts for', async () => {
-    await meter.record({ model: 'gemini-flash-latest' });
+    await meter.record({ model: MODEL });
     const snapshot = await meter.snapshot(CAPS);
     // The request still counts against the cap; only the cost is unknown.
     expect(snapshot.today.requests).toBe(1);
@@ -250,7 +269,7 @@ describe('assistant spend meter', () => {
       // 50k tokens in a single turn: 1 request out of 200, and half a plan's
       // worth of tokens. This is the case the whole unit exists for.
       await meter.record({
-        model: 'gemini-flash-latest',
+        model: MODEL,
         inputTokens: 50_000,
         outputTokens: 1_000,
       });
@@ -389,7 +408,7 @@ describe('assistant spend meter', () => {
   describe('turns against billable calls', () => {
     it('counts one utterance as one request however often it was repaired', async () => {
       await meter.record({
-        model: 'gemini-flash-latest',
+        model: MODEL,
         inputTokens: 21_000,
         outputTokens: 400,
         requests: 1,
@@ -403,19 +422,19 @@ describe('assistant spend meter', () => {
 
     it('still prices the repairs, because the tokens were real', async () => {
       await meter.record({
-        model: 'gemini-flash-latest',
+        model: MODEL,
         inputTokens: 21_000,
         outputTokens: 400,
         calls: 3,
       });
       const snapshot = await meter.snapshot(CAPS);
       expect(snapshot.today.costMicros).toBe(
-        estimateCostMicros('gemini-flash-latest', 21_000, 400),
+        estimateCostMicros(MODEL, 21_000, 400),
       );
     });
 
     it('never reports fewer calls than requests', async () => {
-      await meter.record({ model: 'gemini-flash-latest', requests: 2, calls: 1 });
+      await meter.record({ model: MODEL, requests: 2, calls: 1 });
       const snapshot = await meter.snapshot(CAPS);
       expect(snapshot.today.calls).toBe(2);
     });
@@ -435,7 +454,7 @@ describe('assistant spend meter', () => {
     it('keeps the history when the caller under-estimates', async () => {
       // Three enormous turns, then a caller claiming the next one is tiny.
       for (let i = 0; i < 3; i++) {
-        await meter.record({ model: 'gemini-flash-latest', inputTokens: 40_000, outputTokens: 500 });
+        await meter.record({ model: MODEL, inputTokens: 40_000, outputTokens: 500 });
       }
       const caps = { daily: 0, monthly: { tokens: limitOf(130_000) } };
       const blocked = await meter.check(caps, { estimate: { tokens: 1 } });
