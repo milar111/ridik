@@ -400,6 +400,39 @@ adb logcat -d -s ReactNativeJS -s AndroidRuntime
 
 A change is not verified until it has run on both.
 
+**There is no `adb shell input tap` for the iOS simulator.** `simctl` can boot,
+install, launch, `openurl` and screenshot, and that is the whole list — nothing
+in it touches the screen. So anything behind a tap (a paywall card, a purchase
+dialog, a confirm) is reached one of three ways:
+
+- `xcrun simctl openurl booted 'ridik:///plans'` for navigation. **Terminate the
+  app first.** Sent to a *running* app the URL raises an "Open in Ridik?" system
+  alert that then needs a tap, which is the problem you were avoiding; a cold
+  launch routes straight there with no prompt.
+- Seed the state in SQLite. The database is at
+  `$(xcrun simctl get_app_container booted ai.raisen.ridik data)/Documents/SQLite/ridik.db`
+  and `app_settings` holds JSON-encoded values, so consent becomes
+  `insert or replace into app_settings values('assistantConsent','"granted"',<ms>)`.
+  Terminate first — the app holds the WAL open.
+- Clicking through AppleScript, for what neither of those reaches. The device
+  screen fills the window with no bezel, so a point on the device maps to the
+  desktop as `origin + point * (window_width / device_width)` — for an iPhone
+  17 Pro that is a 402pt-wide screen in a 456px window, so `×1.134` from the
+  window origin reported by `position of window 1`. This needs Accessibility
+  permission for the terminal, and macOS can revoke it mid-run.
+
+The simulated app exposes **no accessibility tree** to System Events — `entire
+contents of window 1` returns nothing — so there is nothing to query by name and
+coordinates are the only address.
+
+Two things that waste a session on the way there. `expo prebuild --no-install`
+skips CocoaPods, which deletes `ios/Ridik.xcworkspace` and leaves `xcodebuild`
+reporting only that the workspace "does not exist" — run `pod install` after any
+iOS prebuild. And after a prebuild the simulator's LaunchServices record goes
+stale, so `simctl launch` fails with `SBMainWorkspace` denying the request no
+matter how many times the app is reinstalled or the device rebooted;
+`xcrun simctl erase` is what clears it.
+
 Those are debug builds and cannot be uploaded anywhere. The shippable artefacts
 come from `npm run release` — `doctor` first, which reports what is missing
 before a build spends twenty minutes discovering it. `credentials/` holds the
