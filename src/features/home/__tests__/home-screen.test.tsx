@@ -278,6 +278,39 @@ describe('home screen', () => {
     expect(mockPush).toHaveBeenCalledWith('/briefing');
   });
 
+  /**
+   * A first ever launch is also a launch with consent unanswered, and the
+   * briefing must not beat the consent screen to it.
+   *
+   * `/briefing` is a `presentation: 'modal'` route, so the navigator presents
+   * it in a native view controller ABOVE the React tree — including above the
+   * lid `ConsentGate` draws as a sibling of the navigator. On a clean install
+   * the two raced and the briefing won: the first thing a new user saw was a
+   * day summary, with the screen naming where their voice goes hidden
+   * underneath. Found on a simulator, not in a test, which is why this one
+   * exists.
+   */
+  it('waits for the consent answer before it opens', async () => {
+    mockLastBriefingShown = null;
+    mockConsent = 'unset';
+
+    await wrap();
+
+    expect(mockPush).not.toHaveBeenCalledWith('/briefing');
+  });
+
+  /* Declining is an answer. Someone who said no still gets the briefing: it is
+     composed from local data and calls no model, which is exactly why it is
+     one of the things that keeps working without the assistant. */
+  it('opens for someone who declined, because it needs no model', async () => {
+    mockLastBriefingShown = null;
+    mockConsent = 'declined';
+
+    await wrap();
+
+    expect(mockPush).toHaveBeenCalledWith('/briefing');
+  });
+
   it('opens one Settings however fast you tap', async () => {
     await wrap();
 

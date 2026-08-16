@@ -76,10 +76,23 @@ export default function HomeScreen() {
 
   const snapshot = today.data;
 
-  // Shown once a day, on the first open — it replaced the scheduled
-  // notification. Held until the day has loaded: expo-router silently drops a
-  // push made before the navigator mounts.
-  useDailyBriefing(snapshot != null);
+  /**
+   * Shown once a day, on the first open — it replaced the scheduled
+   * notification. Held until the day has loaded: expo-router silently drops a
+   * push made before the navigator mounts.
+   *
+   * And held until consent has been answered, which is not the same guard. The
+   * briefing is a `presentation: 'modal'` route, so the navigator presents it
+   * in a native view controller ABOVE the React tree — including above the lid
+   * `ConsentGate` draws. On a fresh install the two raced and the briefing won:
+   * the first thing a new user saw was a day summary, with the screen naming
+   * the third party their voice goes to hidden underneath it. Nothing billable
+   * happens there — the briefing composes from local data and calls no model —
+   * so this is a first-run defect rather than a bypass. It is still the one
+   * screen that has to come first, and it is what an app reviewer doing a
+   * clean install sees.
+   */
+  useDailyBriefing(snapshot != null && hasAnsweredConsent(consent.value));
 
   const next = useMemo(() => {
     if (!snapshot) return null;
