@@ -17,8 +17,8 @@ const DAY = 86_400_000;
 const paid = (over: Partial<Entitlement> = {}): Entitlement => ({
   active: true,
   known: true,
-  plan: 'monthly',
-  tier: 'standard',
+  plan: 'ridik_monthly',
+  tier: 'pro',
   renewsAt: NOW + 12 * DAY,
   willRenew: true,
   since: NOW - 90 * DAY,
@@ -127,7 +127,7 @@ describe('isStoreBuild', () => {
 describe('describePlan', () => {
   it('names the three states a subscriber can be in', () => {
     expect(describePlan(paid())).toBe('Monthly');
-    expect(describePlan(paid({ plan: 'yearly' }))).toBe('Yearly');
+    expect(describePlan(paid({ plan: 'ridik_yearly' }))).toBe('Yearly');
     expect(describePlan(paid({ willRenew: false }))).toBe('Cancelled');
     expect(describePlan(FREE)).toBe('Free');
   });

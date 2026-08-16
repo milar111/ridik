@@ -51,8 +51,8 @@ const ENDPOINT = 'https://api.example.com/v1/billing/web-unlock';
 const ACTIVE: Entitlement = {
   active: true,
   known: true,
-  plan: 'monthly',
-  tier: 'standard',
+  plan: 'ridik_monthly',
+  tier: 'pro',
   renewsAt: 1_760_000_000_000,
   willRenew: true,
   since: 1_757_000_000_000,
@@ -327,7 +327,7 @@ describe('redeemUnlockLink', () => {
     // sources of truth about who has paid.
     const readEntitlement = jest.fn().mockResolvedValue(ACTIVE);
     const fetchImpl = jest.fn().mockResolvedValue(
-      reply(200, { status: 'granted', plan: 'yearly', tier: 'unlimited', active: true }),
+      reply(200, { status: 'granted', plan: 'ridik_yearly', tier: 'pro', active: true }),
     );
     const outcome = await redeemUnlockLink(
       `ridik:///unlock?session=${SESSION}`,

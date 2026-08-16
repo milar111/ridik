@@ -60,7 +60,11 @@ describe('revenuecat configuration', () => {
     mockGetCustomerInfo.mockResolvedValue(customerInfo('assistant'));
     const entitlement = await createRevenueCatProvider().current();
     expect(entitlement.active).toBe(true);
-    expect(entitlement.tier).toBe('standard');
+    // `ridik_standard_monthly` is not a product this build sells, so the tier
+    // falls to the SMALLEST rather than a middle default. A mis-configured
+    // product should under-serve and be complained about; over-serving is
+    // discovered on the invoice.
+    expect(entitlement.tier).toBe('base');
   });
 
   it('honours a renamed entitlement from extra.revenueCat.entitlement', async () => {

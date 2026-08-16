@@ -34,7 +34,7 @@ const CAPS = { daily: 200, monthly: 3_000 };
 const paid = (tier: Entitlement['tier']): Entitlement => ({
   active: true,
   known: true,
-  plan: 'monthly',
+  plan: 'ridik_monthly',
   tier,
   renewsAt: null,
   willRenew: true,
@@ -106,45 +106,49 @@ describe('a build with no store in it', () => {
   /* The sandbox provider grants a real tier locally. It sells nothing, but a
      plan is a plan for the purposes of what the assistant is allowed to do. */
   it('still honours a plan granted without a store', () => {
-    const budget = resolve({ storeBuild: false, entitlement: paid('light') });
+    const budget = resolve({ storeBuild: false, entitlement: paid('base') });
     expect(budget).toMatchObject({ state: 'subscribed' });
-    expect(requestsIn(budget, 'monthly')).toEqual(limitOf(300));
+    expect(requestsIn(budget, 'monthly')).toEqual(limitOf(250));
   });
 });
 
 describe('a subscriber', () => {
   it('gets the plan allowance when it is lower than the local brake', () => {
-    const budget = resolve({ entitlement: paid('light') });
+    const budget = resolve({ entitlement: paid('base') });
     expect(budget).toMatchObject({ state: 'subscribed' });
     expect(requestsIn(budget, 'daily')).toEqual(limitOf(200));
-    expect(requestsIn(budget, 'monthly')).toEqual(limitOf(300));
+    expect(requestsIn(budget, 'monthly')).toEqual(limitOf(250));
   });
 
   it('gets the local brake when that is lower', () => {
-    const budget = resolve({ entitlement: paid('standard'), caps: { daily: 200, monthly: 900 } });
+    const budget = resolve({ entitlement: paid('pro'), caps: { daily: 200, monthly: 900 } });
     expect(requestsIn(budget, 'monthly')).toEqual(limitOf(900));
   });
 
-  /* TIER_ALLOWANCE.unlimited is 0, which is also what free answers. The old
-     expression could not tell them apart, so the fix had to not lock this. */
-  it('is not capped by the free-tier lock when the tier is Unlimited', () => {
-    const budget = resolve({ entitlement: paid('unlimited') });
+  /* The larger tier is not the free-tier lock in disguise. TIER_ALLOWANCE once
+     carried `unlimited: 0`, and free also resolves to 0 — an ambiguity that is
+     precisely how a free install inherited the operator's developer caps. There
+     is no uncapped tier now, so the two zeros can no longer be confused. */
+  it('gets the upper tier allowance, not the free-tier lock', () => {
+    const budget = resolve({ entitlement: paid('pro') });
     expect(budget.allowed).toBe(true);
     expect(budget).toMatchObject({ state: 'subscribed' });
-    expect(requestsIn(budget, 'monthly')).toEqual(limitOf(3_000));
+    expect(requestsIn(budget, 'monthly')).toEqual(limitOf(1_000));
   });
 
-  it('is uncapped when the operator has switched the local brake off too', () => {
-    const budget = resolve({ entitlement: paid('unlimited'), caps: { daily: 0, monthly: 0 } });
-    // `UNLIMITED`, never `limitOf(0)`: the same 0 from a *free* entitlement has
-    // to refuse every call, and only this function knows which 0 it is holding.
-    expect(requestsIn(budget, 'daily')).toEqual(UNLIMITED);
-    expect(requestsIn(budget, 'monthly')).toEqual(UNLIMITED);
+  /* And a subscriber stays capped even with the operator's own brake switched
+     off, because the plan itself is the ceiling. This used to answer UNLIMITED,
+     which was only reachable through a tier that no longer exists — if one is
+     ever sold again it needs its own type rather than a zero that already means
+     "no local brake". */
+  it('is still held to the plan when the local brake is off', () => {
+    const budget = resolve({ entitlement: paid('pro'), caps: { daily: 0, monthly: 0 } });
+    expect(requestsIn(budget, 'monthly')).toEqual(limitOf(1_000));
   });
 
   it('is never told about a trial it bought its way past', () => {
     const budget = resolve({
-      entitlement: paid('standard'),
+      entitlement: paid('pro'),
       trial: used(TRIAL_TOTAL_REQUESTS, TRIAL_TOTAL_TOKENS),
     });
     expect(budget.allowed).toBe(true);
@@ -157,7 +161,7 @@ describe('a subscriber', () => {
      that survives a subscription is the size of a single utterance. */
   it('still refuses one absurdly large turn', () => {
     const budget = resolve({
-      entitlement: paid('unlimited'),
+      entitlement: paid('pro'),
       estimatedTokens: MAX_TURN_TOKENS + 1,
     });
     expect(budget).toMatchObject({ allowed: false, state: 'turn-too-large' });

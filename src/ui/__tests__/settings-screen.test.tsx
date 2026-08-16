@@ -359,7 +359,7 @@ describe('settings screen', () => {
         'a subscriber',
         () => {
           mockStoreBuild = true;
-          mockEntitlement = { ...FREE, active: true, plan: 'monthly', tier: 'standard', willRenew: true };
+          mockEntitlement = { ...FREE, active: true, plan: 'ridik_monthly', tier: 'pro', willRenew: true };
         },
       ],
       [

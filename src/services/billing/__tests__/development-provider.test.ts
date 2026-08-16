@@ -54,9 +54,9 @@ describe('on a machine somebody is developing on', () => {
   it('grants a local plan so the paywall can be walked end to end', async () => {
     const provider = providerFor(true);
 
-    const entitlement = await provider.purchase('yearly', 'unlimited');
+    const entitlement = await provider.purchase('ridik_yearly', 'pro');
 
-    expect(entitlement).toMatchObject({ active: true, tier: 'unlimited', store: 'sandbox' });
+    expect(entitlement).toMatchObject({ active: true, tier: 'pro', store: 'sandbox' });
     await expect(provider.current()).resolves.toMatchObject({ active: true });
   });
 
@@ -69,13 +69,13 @@ describe('in a release build that lost its store keys', () => {
   it('cannot be talked into granting a plan', async () => {
     const provider = providerFor(false);
 
-    await expect(provider.purchase('yearly', 'unlimited')).rejects.toThrow(/not available/i);
+    await expect(provider.purchase('ridik_yearly', 'pro')).rejects.toThrow(/not available/i);
   });
 
   /* A row written by a debug build on the same device must not survive into a
      release one as a subscription. */
   it('ignores a sandbox row left behind by a debug build', async () => {
-    await providerFor(true).purchase('yearly', 'unlimited');
+    await providerFor(true).purchase('ridik_yearly', 'pro');
     expect(mockSettings.sandboxSubscription).toBeTruthy();
 
     await expect(providerFor(false).current()).resolves.toMatchObject({ active: false });

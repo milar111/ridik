@@ -22,7 +22,53 @@ import { createLogger } from '@/core/logger';
 
 const log = createLogger('billing');
 
-export type PlanId = 'monthly' | 'yearly';
+/**
+ * A thing that can be bought, named exactly as the RevenueCat package is.
+ *
+ * This was `'monthly' | 'yearly'` — a duration, which quietly assumed one plan
+ * per billing period. Two tiers times two durations is four products, and the
+ * duration alone cannot say which of two monthly products the user tapped. The
+ * paywall showed nothing at all once the real offering existed, because the
+ * lookup found no package called `$rc_monthly`.
+ *
+ * So the id IS the package's lookup key. One string, matched literally, with
+ * no convention in the middle to drift: rename a package in the dashboard and
+ * a test fails here rather than a paywall going quietly blank in production.
+ */
+export type PlanId = 'ridik_monthly' | 'ridik_yearly' | 'pro_monthly' | 'pro_yearly';
+
+/** Every plan, in the order the paywall shows them: the badged row leads. */
+export const PLAN_IDS: readonly PlanId[] = [
+  'pro_yearly',
+  'pro_monthly',
+  'ridik_yearly',
+  'ridik_monthly',
+] as const;
+
+/** Which row carries "Best value". Not "Most popular" — there are no users yet. */
+export const HIGHLIGHTED_PLAN: PlanId = 'pro_yearly';
+
+/**
+ * How long one payment buys, per plan.
+ *
+ * A closed map rather than reading the duration out of the id. Six places used
+ * to ask `plan === 'yearly'` or sniff `productIdentifier.includes('year')`, and
+ * both are the kind of rule the RevenueCat dashboard has never agreed to: a
+ * package called `pro_yearly_promo` satisfies the substring, and a package
+ * called `annual` satisfies neither. When plan ids were durations those
+ * questions were free; now that a plan is a tier *and* a duration, they have to
+ * be answered from one table that fails to compile when a plan is added.
+ */
+export const PLAN_PERIOD: Record<PlanId, 'month' | 'year'> = {
+  ridik_monthly: 'month',
+  ridik_yearly: 'year',
+  pro_monthly: 'month',
+  pro_yearly: 'year',
+};
+
+export function isYearly(plan: PlanId): boolean {
+  return PLAN_PERIOD[plan] === 'year';
+}
 
 /**
  * What separates the plans: how much of the assistant you get.
@@ -33,21 +79,36 @@ export type PlanId = 'monthly' | 'yearly';
  * request is a thing a person can picture, and it stays true if the provider
  * changes its prices.
  */
-export type PlanTier = 'light' | 'standard' | 'unlimited';
+export type PlanTier = 'base' | 'pro';
 
-/** Assistant requests per month. 0 means uncapped. */
+/**
+ * Assistant requests per month.
+ *
+ * 250 and 1,000: twice the money for four times as much, which is the whole
+ * pitch and the reason both prices are round. $5 over 250 is 2p a request and
+ * $10 over 1,000 is 1p — a division a tired person does in their head in under
+ * a second, and the reason the monthly prices are not charm-priced. $4.99 over
+ * 250 is 1.996p, which forces a rounding before the check completes.
+ *
+ * 250 is also chosen so the wall is a real event: it sits near the 88th
+ * percentile of modelled usage, so about one subscriber in eight meets it in a
+ * given month. The 1,500 that used to be here met 0.4% of them — an upgrade
+ * screen that fires for one user in 233 is a page nobody reads.
+ *
+ * There is deliberately no uncapped tier. The previous `unlimited: 0` was a
+ * magic zero meaning "no ceiling", and it is exactly what let a *free* user
+ * inherit the operator's developer caps, because free also resolves to 0. If an
+ * unlimited plan is ever sold it needs its own type, not a number that already
+ * means something else.
+ */
 export const TIER_ALLOWANCE: Record<PlanTier, number> = {
-  light: 300,
-  standard: 1_500,
-  unlimited: 0,
+  base: 250,
+  pro: 1_000,
 };
 
 /** One line for the paywall, in the units the user is actually buying. */
 export function describeAllowance(tier: PlanTier): string {
-  const allowance = TIER_ALLOWANCE[tier];
-  return allowance === 0
-    ? 'Unlimited requests'
-    : `${allowance.toLocaleString()} requests a month`;
+  return `${TIER_ALLOWANCE[tier].toLocaleString()} requests a month`;
 }
 
 /**
@@ -335,7 +396,7 @@ export function describePlan(entitlement: Entitlement): string {
   if (!entitlement.active) return 'Free';
   if (entitlement.inGracePeriod) return 'Payment failed';
   if (!entitlement.willRenew) return 'Cancelled';
-  return entitlement.plan === 'yearly' ? 'Yearly' : 'Monthly';
+  return entitlement.plan !== null && isYearly(entitlement.plan) ? 'Yearly' : 'Monthly';
 }
 
 /**

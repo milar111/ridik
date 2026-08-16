@@ -32,6 +32,8 @@ import { Platform } from 'react-native';
 import { createLogger } from '@/core/logger';
 import {
   FREE,
+  PLAN_IDS,
+  PLAN_PERIOD,
   type BillingProvider,
   type Entitlement,
   type Plan,
@@ -51,8 +53,28 @@ const log = createLogger('billing/revenuecat');
  */
 const DEFAULT_ENTITLEMENT = 'assistant';
 
-/** Package identifiers inside the offering. RevenueCat's own conventions. */
-const PACKAGE_FOR: Record<PlanId, string> = { monthly: '$rc_monthly', yearly: '$rc_annual' };
+/**
+ * A `PlanId` IS the package's lookup key, so this map is the identity.
+ *
+ * It used to translate — `monthly` to RevenueCat's own `$rc_monthly` — and that
+ * indirection is what broke the paywall the moment a real offering existed: the
+ * offering has four packages across two tiers, `$rc_monthly` names at most one
+ * of them, and `toPlan()` returned null for every package it did not recognise.
+ * A paywall with no plans, no error, and nothing in the logs.
+ *
+ * Kept as a function rather than deleted so the coupling stays named: if the
+ * dashboard's lookup keys are ever renamed, this is the one place to translate
+ * again, and `plan-catalog.test.ts` fails rather than the screen going blank.
+ */
+const packageKeyFor = (plan: PlanId): string => plan;
+
+/** What each row is called on the paywall. Two tiers, two durations. */
+const TITLE_FOR: Record<PlanId, string> = {
+  ridik_monthly: 'Ridik',
+  ridik_yearly: 'Ridik',
+  pro_monthly: 'Ridik Pro',
+  pro_yearly: 'Ridik Pro',
+};
 
 type Config = { ios?: string; android?: string; entitlement?: string };
 
@@ -119,8 +141,11 @@ function toEntitlement(info: any): Entitlement {
     // We got an answer out of the SDK, so this is a fact rather than a guess —
     // including when RevenueCat served it from its own offline cache.
     known: true,
-    plan: String(active.productIdentifier ?? '').includes('year') ? 'yearly' : 'monthly',
-    tier: tierFor(String(active.productIdentifier ?? '')),
+    // Which plan the active entitlement came from, matched against the product
+    // identifiers we sell rather than sniffed for the substring "year" — a
+    // product named `pro_yearly_promo` matched that, and `annual` did not.
+    plan: planForProduct(String(active.productIdentifier ?? '')),
+    tier: tierFor(planForProduct(String(active.productIdentifier ?? '')) ?? 'ridik_monthly'),
     renewsAt: millis(active.expirationDate),
     willRenew: active.willRenew === true,
     since: millis(active.originalPurchaseDate),
@@ -132,38 +157,65 @@ function toEntitlement(info: any): Entitlement {
 }
 
 /**
- * Which allowance a product buys, read from its identifier.
+ * Which allowance a plan buys, read from the package it came in.
  *
- * The convention is that the product id contains the tier — `ridik_standard_monthly`.
- * Anything unrecognised is treated as the middle tier rather than as unlimited:
- * a mis-named product should under-serve and be noticed, never hand out an
- * uncapped assistant by accident.
+ * Keyed on the *package* rather than sniffed out of the product identifier.
+ * The old version matched substrings — `id.includes('unlimited')` — which is a
+ * rule the dashboard has no idea it is bound by: name a product
+ * `ridik_unlimited_trial` and it silently hands out the largest allowance in
+ * the app. A closed map cannot do that.
+ *
+ * Anything unrecognised is `base`, the smallest. A mis-configured product
+ * should under-serve and be complained about, never over-serve and be
+ * discovered on the invoice.
  */
-function tierFor(productId: string): PlanTier {
-  const id = productId.toLowerCase();
-  if (id.includes('unlimited')) return 'unlimited';
-  if (id.includes('light')) return 'light';
-  return 'standard';
+const TIER_FOR: Record<PlanId, PlanTier> = {
+  ridik_monthly: 'base',
+  ridik_yearly: 'base',
+  pro_monthly: 'pro',
+  pro_yearly: 'pro',
+};
+
+function tierFor(plan: PlanId): PlanTier {
+  return TIER_FOR[plan] ?? 'base';
+}
+
+/**
+ * The plan a store product identifier belongs to, or null.
+ *
+ * The store reports what was *bought* as a product id (`ridik_pro_yearly`),
+ * while the offering exposes what is *for sale* as a package key
+ * (`pro_yearly`). They are deliberately different strings, so restoring a
+ * purchase has to come back through this rather than through `packageKeyFor`.
+ */
+const PRODUCT_FOR: Record<PlanId, string> = {
+  ridik_monthly: 'ridik_monthly',
+  ridik_yearly: 'ridik_yearly',
+  pro_monthly: 'ridik_pro_monthly',
+  pro_yearly: 'ridik_pro_yearly',
+};
+
+function planForProduct(productId: string): PlanId | null {
+  return PLAN_IDS.find((plan) => PRODUCT_FOR[plan] === productId) ?? null;
 }
 
 function toPlan(pkg: any): Plan | null {
-  const id: PlanId | null =
-    pkg?.identifier === PACKAGE_FOR.yearly
-      ? 'yearly'
-      : pkg?.identifier === PACKAGE_FOR.monthly
-        ? 'monthly'
-        : null;
+  const key = String(pkg?.identifier ?? '');
+  const id = PLAN_IDS.find((plan) => packageKeyFor(plan) === key) ?? null;
+  // A package the app does not know is skipped rather than guessed at: an
+  // offering can carry an experiment or a legacy row, and rendering one as a
+  // plan would sell an allowance nothing here can enforce.
   if (!id) return null;
-  const tier = tierFor(String(pkg.product?.identifier ?? pkg.identifier ?? ''));
+  const tier = tierFor(id);
   return {
     id,
     tier,
-    title: tier[0]!.toUpperCase() + tier.slice(1),
+    title: TITLE_FOR[id],
     // The store's own localised string, in the user's currency. Never rebuilt
     // from the numeric price: that is how an app ends up showing "$4.99" to
     // someone being charged in leva.
     price: String(pkg.product?.priceString ?? ''),
-    period: id === 'yearly' ? 'year' : 'month',
+    period: PLAN_PERIOD[id],
   };
 }
 
@@ -191,9 +243,10 @@ export function createRevenueCatProvider(): BillingProvider {
       return packages
         .map(toPlan)
         .filter((plan): plan is Plan => plan !== null)
-        // Monthly first: it is the lower commitment and the one most people
-        // start on. Ordering by price would put yearly first in every currency.
-        .sort((a, b) => (a.id === 'monthly' ? -1 : b.id === 'monthly' ? 1 : 0));
+        // The order the ladder is meant to be read in — the badged row leads,
+        // so the expensive option anchors the cheap one rather than the other
+        // way round. Sorting by price would invert that in every currency.
+        .sort((a, b) => PLAN_IDS.indexOf(a.id) - PLAN_IDS.indexOf(b.id));
     },
 
     /**
@@ -212,7 +265,10 @@ export function createRevenueCatProvider(): BillingProvider {
       const benefits = Array.isArray(meta.benefits)
         ? meta.benefits.filter((line): line is string => typeof line === 'string' && line.trim() !== '')
         : [];
-      const highlight = meta.highlight === 'monthly' || meta.highlight === 'yearly' ? meta.highlight : null;
+      // Validated against the plans that exist rather than a hardcoded pair:
+      // the dashboard can name any row, and a highlight pointing at a plan this
+      // build does not sell must be ignored, not rendered as a badge on nothing.
+      const highlight = PLAN_IDS.find((plan) => plan === meta.highlight) ?? null;
       return benefits.length === 0 && highlight === null ? null : { benefits, highlight };
     },
 
@@ -231,8 +287,11 @@ export function createRevenueCatProvider(): BillingProvider {
       // billing period and differ only in what they allow.
       const target = packages.find(
         (pkg) =>
-          pkg?.identifier === PACKAGE_FOR[plan] &&
-          tierFor(String(pkg?.product?.identifier ?? '')) === tier,
+          pkg?.identifier === packageKeyFor(plan) &&
+          // Both have to match. The caller passes the tier it showed the user,
+          // and buying a package whose tier has since changed in the dashboard
+          // would charge for one allowance and grant another.
+          tierFor(plan) === tier,
       );
       if (!target) throw new Error('That plan is not available right now.');
 

@@ -75,3 +75,8 @@ skills-lock.json
 # A personal working list, not a document the repo ships. Kept beside the code
 # so it is read, and out of history so it can be edited without a commit.
 BACKLOG.txt
+
+# An exit plan for a dependency, not a document the repo ships. Kept beside the
+# code so it is found when it is needed, and out of history so it can be
+# rewritten as the coupling changes.
+REMOVING-ONESIGNAL.md

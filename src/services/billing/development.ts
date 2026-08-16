@@ -21,6 +21,8 @@ import { createLogger } from '@/core/logger';
 import { getRepositories } from '@/repositories';
 import {
   FREE,
+  PLAN_IDS,
+  isYearly,
   type BillingProvider,
   type Entitlement,
   type Plan,
@@ -55,10 +57,19 @@ const SANDBOX_ALLOWED = typeof __DEV__ !== 'undefined' ? Boolean(__DEV__) : proc
  * and inventing a plausible "€4.99" would be the one thing here that could
  * mislead someone reviewing the screen.
  */
+/**
+ * The same four rows the real offering carries, in the same order, so the
+ * paywall a reviewer sees on a simulator is the paywall a customer sees.
+ *
+ * Prices stay em-dashes. The store owns the localised string and inventing a
+ * plausible "$4.99" here is the one thing on this screen that could mislead
+ * somebody into thinking a number had been confirmed.
+ */
 const PLANS: Plan[] = [
-  { id: 'monthly', tier: 'light', title: 'Light', price: '—', period: 'month', note: 'Sandbox' },
-  { id: 'monthly', tier: 'standard', title: 'Standard', price: '—', period: 'month', note: 'Sandbox' },
-  { id: 'yearly', tier: 'unlimited', title: 'Unlimited', price: '—', period: 'year', note: 'Sandbox' },
+  { id: 'pro_yearly', tier: 'pro', title: 'Ridik Pro', price: '—', period: 'year', note: 'Sandbox' },
+  { id: 'pro_monthly', tier: 'pro', title: 'Ridik Pro', price: '—', period: 'month', note: 'Sandbox' },
+  { id: 'ridik_yearly', tier: 'base', title: 'Ridik', price: '—', period: 'year', note: 'Sandbox' },
+  { id: 'ridik_monthly', tier: 'base', title: 'Ridik', price: '—', period: 'month', note: 'Sandbox' },
 ];
 
 type Stored = { plan: PlanId; tier: PlanTier; since: number; renewsAt: number; willRenew: boolean };
@@ -67,11 +78,14 @@ function parse(raw: string | null): Stored | null {
   if (!raw) return null;
   try {
     const value = JSON.parse(raw) as Partial<Stored>;
-    if (value.plan !== 'monthly' && value.plan !== 'yearly') return null;
-    if (value.tier !== 'light' && value.tier !== 'standard' && value.tier !== 'unlimited') return null;
+    // Validated against the live lists rather than a second copy of them: a
+    // sandbox row written by an older build must decode to null and be ignored,
+    // not resurrect a tier this version no longer sells.
+    if (!PLAN_IDS.includes(value.plan as PlanId)) return null;
+    if (!(value.tier === 'base' || value.tier === 'pro')) return null;
     if (typeof value.renewsAt !== 'number' || typeof value.since !== 'number') return null;
     return {
-      plan: value.plan,
+      plan: value.plan as PlanId,
       tier: value.tier,
       since: value.since,
       renewsAt: value.renewsAt,
@@ -157,7 +171,7 @@ export function createDevelopmentProvider(): BillingProvider {
         plan,
         tier,
         since: existing?.since ?? at,
-        renewsAt: at + (plan === 'yearly' ? 365 * DAY : 30 * DAY),
+        renewsAt: at + (isYearly(plan) ? 365 * DAY : 30 * DAY),
         willRenew: true,
       };
       await write(stored);

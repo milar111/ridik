@@ -168,7 +168,7 @@ const billing = (sells: boolean, current: Entitlement = FREE): BillingProvider =
 const subscribed = (tier: Entitlement['tier']): Entitlement => ({
   ...FREE,
   active: true,
-  plan: 'monthly',
+  plan: 'ridik_monthly',
   tier,
   store: 'app-store',
 });
@@ -468,21 +468,23 @@ describe('what a turn is allowed to cost', () => {
   });
 
   it('gives a subscriber the plan allowance, floored by the local brake', async () => {
-    registerBillingProvider(billing(true, subscribed('light')));
+    registerBillingProvider(billing(true, subscribed('base')));
 
     await createVoicePipeline().process('note the resistors');
 
     expect(mockCheck).toHaveBeenCalledWith(
-      { daily: { requests: limitOf(200) }, monthly: { requests: limitOf(300) } },
+      { daily: { requests: limitOf(200) }, monthly: { requests: limitOf(250) } },
       expect.anything(),
     );
     expect(mockSettings.llmTrialRequestsUsed).toBe(0);
   });
 
-  /* TIER_ALLOWANCE.unlimited is 0, the same number free answers with. Locking
-     on that alone would have taken the top plan down with the free tier. */
-  it('does not lock the Unlimited tier along with the free one', async () => {
-    registerBillingProvider(billing(true, subscribed('unlimited')));
+  /* TIER_ALLOWANCE once carried `unlimited: 0`, the same number free answers
+     with, and locking on that alone would have taken the top plan down with the
+     free tier. There is no uncapped tier now, which removes the ambiguity at
+     the root — this still asserts the upper tier is not caught by the lock. */
+  it('does not lock the upper tier along with the free one', async () => {
+    registerBillingProvider(billing(true, subscribed('pro')));
 
     const outcome = await createVoicePipeline().process('note the resistors');
 
@@ -951,15 +953,21 @@ describe('a hosted build', () => {
   });
 
   /* The developer sliders are hidden on this build and cannot be adjusted, so
-     letting their defaults stand would cap an Unlimited subscriber at 3,000 a
-     month behind a control nobody can see. */
-  it('does not apply the hidden developer ceilings', async () => {
-    registerBillingProvider(billing(true, subscribed('unlimited')));
+     letting their defaults stand would cap a subscriber at 3,000 a month behind
+     a control nobody can see.
+
+     What remains is the PLAN's own ceiling, which is the point: the daily
+     figure is uncapped because no plan sells a daily allowance, and the monthly
+     one is what was bought. This used to assert uncapped on both, but only
+     because the top tier's allowance was the magic 0 — the same 0 free answers
+     with, and the ambiguity that let a free install inherit these very caps. */
+  it('applies the plan ceiling and not the hidden developer ones', async () => {
+    registerBillingProvider(billing(true, subscribed('pro')));
 
     await createVoicePipeline().process('note the resistors');
 
     expect(mockCheck).toHaveBeenCalledWith(
-      { daily: { requests: UNLIMITED }, monthly: { requests: UNLIMITED } },
+      { daily: { requests: UNLIMITED }, monthly: { requests: limitOf(1_000) } },
       expect.anything(),
     );
   });
