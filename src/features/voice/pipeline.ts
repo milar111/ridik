@@ -505,15 +505,22 @@ async function assistantBudget(options: BudgetOptions): Promise<TurnBudget> {
 
 /**
  * Which rung of the schema ladder to start on. Total: an unreadable setting
- * must not decide how the assistant talks to the model, so it falls to 0 —
- * the strict schema, which is the safe end of the trade.
+ * must not decide how the assistant talks to the model.
+ *
+ * It fell back to 0 — "the strict schema, which is the safe end of the trade".
+ * That was true only while nothing had ever been sent to Google. Measured
+ * against the live API, rung 0 is refused outright with a bare 400 and rung 1
+ * returns actions with empty parameters; rung 2 answers 8 utterances out of 8.
+ * So the safe end is the *last* rung, and falling back to the first would take
+ * two guaranteed-wasted calls to reach it — on the one path taken when the
+ * database is already in trouble.
  */
 async function preferredSchemaRung(): Promise<number> {
   try {
     return await getRepositories().settings.get('llmSchemaRung');
   } catch (error) {
     log.warn('could not read the schema rung setting', error);
-    return 0;
+    return 2;
   }
 }
 

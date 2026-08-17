@@ -219,15 +219,47 @@ describe('gemini provider', () => {
     expect(provider.schemaRung).toBe(2);
   });
 
-  it('does not read an unrelated 400 as a schema complaint', async () => {
+  /**
+   * Any 400 on a schema-bearing call steps down. This test used to assert the
+   * opposite, and that assertion is what broke the assistant.
+   *
+   * The rule was `status === 400 && /schema/i.test(message)`. The first real
+   * request this app ever made came back with:
+   *
+   *     400  "Request contains an invalid argument."
+   *
+   * No mention of a schema. So the ladder never stepped down and **every turn
+   * failed permanently** — on the exact code path built to survive this. The
+   * test passed throughout, because it was written against a message Google
+   * does not actually send.
+   *
+   * The test is now the shape of the request, not the wording of the reply:
+   * we sent a schema and got a 400, so the schema is what we stop sending.
+   * A 400 that was really about something else costs one extra, smaller call
+   * that fails the same way; not stepping down costs the utterance.
+   */
+  it('steps down on any 400 while it is carrying a schema', async () => {
     const { impl, calls } = stubFetch(() =>
-      jsonResponse({ error: { message: 'contents is not specified' } }, 400),
+      jsonResponse({ error: { message: 'Request contains an invalid argument.' } }, 400),
     );
     const provider = createGeminiProvider({ apiKey: 'k', fetchImpl: impl });
 
     await expect(provider.complete(request)).rejects.toMatchObject({ code: 'bad_request' });
+    // Rung 0, rung 1, then rung 2 — which carries no schema, so the last 400
+    // is taken at face value and the turn ends.
+    expect(calls).toHaveLength(3);
+    expect(provider.schemaRung).toBe(2);
+  });
+
+  /* And once there is no schema left to blame, a 400 is just a 400. */
+  it('stops laddering when it is no longer sending a schema', async () => {
+    const { impl, calls } = stubFetch(() =>
+      jsonResponse({ error: { message: 'contents is not specified' } }, 400),
+    );
+    const provider = createGeminiProvider({ apiKey: 'k', fetchImpl: impl, startRung: 2 });
+
+    await expect(provider.complete(request)).rejects.toMatchObject({ code: 'bad_request' });
     expect(calls).toHaveLength(1);
-    expect(provider.schemaRung).toBe(0);
   });
 
   it('never ladders away from a schema the caller pinned', async () => {

@@ -143,27 +143,48 @@ export const SETTINGS = {
    * still works — it falls back to offline pattern matching.
    */
   /**
-   * Where Gemini's schema ladder starts. 0 = strict schema, 1 = envelope only.
+   * Where Gemini's schema ladder starts.
+   * 0 = strict schema, 1 = envelope only, 2 = no response schema.
    *
-   * The strict schema is ~4,626 tokens of every request — the single largest
-   * line item, 62% of the input — and ships OFF, at rung 1.
+   * **Measured against the live API on 17 August 2026, and the reasoning below
+   * was wrong in a way only a real key could show.**
    *
-   * It is not free money, but the arithmetic clears comfortably: dropping it
-   * saves $0.00116 a call against a repair costing $0.00228, so break-even is
-   * an extra repair on 51% of requests, and the envelope rung still constrains
-   * valid JSON, a real tool name and an actions array — only `parameters` goes
-   * free-form, where zod catches it. Expected repair rate moves ~5% to ~12%.
-   * Seven points against fifty-one.
+   * Eight representative utterances, `gemini-3.1-flash-lite`:
    *
-   * Those rates are reasoned, not measured, which is why this stayed a setting
-   * rather than a constant: `llm_usage.calls` over `llm_usage.requests` is the
-   * repair rate. If it settles above ~1.5, set this back to 0.
+   *   rung 0  strict, 16.6 kB   HTTP 400 on every request. Google will not
+   *                             take it, and says only "Request contains an
+   *                             invalid argument".
+   *   rung 1  envelope, 1.2 kB  Accepted, and useless: 7 of 8 turns fell back
+   *                             to the offline matcher. The model emitted the
+   *                             right tool with `parameters: {}` every time.
+   *   rung 2  no schema         8 of 8 correct, including the three-action
+   *                             multi-intent sentence. No fallbacks.
    *
-   * Developer-only. A stranger setting this to 1 would make the assistant
-   * less reliable and cost more, which is exactly the test AGENTS.md sets for
-   * what may not go on the Settings screen.
+   * The old note here claimed "only `parameters` goes free-form, where zod
+   * catches it". That is the error. With a `responseSchema` present, Gemini
+   * constrains the output *to the schema* — and `parameters` is declared as an
+   * OBJECT with no `properties`, so constrained decoding fills it with `{}`.
+   * Nothing goes free-form. Zod then rejects every reply, the repair ladder
+   * runs three times, and the offline engine answers. The assistant looked
+   * like it worked because the mock provider always returned well-formed JSON.
+   *
+   * The prompt already documents every tool and its parameters in prose, which
+   * is what rung 2 relies on and why it works.
+   *
+   * Cost, same eight utterances:
+   *
+   *              calls/request   input tokens   latency
+   *   rung 1         2.88            9,103       ~2,700 ms
+   *   rung 2         1.13            2,932         ~840 ms
+   *
+   * Seven times cheaper per turn and three times faster, because the rejected
+   * schema was itself ~6,000 input tokens on every call.
+   *
+   * Developer-only. A stranger setting this to 0 or 1 would stop the assistant
+   * working, which is exactly the test AGENTS.md sets for what may not go on
+   * the Settings screen.
    */
-  llmSchemaRung: define(z.union([z.literal(0), z.literal(1)]), () => 1),
+  llmSchemaRung: define(z.union([z.literal(0), z.literal(1), z.literal(2)]), () => 2),
   llmDailyRequestCap: define(z.number().int().min(0).max(100_000), () => 200),
   llmMonthlyRequestCap: define(z.number().int().min(0).max(1_000_000), () => 3_000),
 

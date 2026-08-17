@@ -193,8 +193,34 @@ const FINISH_MESSAGES: Record<string, string> = {
  * it will decode against — too complex, or a keyword this model does not know.
  * Every other 400 is about the request itself and must not be retried.
  */
-function rejectsOurSchema(status: number, detail: string): boolean {
-  return status === 400 && /schema/i.test(detail);
+/**
+ * Whether a 400 means "I will not take that schema".
+ *
+ * It used to require the word "schema" in the message. The first request this
+ * app ever made with a real key came back:
+ *
+ *     400  { "error": { "message": "Request contains an invalid argument.",
+ *                       "status": "INVALID_ARGUMENT" } }
+ *
+ * No mention of a schema, no field path, nothing. So the guard written for
+ * exactly this case returned false, the ladder never stepped down, and **every
+ * single turn failed permanently** — on a code path whose whole purpose was to
+ * survive this. Rung 0 is 16.6 kB of translated Zod and `gemini-3.1-flash-lite`
+ * rejects it outright; rung 1, at 1.2 kB, is accepted. The app could not talk
+ * to Gemini at all and the mock provider hid it.
+ *
+ * So the test is the *shape* of the request rather than the wording of the
+ * reply: a 400 on a call that carried a response schema is treated as the
+ * schema being refused. Google does not document that message and is free to
+ * change it; what it cannot change is that we sent a schema and got a 400.
+ *
+ * The cost of being wrong is small and one-directional. If a 400 was really
+ * about something else, stepping down sends a smaller request that fails the
+ * same way and the turn ends as it would have — one extra call. Not stepping
+ * down when we should is the utterance lost.
+ */
+function rejectsOurSchema(status: number, sentSchema: boolean): boolean {
+  return status === 400 && sentSchema;
 }
 
 export function createGeminiProvider(options: GeminiProviderOptions): GeminiProvider {
@@ -311,7 +337,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): GeminiProv
 
         if (!response.ok) {
           const detail = await describeHttpError(response);
-          if (onLadder && rung < rungs.length - 1 && rejectsOurSchema(response.status, detail)) {
+          if (onLadder && rung < rungs.length - 1 && rejectsOurSchema(response.status, schema != null)) {
             // Remembered for the life of the provider: the next turn must not
             // pay for the same rejection again.
             rung += 1;
