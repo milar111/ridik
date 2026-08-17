@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 
 import { freezeClock } from '@/core/clock';
-import { DateTime } from '@/core/time';
+import { DateTime, setZoneOverride } from '@/core/time';
 import type { Task } from '@/db/schema';
 import { ToastProvider } from '@/ui/components';
 import { ThemeProvider } from '@/ui/ThemeProvider';
@@ -28,6 +28,19 @@ jest.mock('@/hooks', () => ({
 const hooks = jest.requireMock('@/hooks') as Record<string, jest.Mock>;
 
 const ZONE = 'Europe/Sofia';
+
+/*
+ * The fixtures are built in ZONE and the screen renders in whatever
+ * `currentZone()` says, which is the *device's* unless something overrides it.
+ * On this machine those happen to agree; on a CI runner, which is UTC, they do
+ * not — "Today 17:30" rendered as 14:30 and the suite failed only there.
+ *
+ * A test that passes because of where its author lives is worse than no test,
+ * and this is an app whose central invariant is that a stored instant never
+ * moves. Pinning both ends is the fix.
+ */
+beforeAll(() => setZoneOverride(ZONE));
+afterAll(() => setZoneOverride(null));
 const NOW = DateTime.fromISO('2026-08-11T12:00', { zone: ZONE }).toMillis();
 const at = (iso: string): number => DateTime.fromISO(iso, { zone: ZONE }).toMillis();
 

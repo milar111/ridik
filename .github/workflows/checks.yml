@@ -83,8 +83,22 @@ jobs:
       # The `logic` project runs under plain Node against real SQLite and the
       # `ui` project under jest-expo. Neither needs a simulator, which is what
       # makes the whole suite runnable here.
+      # Twice, in two zones. The suite passed on the author's machine and failed
+      # here on a test whose fixtures were built in Europe/Sofia while the
+      # screen rendered in the runner's UTC — "Today 17:30" came out 14:30. A
+      # test that passes because of where its author lives is worse than none,
+      # and this is an app whose central invariant is that a stored instant
+      # never moves. The second run is a zone *behind* UTC, which nothing had
+      # ever tried.
       - name: Tests
         run: npm test -- --ci --runInBand
+        env:
+          TZ: UTC
+
+      - name: Tests (a zone behind UTC)
+        run: npm test -- --ci --runInBand
+        env:
+          TZ: America/Los_Angeles
 
       # The config plugins rewrite the native projects, and a plugin that throws
       # only surfaces at prebuild — long after the commit that broke it. This
