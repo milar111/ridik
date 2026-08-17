@@ -124,13 +124,110 @@ device keychain. A store build hides this field entirely.
 ### 2.3 Google Calendar sync (optional)
 
 Only needed if you want two-way sync with Google Calendar. Without it the app
-keeps its own calendar and can still mirror to the phone's.
+keeps its own calendar and can still mirror to the phone's. **Free** — no paid
+account, no card, and it does not need the Apple or Google developer accounts.
 
-1. Google Cloud → enable **Google Calendar API**.
-2. Create OAuth client ids: one iOS (bundle id), one Android (package name +
-   SHA-1 of your signing certificate), one Web (used by the token exchange).
-3. Put the client ids in `app.config.ts` under `extra.googleOAuth`. The **client
-   secret is secret** — it belongs on your backend, not in the app.
+Budget about 25 minutes. Everything happens at
+<https://console.cloud.google.com>.
+
+#### a. A project and the API
+
+1. Top-left project picker → **New project** → name it `Ridik` → Create.
+2. Make sure the picker now says Ridik. Everything below is per-project and it
+   is easy to configure someone else's by accident.
+3. **APIs & Services → Library** → search *Google Calendar API* → **Enable**.
+   Nothing else needs enabling; the app asks for calendar, `openid` and `email`
+   and nothing more.
+
+#### b. The consent screen, before any client
+
+Google will not let you create a client until this exists.
+
+4. **APIs & Services → OAuth consent screen**.
+5. User type **External**, unless you have a Workspace organisation and only
+   ever want your own domain to sign in.
+6. App name `Ridik`, your email as both support and developer contact.
+7. **Scopes → Add or remove scopes**, and add exactly:
+
+   ```
+   https://www.googleapis.com/auth/calendar
+   openid
+   email
+   ```
+
+   `.../auth/calendar` is a **sensitive** scope. That is fine and expected — it
+   just means the app stays in **Testing** until you submit it for
+   verification, and in Testing you must add every account that will sign in
+   under **Test users**. Add your own address now; a missing test user surfaces
+   as `access_blocked`, which reads like a bug in the app and is not one.
+
+#### c. Three client ids
+
+**Credentials → Create credentials → OAuth client ID**, three times.
+
+| Type | What it asks for | Value |
+| --- | --- | --- |
+| **iOS** | Bundle ID | `ai.raisen.ridik` |
+| **Android** | Package name | `ai.raisen.ridik` |
+| | SHA-1 certificate fingerprint | see below |
+| **Web application** | nothing required | leave the redirect fields empty |
+
+The **Web** client is not for a website. Google's installed-app clients cannot
+complete the token exchange on their own, so the app uses the web client id for
+that step. Creating only two clients is the usual mistake and it fails at the
+last moment of a sign-in that otherwise looked fine.
+
+For the Android SHA-1, from the repo root:
+
+```bash
+# The debug key — for running it on your own phone or a simulator.
+keytool -list -v -keystore ~/.android/debug.keystore \
+  -alias androiddebugkey -storepass android -keypass android | grep SHA1
+
+# The upload key — for anything that goes to Play. Created by `npm run release
+# keystore`, and gitignored, because it is the one credential that cannot be
+# rotated.
+keytool -list -v -keystore credentials/android/upload.keystore | grep SHA1
+```
+
+Add **both** fingerprints to the Android client. A build signed with a key
+Google has never seen fails with `DEVELOPER_ERROR` and no further explanation.
+
+If you later use Play App Signing, Google re-signs your upload with *its own*
+key — take that SHA-1 from **Play Console → Setup → App integrity** and add it
+as a third.
+
+#### d. Into the app
+
+```bash
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=1234-abc.apps.googleusercontent.com
+EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=1234-def.apps.googleusercontent.com
+EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=1234-ghi.apps.googleusercontent.com
+```
+
+Then `npx expo prebuild --clean` and rebuild — these are read at build time, so
+editing `.env` and reloading changes nothing.
+
+Client **ids** are public by design and belong in the build. The client
+**secret** does not: it is never needed by an installed app, and putting it in
+one publishes it to anybody who unzips the `.apk`.
+
+#### e. When it does not work
+
+The three failures, and what each actually means:
+
+- **`redirect_uri_mismatch`** — the redirect the app sent is not one Google
+  accepts for that client. Installed-app clients only accept the *reversed*
+  client id scheme (`com.googleusercontent.apps.<id>:/oauthredirect`); the
+  `ridik://` scheme works only for the web client. `redirectUriFor()` in
+  `src/services/calendar/googleAuth.ts` already picks the right one per
+  platform — if you see this, the client id in `.env` is almost always the
+  wrong *type* for the platform you are running on.
+- **`access_blocked` / "Ridik has not completed the Google verification
+  process"** — the consent screen is in Testing and the account signing in is
+  not on the Test users list.
+- **`DEVELOPER_ERROR` on Android** — the SHA-1 of the key that signed the build
+  is not on the Android client.
 
 ### 2.4 Google Maps (optional)
 
