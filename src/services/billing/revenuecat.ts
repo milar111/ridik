@@ -35,11 +35,13 @@ import {
   FREE,
   PLAN_IDS,
   PLAN_PERIOD,
+  planChange,
   tierFor,
   titleFor,
   type BillingProvider,
   type Entitlement,
   type Plan,
+  type PlanChange,
   type PlanId,
   type PlanTier,
 } from './entitlement';
@@ -173,6 +175,19 @@ function toEntitlement(info: any): Entitlement {
  * (`pro_yearly`). They are deliberately different strings, so restoring a
  * purchase has to come back through this rather than through `packageKeyFor`.
  */
+/**
+ * How Play should replace one subscription with another, per direction.
+ *
+ * Strings rather than the SDK's enum: importing `STORE_REPLACEMENT_MODE` would
+ * pull the native module into this file's type graph, and these are the exact
+ * values it holds. `revenuecat-config.test.ts` pins them.
+ */
+const REPLACEMENT_MODE: Record<Exclude<PlanChange, 'same'>, string> = {
+  upgrade: 'CHARGE_PRORATED_PRICE',
+  downgrade: 'DEFERRED',
+  crossgrade: 'WITH_TIME_PRORATION',
+};
+
 const PRODUCT_FOR: Record<PlanId, string> = {
   ridik_monthly: 'ridik_monthly',
   ridik_yearly: 'ridik_yearly',
@@ -268,7 +283,7 @@ export function createRevenueCatProvider(): BillingProvider {
       return toEntitlement(await Purchases.getCustomerInfo());
     },
 
-    async purchase(plan, tier) {
+    async purchase(plan, tier, from) {
       const Purchases = load();
       if (!Purchases) throw new Error('Purchases are not available in this build.');
       const offerings = await Purchases.getOfferings();
@@ -285,8 +300,57 @@ export function createRevenueCatProvider(): BillingProvider {
       );
       if (!target) throw new Error('That plan is not available right now.');
 
+      /*
+       * Changing plan is not the same call as buying one, and on Android the
+       * difference is a second subscription.
+       *
+       * iOS does this for free: StoreKit sees both products in one subscription
+       * group, cancels the old one, credits the unused time and charges the
+       * difference. Nothing here has to ask. (It only works if the products
+       * ARE in one group in App Store Connect — if they are not, the user ends
+       * up paying for both, and no code can fix that.)
+       *
+       * Google does none of it. Without `oldProductIdentifier` Play treats the
+       * purchase as unrelated and leaves the customer holding two live
+       * subscriptions, billed for both, with an app that shows whichever
+       * entitlement RevenueCat resolved. That is the failure this block exists
+       * to prevent, and it costs the *user* money, which is the worst kind.
+       *
+       * The replacement mode is chosen per direction, and the choice is the
+       * whole of the "fair but not generous" question:
+       *
+       *   upgrade    CHARGE_PRORATED_PRICE — takes effect now, the billing date
+       *              does not move, and they pay only the difference for the
+       *              days remaining. They get more allowance immediately and
+       *              are charged for exactly what that is worth. Nothing is
+       *              refunded and nothing is given away.
+       *   downgrade  DEFERRED — they keep what they paid for until the period
+       *              they already bought runs out, then drop. No refund, which
+       *              is right: they had the larger allowance the whole time.
+       *   crossgrade WITH_TIME_PRORATION — monthly to yearly at the same tier.
+       *              The unused time becomes time on the new plan rather than
+       *              money back, which is the only sane reading of "I want to
+       *              pay for a year now".
+       *
+       * `CHARGE_FULL_PRICE` is the greedy option — it bills a whole new period
+       * on top and hands back the old one as extra days. It is deliberately not
+       * used.
+       */
+      const change = from ? planChange(from, plan) : 'same';
+      const productChangeInfo =
+        Platform.OS === 'android' && from && change !== 'same'
+          ? {
+              oldProductIdentifier: PRODUCT_FOR[from],
+              replacementMode: REPLACEMENT_MODE[change],
+            }
+          : null;
+
       try {
-        const { customerInfo } = await Purchases.purchasePackage(target);
+        const { customerInfo } = await Purchases.purchasePackage(
+          target,
+          null,
+          productChangeInfo,
+        );
         return toEntitlement(customerInfo);
       } catch (error: any) {
         // Backing out of the store sheet is not a failure, and must not raise

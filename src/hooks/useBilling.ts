@@ -38,10 +38,15 @@ export function useEntitlement(): UseQueryResult<Entitlement> {
 
 export function usePurchasePlan(): UseMutationResult<Entitlement, Error, Plan> {
   const client = useQueryClient();
+  // What they already hold, so a change of plan is bought as a change rather
+  // than as a second subscription. See `purchase()` in the RevenueCat adapter:
+  // without it Play bills both.
+  const current = useEntitlement();
   return useMutation({
     // The whole Plan, not its id: two products can share a billing period and
     // differ only in the allowance, so the id alone does not identify one.
-    mutationFn: (plan: Plan) => purchasePlan(plan.id, plan.tier),
+    mutationFn: (plan: Plan) =>
+      purchasePlan(plan.id, plan.tier, current.data?.active ? current.data.plan : null),
     onSettled: () => invalidateKeys(client, [qk.billing.all]),
   });
 }

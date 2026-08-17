@@ -119,6 +119,40 @@ export const TIER_ALLOWANCE: Record<PlanTier, number> = {
  * `plan.startsWith('pro')` would answer for a plan called `promo_yearly` and
  * hand it four times the allowance it was paid for.
  */
+/**
+ * What a plan is worth, for deciding the direction of a change.
+ *
+ * The **tier only**. Commitment is deliberately not in here: a change of
+ * billing period at the same tier is neither up nor down — the allowance is
+ * identical and all that moves is how far ahead you have paid — and folding it
+ * into the rank made monthly→yearly read as an upgrade, which would have
+ * charged a prorated difference for an allowance that did not change.
+ */
+export function planRank(plan: PlanId): number {
+  return PLAN_TIER[plan] === 'pro' ? 1 : 0;
+}
+
+export type PlanChange = 'upgrade' | 'downgrade' | 'crossgrade' | 'same';
+
+/**
+ * What buying `next` does to somebody already on `current`.
+ *
+ * The distinction is not cosmetic — it decides who pays what and when, and
+ * getting it backwards either bills somebody twice or gives away a month.
+ */
+export function planChange(current: PlanId | null, next: PlanId): PlanChange {
+  if (current === null) return 'same';
+  if (current === next) return 'same';
+  const from = planRank(current);
+  const to = planRank(next);
+  // Tier first and tier only. Same tier, different period, is a crossgrade
+  // however the commitment moves — including Pro yearly to Pro monthly, which
+  // shortens the commitment and changes no allowance at all.
+  if (to > from) return 'upgrade';
+  if (to < from) return 'downgrade';
+  return 'crossgrade';
+}
+
 export const PLAN_TIER: Record<PlanId, PlanTier> = {
   ridik_monthly: 'base',
   ridik_yearly: 'base',
@@ -283,8 +317,15 @@ export type BillingProvider = {
   /** Editable copy, or null to use the app's own. */
   marketing(): Promise<Marketing | null>;
   current(): Promise<Entitlement>;
-  /** Opens the store's purchase sheet. Resolves to what the user ended on. */
-  purchase(plan: PlanId, tier: PlanTier): Promise<Entitlement>;
+  /**
+   * Opens the store's purchase sheet. Resolves to what the user ended on.
+   *
+   * `from` is the plan they already hold, when they hold one. Android needs it:
+   * without the old product identifier Play starts a *second* subscription and
+   * bills both. iOS ignores it and prorates on its own, provided the products
+   * share a subscription group.
+   */
+  purchase(plan: PlanId, tier: PlanTier, from?: PlanId | null): Promise<Entitlement>;
   /**
    * Buys one top-up, and answers with the store's new count of them.
    *
@@ -426,9 +467,13 @@ export async function planMarketing(): Promise<Marketing | null> {
   }
 }
 
-export async function purchasePlan(plan: PlanId, tier: PlanTier): Promise<Entitlement> {
+export async function purchasePlan(
+  plan: PlanId,
+  tier: PlanTier,
+  from?: PlanId | null,
+): Promise<Entitlement> {
   if (!provider) throw new Error('Purchases are not available in this build.');
-  return provider.purchase(plan, tier);
+  return provider.purchase(plan, tier, from ?? null);
 }
 
 /**
