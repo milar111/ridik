@@ -95,17 +95,40 @@ export function isConfigured(): boolean {
 }
 
 /**
- * Google's installed-app clients only accept a redirect back into the reversed
- * client id scheme (`com.googleusercontent.apps.<id>:/…`); the app scheme works
- * for the web client only. Getting this wrong surfaces as `redirect_uri_mismatch`
- * at the very end of the flow, so it is derived from the id rather than guessed.
+ * The application id, which is also a URL scheme this app answers to.
+ *
+ * Read from the embedded manifest rather than hard-coded so a rename cannot
+ * leave a redirect pointing at the old identifier — but with the literal as a
+ * fallback, because a redirect built from `undefined` fails at the very end of
+ * the flow, after the user has already consented.
  */
-export function redirectUriFor(clientId: string): string {
-  const reversed = clientId.replace(/\.apps\.googleusercontent\.com$/, '');
-  const isNativeClient = reversed !== clientId && Platform.OS !== 'web';
-  return isNativeClient
-    ? AuthSession.makeRedirectUri({ native: `com.googleusercontent.apps.${reversed}:/oauthredirect` })
-    : AuthSession.makeRedirectUri({ scheme: 'ridik', path: 'oauthredirect' });
+export function appIdentifier(): string {
+  const config = Constants.expoConfig;
+  const id =
+    Platform.OS === 'ios' ? config?.ios?.bundleIdentifier : config?.android?.package;
+  return id || 'ai.raisen.ridik';
+}
+
+/**
+ * Where Google sends the browser back to.
+ *
+ * Installed-app clients redirect through a custom URI scheme, and the scheme
+ * has to be one the OS will actually route to *this* app. There are two Google
+ * accepts — the application id and the reversed client id — and this used to
+ * send the second one, which was registered on neither platform. The flow
+ * therefore worked perfectly right up to the last hop: Google took the consent,
+ * redirected, and the OS had nowhere to deliver it. No error, no return, and
+ * the account looks connected to Google while the app never saw a token.
+ *
+ * So it is the application id, which is what `expo-auth-session`'s own Google
+ * provider defaults to. iOS registers it automatically; Android registers it
+ * only because `app.config.ts` lists it in `scheme`, and those two facts are
+ * the whole reason this function is one line of policy rather than a guess.
+ */
+export function redirectUriFor(): string {
+  return Platform.OS === 'web'
+    ? AuthSession.makeRedirectUri({ scheme: 'ridik', path: 'oauthredirect' })
+    : AuthSession.makeRedirectUri({ native: `${appIdentifier()}:/oauthredirect` });
 }
 
 /* ----------------------------------------------------------------- storage -- */
@@ -187,7 +210,7 @@ export async function buildAuthRequest(): Promise<Result<AuthSession.AuthRequest
   try {
     const request = new AuthSession.AuthRequest({
       clientId,
-      redirectUri: redirectUriFor(clientId),
+      redirectUri: redirectUriFor(),
       scopes: [...GOOGLE_SCOPES],
       usePKCE: true,
       extraParams: {

@@ -83,6 +83,29 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: 'ai.raisen.ridik',
+    /*
+     * The scheme Google redirects into after sign-in, and nothing else.
+     *
+     * Google's installed-app clients hand the browser back through a custom URI
+     * scheme, and `redirectUriFor()` sends the application id — which is what
+     * expo-auth-session's own Google provider defaults to. iOS registers the
+     * bundle identifier as a URL type by itself (@expo/config-plugins pushes it
+     * onto CFBundleURLSchemes and says in a comment that it is for exactly
+     * this), so declaring it in `scheme` would only write it into the plist
+     * twice. Android registers nothing it is not told about.
+     *
+     * Left out, the flow failed at the last hop and looked like a success:
+     * the consent screen appeared, the user granted it, Google recorded the
+     * grant, and the redirect arrived at an OS with nowhere to deliver it. No
+     * error, no cancellation — the app simply never heard back.
+     */
+    intentFilters: [
+      {
+        action: 'VIEW',
+        category: ['BROWSABLE', 'DEFAULT'],
+        data: [{ scheme: 'ai.raisen.ridik' }],
+      },
+    ],
     // Play's twin of ios.buildNumber, and it must be an integer that only ever
     // goes up — Play permanently refuses a versionCode it has already seen.
     versionCode: 1,

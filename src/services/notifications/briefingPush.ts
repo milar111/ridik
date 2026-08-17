@@ -247,11 +247,20 @@ export const PUSH_ROUTE_SEGMENTS: readonly string[] = [
  * screen is *about* the whole database leaving the phone, and there is no
  * reason a message from a server would ever need to open it. Deny by default is
  * the rule; this is what the rule is for.
+ *
+ * `oauthredirect` is where Google's sign-in browser comes home. It is the same
+ * argument as `unlock` and it is the sharper version of it: the URL carries an
+ * authorization code, and a route that can be driven by a message is a route
+ * somebody else can arrive at with a code of their own. This particular screen
+ * reads nothing from the query and would simply bounce — but the reason it is
+ * safe today is one line of implementation, and a push must not be the thing
+ * standing on it.
  */
 export const PUSH_BLOCKED_SEGMENTS: readonly string[] = [
   'backup',
   'consent',
   'developer',
+  'oauthredirect',
   'unlock',
 ];
 

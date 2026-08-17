@@ -148,6 +148,12 @@ export default function RootLayout() {
                       sliding it in from the right would announce a screen the
                       user is about to be taken straight off again. */}
                   <Stack.Screen name="unlock" options={{ animation: 'fade' }} />
+                  {/* And where Google's sign-in browser comes home. Same
+                      reasoning as `unlock` and the same fade: it is a beat the
+                      user should barely see, and without a route for it the
+                      redirect draws "Unmatched Route" over a sign-in that in
+                      fact succeeded. */}
+                  <Stack.Screen name="oauthredirect" options={{ animation: 'fade' }} />
                 </Stack>
                 {/* Mounted above every route so a thought can be captured from
                     wherever you are. It draws its own floating mic everywhere
