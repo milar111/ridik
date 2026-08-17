@@ -24,8 +24,37 @@ import { googleApiError } from './googleApi';
 
 const log = createLogger('google-auth');
 
+/**
+ * The narrowest scopes that do everything Ridik actually does.
+ *
+ * `.../auth/calendar.events` rather than `.../auth/calendar`. Both are
+ * "sensitive" and both need Google's review to leave Testing, so this costs
+ * nothing procedurally — but the wider one's own description, shown to every user
+ * on the consent screen and to every reviewer, is *"See, edit, share, and
+ * permanently delete all the calendars you can access using Google Calendar"*.
+ * The narrow one grants events on existing calendars and nothing else: no
+ * creating or deleting calendars, no sharing, no altering ACLs.
+ *
+ * Ridik only ever reads and writes *events* — `googleApi.ts` touches
+ * `/calendars/{id}/events` and the calendar list, never a calendar's own
+ * settings, sharing or lifecycle. So the wider scope was asking for powers the
+ * app has no code to use, which is the single most common reason a sensitive-scope
+ * review comes back rejected.
+ *
+ * Kept as a list rather than a constant string because the review submission has
+ * to justify each one separately.
+ */
 export const GOOGLE_SCOPES = [
-  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/calendar.events',
+  /*
+   * And the calendar *list*, read-only, because `calendar.events` does not cover
+   * it. `googleApi.ts` calls `users/me/calendarList` to find which calendars
+   * exist before it can sync events into one — narrowing to events alone would
+   * have made that 403 and broken setup, which is the failure mode a scope
+   * reduction invites. Google classifies this one as **non-sensitive**, so
+   * `calendar.events` is the only scope the review has to be argued for.
+   */
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
   'openid',
   'email',
 ] as const;

@@ -46,6 +46,32 @@ export const DEFAULT_MAX_DELAY_MS = 8_000;
  */
 export const DEFAULT_MAX_CALLS_PER_TURN = 6;
 
+/**
+ * A ceiling on the reply, because until now there was none.
+ *
+ * `maxOutputTokens` has been plumbed from here to both providers since the client
+ * was written and set by nobody, so every turn was uncapped: a model that loops
+ * — and a JSON-mode model repeating a `parameters` block is the commonest way to
+ * see one — bills for as long as it keeps going. The app's own meter notices
+ * afterwards; this stops it happening.
+ *
+ * The number is measured rather than guessed. `llmInteractions` puts real replies
+ * at a median of 84 output tokens and a p95 of 354, so this is roughly 12× the
+ * tail.
+ *
+ * That much headroom is deliberate, and the reason is Gemini 3.x: **thinking
+ * tokens count against this limit** and are invisible in
+ * `candidatesTokenCount`. A cap sized to the visible reply would truncate the
+ * model mid-thought and return an empty candidate — which the repair loop would
+ * then retry, turning one cheap turn into three expensive ones and a turn the
+ * user watches fail. Erring high costs a fraction of a cent on a pathological
+ * turn; erring low breaks ordinary ones.
+ *
+ * A caller that wants a tighter or looser bound still passes `maxOutputTokens`
+ * and this default gets out of the way.
+ */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 4_096;
+
 export type BackoffOptions = {
   baseMs?: number;
   maxMs?: number;
@@ -285,7 +311,7 @@ export function createLlmClient(options: LlmClientOptions) {
             responseSchema: options.responseSchema,
             ...(tools ? { tools } : {}),
             temperature: options.temperature,
-            maxOutputTokens: options.maxOutputTokens,
+            maxOutputTokens: options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
             signal: input.signal,
           },
           state,
