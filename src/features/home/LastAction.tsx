@@ -67,6 +67,19 @@ export function LastAction() {
   const applied = items.filter((item) => item.ok);
   const headline = applied.length > 0 ? applied[applied.length - 1]! : null;
   const undoable = lastUndoable(items);
+  /*
+   * Whether the undo button takes back the thing the card is describing.
+   *
+   * `headline` is the last *applied* item; `undoable` is the last item on the
+   * allow-list. In a mixed batch those are different rows and nothing tied them
+   * together — "remind me to call Dad and start a 25 minute timer" drew
+   * `Started "Focus" — 25m in 1 block.` above a bare **Undo** that deleted the
+   * task, left the timer running, and then greyed the *timer* line. The name of
+   * what was about to be deleted existed only in the accessibility label, so a
+   * sighted user was never shown it and afterwards was told the wrong thing had
+   * been undone.
+   */
+  const undoesHeadline = undoable !== null && headline !== null && undoable.id === headline.entityId;
   // Keyed by id: speaking again replaces the outcome, so a stale "Undone" can
   // never sit under a newer action.
   const isUndone = undoable !== null && undone === undoable.id;
@@ -87,8 +100,15 @@ export function LastAction() {
    * changes the moment the receipt has nothing to show.
    */
   const receipt = headline
-    ? `${isUndone ? 'Undone' : 'Done'}. ${headline.summary}` +
-      (applied.length > 1 ? `, and ${applied.length - 1} more` : '')
+    ? isUndone
+      ? // What was actually taken back, which is not always the headline. The
+        // sentence used to read "Undone. Started \"Focus\" — 25m in 1 block."
+        // after undoing a *task* in the same batch, leaving the timer running
+        // and telling the one person who cannot see the card that the wrong
+        // thing had been reversed.
+        `Undone. ${undoable.summary}`
+      : `Done. ${headline.summary}` +
+        (applied.length > 1 ? `, and ${applied.length - 1} more` : '')
     : null;
   // Android hears the card itself: it is an `accessibilityLiveRegion` below.
   useAnnounceOnIOS(receipt);
@@ -196,7 +216,13 @@ export function LastAction() {
           style={[{ alignSelf: 'flex-start', opacity: undo.isPending ? 0.5 : 1 }, undoPress.style]}
         >
           <Txt variant="caption" tone="accent" weight="600">
-            {undo.isPending ? 'Undoing…' : 'Undo'}
+            {undo.isPending
+              ? 'Undoing…'
+              : undoesHeadline
+                ? 'Undo'
+                : /* Name it when it is not the row above. A bare "Undo" under a
+                     sentence about something else is a button that lies. */
+                  `Undo ${undoable.summary}`}
           </Txt>
         </AnimatedPressable>
       ) : null}

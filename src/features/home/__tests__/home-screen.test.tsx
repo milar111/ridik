@@ -554,3 +554,54 @@ describe('home screen', () => {
     });
   });
 });
+
+/**
+ * The undo button must take back the thing it names.
+ *
+ * `headline` is the last *applied* item; the undo is the last item on the
+ * allow-list. In a mixed batch those are different rows, and nothing tied them
+ * together — "remind me to call Dad and start a 25 minute timer" drew
+ * `Started "Focus" — 25m in 1 block.` above a bare **Undo** that deleted the
+ * task and left the timer running, then announced that the timer had been
+ * undone. The name of what was about to be deleted lived only in an
+ * accessibility label, so a sighted user was never shown it at all.
+ */
+describe('undo names what it will actually take back', () => {
+  const mixedBatch = {
+    transcript: 'remind me to call Dad and start a 25 minute timer',
+    items: [
+      { toolName: 'task_add', ok: true, summary: 'Task added: “call Dad”.', entityId: 'task-1' },
+      { toolName: 'timer_start', ok: true, summary: 'Started “Focus” — 25m in 1 block.' },
+    ],
+  };
+
+  it('spells out the action when it is not the row above', async () => {
+    await wrap();
+    await act(async () => {
+      useVoiceStore.setState({ outcome: mixedBatch as never });
+    });
+
+    // The card headlines the timer, because that is what applied last.
+    expect(await screen.findByText(/Started “Focus”/)).toBeTruthy();
+    // And the button says which of the two it is offering to reverse.
+    expect(screen.getByText(/Undo Task added: “call Dad”\./)).toBeTruthy();
+  });
+
+  /* A single undoable action is the common case and must stay a bare "Undo" —
+     repeating the sentence directly under itself is noise. */
+  it('stays a bare Undo when it is the row above', async () => {
+    await wrap();
+    await act(async () => {
+      useVoiceStore.setState({
+        outcome: {
+          transcript: 'remind me to call Dad',
+          items: [
+            { toolName: 'task_add', ok: true, summary: 'Task added: “call Dad”.', entityId: 'task-1' },
+          ],
+        } as never,
+      });
+    });
+
+    expect(await screen.findByText('Undo')).toBeTruthy();
+  });
+});
