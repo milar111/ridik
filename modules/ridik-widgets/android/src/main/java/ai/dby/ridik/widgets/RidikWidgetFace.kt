@@ -1,4 +1,4 @@
-package ai.raisen.ridik.widgets
+package ai.dby.ridik.widgets
 
 import android.app.PendingIntent
 import android.content.Context

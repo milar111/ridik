@@ -18,7 +18,7 @@
  *
  * To make it live:
  *   1. Create a OneSignal app; add both platforms (bundle id and package are
- *      both `ai.raisen.ridik`), upload the APNs .p8 and the Firebase service
+ *      both `ai.dby.ridik`), upload the APNs .p8 and the Firebase service
  *      account JSON.
  *   2. `EXPO_PUBLIC_ONESIGNAL_APP_ID=<app id>` at build time — `extra` is baked
  *      into the binary, so a Metro restart will not pick up a change.

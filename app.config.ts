@@ -35,7 +35,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
      * this is a decision to take before the first upload rather than after.
      */
     supportsTablet: false,
-    bundleIdentifier: 'ai.raisen.ridik',
+    bundleIdentifier: 'ai.dby.ridik',
     // Every upload needs a build number higher than the last one App Store
     // Connect accepted, even when `version` has not moved. `npm run release
     // bump` advances this and `android.versionCode` together, so the two
@@ -82,7 +82,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   android: {
-    package: 'ai.raisen.ridik',
+    package: 'ai.dby.ridik',
     /*
      * The scheme Google redirects into after sign-in, and nothing else.
      *
@@ -103,7 +103,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         action: 'VIEW',
         category: ['BROWSABLE', 'DEFAULT'],
-        data: [{ scheme: 'ai.raisen.ridik' }],
+        data: [{ scheme: 'ai.dby.ridik' }],
       },
     ],
     // Play's twin of ios.buildNumber, and it must be an integer that only ever

@@ -106,7 +106,7 @@ export function appIdentifier(): string {
   const config = Constants.expoConfig;
   const id =
     Platform.OS === 'ios' ? config?.ios?.bundleIdentifier : config?.android?.package;
-  return id || 'ai.raisen.ridik';
+  return id || 'ai.dby.ridik';
 }
 
 /**

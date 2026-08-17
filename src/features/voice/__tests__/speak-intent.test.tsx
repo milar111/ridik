@@ -271,7 +271,7 @@ describe('the deep link, across four files', () => {
 
   it('is the same string in the Android widget', () => {
     const kotlin = read(
-      'modules/ridik-widgets/android/src/main/java/ai/raisen/ridik/widgets/RidikCells.kt',
+      'modules/ridik-widgets/android/src/main/java/ai/dby/ridik/widgets/RidikCells.kt',
     );
     expect(kotlin).toContain(`const val SPEAK_TARGET = "${SPEAK_DEEP_LINK}"`);
   });
@@ -387,7 +387,7 @@ describe('the system control, on both platforms', () => {
 
   it('is a tile service on Android, opening the same URL', () => {
     const tile = read(
-      'modules/ridik-widgets/android/src/main/java/ai/raisen/ridik/widgets/RidikSpeakTileService.kt',
+      'modules/ridik-widgets/android/src/main/java/ai/dby/ridik/widgets/RidikSpeakTileService.kt',
     );
     expect(tile).toContain('class RidikSpeakTileService : TileService()');
     expect(tile).toContain('Uri.parse(SPEAK_TARGET)');
@@ -411,7 +411,7 @@ describe('the system control, on both platforms', () => {
     const services = application['service'] as { $: Record<string, string> }[];
     expect(services).toHaveLength(1);
     expect(services[0]!.$['android:name']).toBe(
-      'ai.raisen.ridik.widgets.RidikSpeakTileService',
+      'ai.dby.ridik.widgets.RidikSpeakTileService',
     );
     expect(services[0]!.$['android:permission']).toBe(
       'android.permission.BIND_QUICK_SETTINGS_TILE',

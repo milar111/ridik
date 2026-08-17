@@ -1,4 +1,4 @@
-package ai.raisen.ridik.widgets
+package ai.dby.ridik.widgets
 
 import android.content.Context
 
@@ -15,7 +15,7 @@ import android.content.Context
  * ever needs to know where the JSON is parked.
  */
 internal object WidgetSnapshotStore {
-  private const val FILE = "ai.raisen.ridik.widgets"
+  private const val FILE = "ai.dby.ridik.widgets"
   private const val KEY = "snapshot"
 
   /**

@@ -3,11 +3,11 @@ plugins {
   id 'expo-module-gradle-plugin'
 }
 
-group = 'ai.raisen.ridik'
+group = 'ai.dby.ridik'
 version = '1.0.0'
 
 android {
-  namespace "ai.raisen.ridik.widgets"
+  namespace "ai.dby.ridik.widgets"
   defaultConfig {
     versionCode 1
     versionName "1.0.0"

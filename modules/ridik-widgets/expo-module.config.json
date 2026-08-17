@@ -4,6 +4,6 @@
     "modules": ["RidikWidgetsModule"]
   },
   "android": {
-    "modules": ["ai.raisen.ridik.widgets.RidikWidgetsModule"]
+    "modules": ["ai.dby.ridik.widgets.RidikWidgetsModule"]
   }
 }

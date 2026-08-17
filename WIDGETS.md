@@ -509,7 +509,7 @@ And one that is: the tile is `STATE_INACTIVE`, never `STATE_ACTIVE`. It is a
 button, not a switch — nothing about the app is "on" while it sits there.
 
 `kind`/class names here are as permanent as a widget's: `RidikSpeakControl` and
-`ai.raisen.ridik.widgets.RidikSpeakTileService`. Renaming either takes the
+`ai.dby.ridik.widgets.RidikSpeakTileService`. Renaming either takes the
 button off every Lock Screen and out of every Quick Settings panel it is on.
 
 ---

@@ -108,13 +108,32 @@ jest.mock('@/features/export', () => ({
    only a real store SDK can move, so it can only be answered from outside. */
 let mockEntitlement: Entitlement;
 let mockStoreBuild: boolean;
+/* Whether the store has answered yet. Every other test in this file wants it
+   answered, and for a long time this mock could not express anything else —
+   which is precisely what hid a crash that only happens on the way *between*
+   the two states. See the transition test at the bottom of the file. */
+let mockEntitlementLoading: boolean;
 
 jest.mock('@/hooks/useBilling', () => ({
-  useEntitlement: () => ({ data: mockEntitlement, isLoading: false, isError: false }),
-  // The durable half of the trial ledger. Undefined here — these tests drive the
-  // settings rows, and `mergeTrial` takes the larger of the two, so an absent
-  // keychain read must leave the stored value standing.
-  useTrialLedger: () => ({ data: undefined, isLoading: false, isError: false }),
+  useEntitlement: () => ({
+    data: mockEntitlementLoading ? undefined : mockEntitlement,
+    isLoading: mockEntitlementLoading,
+    isError: false,
+  }),
+  /* The durable half of the trial ledger. Undefined here — these tests drive
+     the settings rows, and `mergeTrial` takes the larger of the two, so an
+     absent keychain read must leave the stored value standing.
+
+     It calls a real hook, and that is the whole point rather than a detail. The
+     thing being guarded against is a hook read placed below an early return,
+     which React catches by *counting hooks per render*. A mock that consumes no
+     hook slot makes that count identical either way — so the transition test
+     below passed against the very bug it was written for until this line
+     existed. A stand-in for a hook has to be a hook. */
+  useTrialLedger: () => {
+    (require('react') as typeof import('react')).useRef(null);
+    return { data: undefined, isLoading: false, isError: false };
+  },
   mergeTrial: (durable: unknown, stored: unknown) => durable ?? stored,
 }));
 
@@ -135,15 +154,22 @@ const METRICS = {
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
 
-function wrap(ui: React.ReactElement) {
+async function wrap(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  return render(
+  const tree = (node: React.ReactElement) => (
     <SafeAreaProvider initialMetrics={METRICS}>
       <ThemeProvider forceScheme="dark">
-        <QueryClientProvider client={client}>{ui}</QueryClientProvider>
+        <QueryClientProvider client={client}>{node}</QueryClientProvider>
       </ThemeProvider>
-    </SafeAreaProvider>,
+    </SafeAreaProvider>
   );
+  const view = await render(tree(ui));
+  /* Re-rendering goes back through the same providers and the same client.
+     RNTL's own `rerender` replaces the *entire* tree with whatever it is given,
+     so handing it a bare screen pulls the query client out from under the
+     component being tested — which fails as "No QueryClient set" rather than as
+     anything to do with the thing under test. */
+  return { ...view, rerender: (node: React.ReactElement) => view.rerender(tree(node)) };
 }
 
 beforeEach(() => {
@@ -168,6 +194,7 @@ beforeEach(() => {
   // A personal build by default: nothing to buy, so nothing to say about a trial.
   mockStoreBuild = false;
   mockEntitlement = FREE;
+  mockEntitlementLoading = false;
   mockRepos.settings.getAll.mockResolvedValue(defaultSettings());
   mockRepos.settings.set.mockImplementation(async (_k: string, v: unknown) => v);
   mockRepos.syncQueue.listByStatus.mockResolvedValue([]);
@@ -560,5 +587,42 @@ describe('settings screen', () => {
 
     await fireEvent.press(version);
     expect(mockRepos.settings.set).toHaveBeenCalledWith('developerMode', true);
+  });
+
+  /**
+   * The sequence a real launch always takes, and the one nothing here rendered.
+   *
+   * `PlanGroup` returns a skeleton while the entitlement is in flight and the
+   * row once it lands. A hook read *below* that return therefore runs on the
+   * second render and not the first, which React refuses outright — "Rendered
+   * more hooks than during the previous render" — and the whole group is
+   * replaced by the error boundary's failure card.
+   *
+   * It was invisible from three directions at once. The entitlement is an async
+   * store read, so this only happens on a device, where the first frame is
+   * always the loading one; the surrounding `ErrorBoundary` turns the crash into
+   * a card rather than a redbox, so the screen still looks like a screen; and
+   * this suite mocked the entitlement as already answered, so the transition
+   * never happened here at all. What it cost was the Plan row — the one row that
+   * tells a free user their trial is finite, which is on this screen precisely
+   * so nobody first hears about the limit from the warning at five requests
+   * left.
+   *
+   * The assertion is deliberately about the *row*, not about the absence of an
+   * error: a crash caught by a boundary is silent, so a test looking for a
+   * thrown exception would pass either way.
+   */
+  it('renders the plan row when the entitlement lands after the first frame', async () => {
+    mockStoreBuild = true;
+    mockEntitlementLoading = true;
+
+    const view = await wrap(<SettingsScreen />);
+    expect(screen.queryByText('Free')).toBeNull();
+
+    mockEntitlementLoading = false;
+    await view.rerender(<SettingsScreen />);
+
+    expect(await screen.findByText('Free')).toBeTruthy();
+    expect(screen.queryByText(/could not be shown|went wrong/i)).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-package ai.raisen.ridik.widgets
+package ai.dby.ridik.widgets
 
 import org.json.JSONArray
 import org.json.JSONException

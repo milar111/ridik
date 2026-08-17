@@ -413,8 +413,40 @@ this app with their calendar.
   sheet over the first frame of every launch.
 - **`expo-dev-client` is intentionally absent.** Its launcher needs a manual tap, which breaks
   automated simulator verification. A plain debug build loads Metro directly.
+- **A hook below an early return is a crash you cannot see.** Half the screens in this app return a
+  skeleton while a query is in flight, and every one of those returns is a fork in the hook order:
+  a `use…()` placed after it runs on the second render and not the first, which React refuses with
+  "Rendered more hooks than during the previous render". Three things then conspire to hide it. The
+  crash needs the *transition*, so it only happens where the data is genuinely async — a device, not
+  a test with a resolved mock. `ErrorBoundary` turns it into a small failure card rather than a
+  redbox, so the screen still looks like a screen. And a mocked hook that calls no hook of its own
+  makes the counts match, so a test written for it passes anyway — `settings-screen.test.tsx` has
+  `useTrialLedger` calling a real `useRef` for exactly that reason, and says so.
+  `PlanGroup` lost this way and nobody noticed for weeks: the one row that tells a free user their
+  trial is finite was replaced by a failure card on every single launch. Put every hook above every
+  return, and when mocking a hook, mock it *as* a hook.
+- **`expo prebuild --clean` deletes `android/local.properties`.** Gradle then fails with
+  "SDK location not found", which reads like a broken toolchain rather than a missing generated
+  file. Rewrite it after any clean prebuild:
+  `echo "sdk.dir=$HOME/Library/Android/sdk" > android/local.properties`.
+- **`ERR_NOTIFICATIONS_KEYCHAIN_ACCESS` / `-34018` on the iOS simulator is not a bug.** `-34018` is
+  `errSecMissingEntitlement`, and these debug builds are made with `CODE_SIGNING_ALLOWED=NO` —
+  entitlements are embedded during signing, so an unsigned binary has none and any keychain access
+  group is unavailable. It is `expo-notifications` reading its own Expo-push server registration,
+  which this app never asks for (push is OneSignal) and which nothing in `src/` calls. The app's own
+  SecureStore usage is unaffected and a signed build has neither problem. It cannot be fixed by
+  adding the entitlement, because an unsigned build applies no entitlements at all.
+- **The Android emulator here has no network route.** RevenueCat then logs a wall of
+  `Unable to resolve host api.revenuecat.com`. That is the emulator, not the app — and the app's
+  answer to it is worth looking at rather than scrolling past: the entitlement resolves `UNKNOWN`
+  and the Plan row says "Could not reach the store. Your plan is unchanged", which is the
+  four-state invariant in `allowance.ts` doing the exact job it exists for. A wall of red there is
+  a passing test of it.
 - **RNTL v14 is fully async.** `render`, `rerender`, `unmount` and `fireEvent` all return promises.
   An unawaited one leaks an `act()` scope into the next test and every query there returns nothing.
+  `rerender` also replaces the **entire** tree with what you hand it, so re-rendering a screen
+  needs the providers wrapped round it again — a bare screen fails as "No QueryClient set", which
+  names nothing to do with the thing under test.
 - **`drizzle-orm/expo-sqlite` must be imported from `/driver`.** The package index also exports
   `useLiveQuery`, which pulls in the native module and makes the file unloadable under Node.
 - **Gestures inside a React Native `Modal` need their own `GestureHandlerRootView`.**
@@ -443,13 +475,13 @@ npm test
 # iOS
 xcrun simctl boot "iPhone 17 Pro"; npx expo start
 xcrun simctl install booted ios/build/Build/Products/Debug-iphonesimulator/Ridik.app
-xcrun simctl launch booted ai.raisen.ridik
+xcrun simctl launch booted ai.dby.ridik
 xcrun simctl io booted screenshot /tmp/shot.png
 
 # Android
 adb reverse tcp:8081 tcp:8081
 adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -n ai.raisen.ridik/.MainActivity
+adb shell am start -n ai.dby.ridik/.MainActivity
 adb logcat -d -s ReactNativeJS -s AndroidRuntime
 ```
 
@@ -465,7 +497,7 @@ dialog, a confirm) is reached one of three ways:
   alert that then needs a tap, which is the problem you were avoiding; a cold
   launch routes straight there with no prompt.
 - Seed the state in SQLite. The database is at
-  `$(xcrun simctl get_app_container booted ai.raisen.ridik data)/Documents/SQLite/ridik.db`
+  `$(xcrun simctl get_app_container booted ai.dby.ridik data)/Documents/SQLite/ridik.db`
   and `app_settings` holds JSON-encoded values, so consent becomes
   `insert or replace into app_settings values('assistantConsent','"granted"',<ms>)`.
   Terminate first — the app holds the WAL open.

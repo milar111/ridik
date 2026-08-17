@@ -56,8 +56,8 @@ Nothing secret belongs in this repository. Two kinds of value:
 
 ### 2.1 RevenueCat (required for subscriptions)
 
-1. Create a project. Add both apps — the iOS bundle id `ai.raisen.ridik` and the
-   Android package `ai.raisen.ridik`.
+1. Create a project. Add both apps — the iOS bundle id `ai.dby.ridik` and the
+   Android package `ai.dby.ridik`.
 2. Create your subscription products **in the stores first** (§4), then import
    them into RevenueCat.
 3. Create an **entitlement** and attach every product to it. Plans differ by
@@ -167,8 +167,8 @@ Google will not let you create a client until this exists.
 
 | Type | What it asks for | Value |
 | --- | --- | --- |
-| **iOS** | Bundle ID | `ai.raisen.ridik` |
-| **Android** | Package name | `ai.raisen.ridik` |
+| **iOS** | Bundle ID | `ai.dby.ridik` |
+| **Android** | Package name | `ai.dby.ridik` |
 | | SHA-1 certificate fingerprint | see below |
 | **Web application** | nothing required | leave the redirect fields empty |
 
@@ -241,7 +241,7 @@ reminders, the briefing, location alerts — is `expo-notifications` and needs
 none of this.
 
 1. Create a OneSignal app; add both platforms (iOS bundle id and Android
-   package are both `ai.raisen.ridik`).
+   package are both `ai.dby.ridik`).
 2. iOS needs an **APNs .p8 key** uploaded to OneSignal, and push enabled on the
    provisioning profile. Android needs the **Firebase service account JSON**.
    Both live in the OneSignal dashboard, never in this repo.
@@ -293,7 +293,7 @@ Then check `app.config.ts`:
 
 ### App Store Connect
 
-1. Create the app record with bundle id `ai.raisen.ridik`.
+1. Create the app record with bundle id `ai.dby.ridik`.
 2. **Subscriptions**: create one Subscription Group (e.g. "Ridik Assistant") and
    put every tier in it — `ridik_light_monthly`, `ridik_standard_monthly`,
    `ridik_unlimited_yearly`, or whatever set you decide to sell. One group is
@@ -314,7 +314,7 @@ Then check `app.config.ts`:
 
 ### Play Console
 
-1. Create the app with package `ai.raisen.ridik`.
+1. Create the app with package `ai.dby.ridik`.
 2. **Subscriptions**: create one subscription with a base plan per tier, each
    auto-renewing. Same naming rule — the product id carries the tier.
 3. Complete the **Data safety** form. Same answers as Apple's.

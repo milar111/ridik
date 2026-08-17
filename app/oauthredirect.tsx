@@ -1,7 +1,7 @@
 /**
  * Where Google's browser comes home, and nothing else.
  *
- * `redirectUriFor()` sends `ai.raisen.ridik:/oauthredirect`. That URL arrives
+ * `redirectUriFor()` sends `ai.dby.ridik:/oauthredirect`. That URL arrives
  * as a deep link, and `expo-auth-session` is already listening for it — it
  * dismisses the browser and resolves `promptAsync` with the code. This screen
  * has no part in that and deliberately reads nothing from the query: the code

@@ -128,6 +128,22 @@ function PlanGroup() {
   // misled about the limit has to know about both of them.
   const trialTokens = useSetting('llmTrialTokensUsed');
   const simulateStore = useSetting('simulateStoreBuild');
+  /* Both stores. The settings rows are the working copy and the keychain holds
+     the durable mirror — reading only the first told somebody who had spent
+     their whole trial, deleted the app and reinstalled that they had all 25
+     left. `useTrialLedger` also heals the rows upward as it reads.
+
+     Up here with the other hooks, and it has to stay here. It used to sit below
+     the loading return, which is a conditional hook: the first render ran four
+     hooks and returned the skeleton, the second ran five, and React refused the
+     component outright — "Rendered more hooks than during the previous render."
+     Every render of this screen goes through that transition, because the
+     entitlement is an async store read that has never resolved by the first
+     frame. So the Plan row did not render at all; it was caught by the error
+     boundary and replaced with its failure card, which is to say the one row
+     that tells a free user their trial has a limit was the one row nobody could
+     see. */
+  const durable = useTrialLedger();
 
   if (entitlement.isLoading && !entitlement.data) return <GroupSkeleton title="Plan" rows={1} />;
 
@@ -159,11 +175,6 @@ function PlanGroup() {
     plan.known &&
     !plan.active &&
     (isStoreBuild() || simulateStore.value);
-  /* Both stores. The settings rows are the working copy and the keychain holds
-     the durable mirror — reading only the first told somebody who had spent
-     their whole trial, deleted the app and reinstalled that they had all 25
-     left. `useTrialLedger` also heals the rows upward as it reads. */
-  const durable = useTrialLedger();
   const ledger = mergeTrial(durable.data, {
     requestsUsed: trialUsed.value,
     tokensUsed: trialTokens.value,

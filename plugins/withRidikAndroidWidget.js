@@ -542,7 +542,7 @@ const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const WIDGETS = [
   {
     kind: 'today',
-    provider: 'ai.raisen.ridik.widgets.RidikWidgetProvider',
+    provider: 'ai.dby.ridik.widgets.RidikWidgetProvider',
     // The Today widget predates the others and keeps its original resource
     // names, for the same reason its class name is not `RidikTodayProvider`.
     info: 'ridik_widget_info',
@@ -560,7 +560,7 @@ const WIDGETS = [
   },
   {
     kind: 'agenda',
-    provider: 'ai.raisen.ridik.widgets.RidikAgendaWidgetProvider',
+    provider: 'ai.dby.ridik.widgets.RidikAgendaWidgetProvider',
     info: 'ridik_rows_agenda_info',
     label: 'ridik_rows_agenda_label',
     description: 'ridik_rows_agenda_description',
@@ -574,7 +574,7 @@ const WIDGETS = [
   },
   {
     kind: 'habits',
-    provider: 'ai.raisen.ridik.widgets.RidikHabitsWidgetProvider',
+    provider: 'ai.dby.ridik.widgets.RidikHabitsWidgetProvider',
     info: 'ridik_rows_habits_info',
     label: 'ridik_rows_habits_label',
     description: 'ridik_rows_habits_description',
@@ -588,7 +588,7 @@ const WIDGETS = [
   },
   {
     kind: 'tasks',
-    provider: 'ai.raisen.ridik.widgets.RidikTasksWidgetProvider',
+    provider: 'ai.dby.ridik.widgets.RidikTasksWidgetProvider',
     info: 'ridik_rows_tasks_info',
     label: 'ridik_rows_tasks_label',
     description: 'ridik_rows_tasks_description',
@@ -602,7 +602,7 @@ const WIDGETS = [
   },
   {
     kind: 'list',
-    provider: 'ai.raisen.ridik.widgets.RidikListWidgetProvider',
+    provider: 'ai.dby.ridik.widgets.RidikListWidgetProvider',
     info: 'ridik_rows_list_info',
     label: 'ridik_rows_list_label',
     description: 'ridik_rows_list_description',
@@ -2629,7 +2629,7 @@ const withWidgetReceiver = (config) =>
  * the edit list, with nothing logged. Exported for the same reason the widget
  * receivers are: the system is the caller.
  */
-const TILE_SERVICE = 'ai.raisen.ridik.widgets.RidikSpeakTileService';
+const TILE_SERVICE = 'ai.dby.ridik.widgets.RidikSpeakTileService';
 
 function tileService() {
   return {

@@ -22,7 +22,7 @@ import { DateTime, setZoneOverride } from '@/core/time';
 import { freezeClock } from '@/core/clock';
 
 const ZONE = 'Europe/Sofia';
-const BUNDLE_ID = 'ai.raisen.ridik';
+const BUNDLE_ID = 'ai.dby.ridik';
 const OUT = join(tmpdir(), 'ridik-seed');
 const DB_PATH = join(OUT, 'ridik.db');
 

@@ -377,7 +377,7 @@ To create it:
 2. Enable **Maps SDK for Android**. That is the only API the map itself needs.
 3. Credentials → Create credentials → API key.
 4. **Restrict it before you use it.** Application restriction → Android apps,
-   then add the package name `ai.raisen.ridik` together with your signing
+   then add the package name `ai.dby.ridik` together with your signing
    certificate's SHA-1 fingerprint. An unrestricted Maps key that reaches a
    public repository gets used by strangers and billed to you.
 5. API restriction → limit it to Maps SDK for Android.
