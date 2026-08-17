@@ -16,6 +16,8 @@ import {
 } from '@/services/billing/entitlement';
 import { purchasedFrom, type CreditLedger } from '@/services/billing/credits';
 import { readCreditsUsed } from '@/services/billing/creditsLedger';
+import { readTrialLedger } from '@/services/billing/trialLedger';
+import { mergeTrial, type TrialLedger } from '@/services/billing/allowance';
 import { invalidateKeys, qk } from './keys';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -64,6 +66,30 @@ export function useCredits(): UseQueryResult<CreditLedger> {
   });
 }
 
+/**
+ * The trial's lifetime spend, from BOTH stores.
+ *
+ * Every screen that shows "N of 25 free requests left" was reading
+ * `llmTrialRequestsUsed` straight out of `app_settings` — which is only half
+ * the ledger. `trialLedger.ts` keeps a durable mirror in the keychain precisely
+ * because SQLite does not survive a reinstall and, on iOS, the keychain does.
+ *
+ * So: spend all 25, delete the app, reinstall. The mirror survives and the
+ * database does not, the settings row falls back to 0, and both the consent
+ * screen and the Plan row announced a full trial. The user made a decision
+ * about sending their data on the strength of that, and the first voice turn —
+ * the only caller of `readTrialLedger()` — refused with "that is all 25 of your
+ * free assistant requests".
+ *
+ * Reading through the ledger also *heals* the settings rows upward as a side
+ * effect, which is safe outside a voice turn because it can only ever raise a
+ * counter that is monotonic by design.
+ */
+export function useTrialLedger(): UseQueryResult<TrialLedger> {
+  return useQuery({ queryKey: qk.billing.trial, queryFn: () => readTrialLedger() });
+}
+
+
 /** What a top-up costs, in the buyer's own currency. Null when unavailable. */
 export function useTopUpPrice(): UseQueryResult<TopUpProduct | null> {
   return useQuery({ queryKey: qk.billing.topUp, queryFn: () => topUpProduct() });
@@ -107,3 +133,6 @@ export function useRestorePurchases(): UseMutationResult<Entitlement, Error, voi
     onSettled: () => invalidateKeys(client, [qk.billing.all]),
   });
 }
+
+/** Re-exported so a screen needs one import for the trial read-out. */
+export { mergeTrial };

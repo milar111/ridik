@@ -36,7 +36,7 @@ import Constants from 'expo-constants';
 
 import { createLogger } from '@/core/logger';
 import { useAssistantMode } from '@/hooks/useAssistant';
-import { useEntitlement } from '@/hooks/useBilling';
+import { mergeTrial, useEntitlement, useTrialLedger } from '@/hooks/useBilling';
 import { useSetSettings, useSettings } from '@/hooks/useSettings';
 import {
   ASSISTANT_PROVIDER,
@@ -176,12 +176,36 @@ export function ConsentScreen({ onDone }: ConsentScreenProps) {
    * nothing would re-render to correct it. The query landing is what does.
    */
   const plan = entitlement.data;
-  const showTrial =
-    plan !== undefined && !plan.active && (isStoreBuild() || values.simulateStoreBuild);
-  const trialLedger = {
+  /*
+   * `plan.known`, which this screen was missing and `app/settings.tsx` was not.
+   *
+   * `UNKNOWN` means the store could not be asked, not that nothing was bought.
+   * Without this check a paying subscriber opening `/consent` on a bad
+   * connection was told they had "25 of 25 free requests left, then Ridik asks
+   * you to pick a plan" — the exact lie `Entitlement.known` exists to prevent,
+   * on the one screen where somebody decides whether to send their data.
+   *
+   * Silence is not the answer either: an unknown-and-actually-free user gets a
+   * trial, and this is the screen where they should hear about it. So the
+   * unknown case says what is true — that the store could not be reached and
+   * free use is limited — rather than either a number or nothing.
+   */
+  const answered = plan !== undefined;
+  const storeBuild = isStoreBuild() || values.simulateStoreBuild;
+  const showTrial = answered && plan.known && !plan.active && storeBuild;
+  const storeUnreachable = answered && !plan.known && storeBuild;
+  /*
+   * Both halves of the ledger, not just the database one.
+   *
+   * The settings rows are the working copy; the keychain holds the durable
+   * mirror that survives a reinstall. Reading only the first told somebody who
+   * had spent their whole trial that they had all of it left.
+   */
+  const durable = useTrialLedger();
+  const trialLedger = mergeTrial(durable.data, {
     requestsUsed: values.llmTrialRequestsUsed,
     tokensUsed: values.llmTrialTokensUsed,
-  };
+  });
 
   const legal = (Constants.expoConfig?.extra ?? {}) as { legal?: { privacy?: string } };
   const privacy = legal.legal?.privacy;
@@ -276,6 +300,15 @@ export function ConsentScreen({ onDone }: ConsentScreenProps) {
               {trialSpent(trialLedger)
                 ? 'The free assistant allowance for this install is spent. Ridik asks you to pick a plan before it sends anything to the model.'
                 : `${describeTrial(trialLedger)}, then Ridik asks you to pick a plan.`}
+            </Txt>
+          ) : storeUnreachable ? (
+            /* The store could not be asked. Saying nothing on the one screen
+               where somebody decides to send their data is a worse disclosure
+               than saying so — an unknown-and-actually-free user does get a
+               trial, and should hear that free use is limited. */
+            <Txt variant="micro" tone="tertiary">
+              Ridik could not reach the store to check whether you have a plan. Free use of the
+               assistant is limited; if you have already subscribed, nothing changes.
             </Txt>
           ) : null}
           {/* Both of the other recipients, by name. "The optional Whisper

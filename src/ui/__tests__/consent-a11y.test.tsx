@@ -51,6 +51,8 @@ jest.mock('@/hooks/useAssistant', () => ({
 
 jest.mock('@/hooks/useBilling', () => ({
   useEntitlement: () => ({ data: undefined, isLoading: true }),
+  useTrialLedger: () => ({ data: undefined, isLoading: false, isError: false }),
+  mergeTrial: (durable: unknown, stored: unknown) => durable ?? stored,
 }));
 
 jest.mock('expo-router', () => ({

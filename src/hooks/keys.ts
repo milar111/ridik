@@ -224,6 +224,7 @@ export const qk = {
     marketing: () => [ROOT, 'billing', 'marketing'] as const,
     credits: [ROOT, 'billing', 'credits'] as const,
     topUp: [ROOT, 'billing', 'topUp'] as const,
+    trial: [ROOT, 'billing', 'trial'] as const,
   },
   system: {
     all: [ROOT, 'system'] as const,

@@ -225,6 +225,34 @@ export function creditsCoverBreach(input: {
   };
 }
 
+/**
+ * The two halves combined, taking the larger of each.
+ *
+ * Never `durable ?? settings`: that lets a keychain read which resolved to zero
+ * — an Android device, a first install, a read that failed quietly — *replace*
+ * a settings row that knew better, and every one of those directions hands out
+ * free requests somebody has already spent. `readTrialLedger` takes the larger
+ * internally for exactly this reason; a screen combining the two must do the
+ * same, including while the query is still in flight.
+ */
+export function mergeTrial(
+  durable: TrialLedger | undefined,
+  stored: TrialLedger,
+): TrialLedger {
+  if (!durable) return stored;
+  const larger = (a: number, b: number) => {
+    // NaN means a counter could not be read, and it must never win — the whole
+    // ledger reads an unreadable counter as *spent*, not as zero.
+    if (!Number.isFinite(a)) return b;
+    if (!Number.isFinite(b)) return a;
+    return Math.max(a, b);
+  };
+  return {
+    requestsUsed: larger(durable.requestsUsed, stored.requestsUsed),
+    tokensUsed: larger(durable.tokensUsed, stored.tokensUsed),
+  };
+}
+
 /** The one route that sells anything. */
 const PLANS: BudgetAction = { label: 'See plans', href: '/plans' };
 

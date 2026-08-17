@@ -35,7 +35,7 @@ import {
   SwitchRow,
 } from '@/features/settings';
 import { useEmber, useSetting } from '@/hooks';
-import { useEntitlement } from '@/hooks/useBilling';
+import { mergeTrial, useEntitlement, useTrialLedger } from '@/hooks/useBilling';
 import { ASSISTANT_PROVIDER, type AssistantConsent } from '@/llm/consent';
 import { describeTrial, trialSpent } from '@/services/billing/allowance';
 import {
@@ -159,7 +159,15 @@ function PlanGroup() {
     plan.known &&
     !plan.active &&
     (isStoreBuild() || simulateStore.value);
-  const ledger = { requestsUsed: trialUsed.value, tokensUsed: trialTokens.value };
+  /* Both stores. The settings rows are the working copy and the keychain holds
+     the durable mirror — reading only the first told somebody who had spent
+     their whole trial, deleted the app and reinstalled that they had all 25
+     left. `useTrialLedger` also heals the rows upward as it reads. */
+  const durable = useTrialLedger();
+  const ledger = mergeTrial(durable.data, {
+    requestsUsed: trialUsed.value,
+    tokensUsed: trialTokens.value,
+  });
   const spent = trialSpent(ledger);
 
   return (

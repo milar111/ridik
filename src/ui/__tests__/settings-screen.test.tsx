@@ -111,6 +111,11 @@ let mockStoreBuild: boolean;
 
 jest.mock('@/hooks/useBilling', () => ({
   useEntitlement: () => ({ data: mockEntitlement, isLoading: false, isError: false }),
+  // The durable half of the trial ledger. Undefined here — these tests drive the
+  // settings rows, and `mergeTrial` takes the larger of the two, so an absent
+  // keychain read must leave the stored value standing.
+  useTrialLedger: () => ({ data: undefined, isLoading: false, isError: false }),
+  mergeTrial: (durable: unknown, stored: unknown) => durable ?? stored,
 }));
 
 jest.mock('@/services/billing/entitlement', () => ({
