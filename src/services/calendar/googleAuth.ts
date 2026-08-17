@@ -62,6 +62,18 @@ export type GoogleSession = {
 export type GoogleOAuthConfig = {
   iosClientId: string;
   androidClientId: string;
+  /**
+   * Android, but for a build signed with the debug keystore.
+   *
+   * An Android OAuth client is bound to exactly ONE SHA-1, and this project is
+   * signed by two keys — the Expo template keystore for `assembleDebug`, the
+   * upload key in `credentials/` for anything shippable. So a single id cannot
+   * cover both builds, and the one that does not match is a sign-in that fails
+   * at Google's fingerprint check rather than at anything the app can see.
+   *
+   * Empty is allowed and falls back to `androidClientId`.
+   */
+  androidClientIdDebug: string;
   webClientId: string;
 };
 
@@ -75,17 +87,31 @@ export function googleOAuthConfig(): GoogleOAuthConfig {
   return {
     iosClientId: configured.iosClientId ?? '',
     androidClientId: configured.androidClientId ?? '',
+    androidClientIdDebug: configured.androidClientIdDebug ?? '',
     webClientId: configured.webClientId ?? '',
   };
 }
 
-/** The client id for this platform, falling back to the web one. */
+/**
+ * The client id for this platform and this build, falling back to the web one.
+ *
+ * The Android branch reads `__DEV__` because the fingerprint Google checks is
+ * the one that actually signed the APK, and that differs between a Metro debug
+ * build (Expo's template keystore) and anything from `npm run release` (the
+ * upload key). Sending the wrong id fails inside Google with a certificate
+ * mismatch — the app only ever sees a redirect that does not arrive, which is
+ * indistinguishable from the scheme bug fixed the same day.
+ *
+ * iOS needs none of this: its client is bound to a bundle identifier, which
+ * does not change between debug and release.
+ */
 export function activeClientId(config = googleOAuthConfig()): string | null {
+  const android = (__DEV__ && config.androidClientIdDebug) || config.androidClientId;
   const platform =
     Platform.OS === 'ios'
       ? config.iosClientId
       : Platform.OS === 'android'
-        ? config.androidClientId
+        ? android
         : config.webClientId;
   return platform || config.webClientId || null;
 }

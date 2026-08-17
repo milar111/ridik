@@ -81,3 +81,47 @@ describe('the scheme Google redirects into', () => {
     expect(applicationIds()).toContain(fallback);
   });
 });
+
+/**
+ * Which Android client id gets sent, and why there has to be more than one.
+ *
+ * An Android OAuth client is bound to exactly ONE SHA-1 fingerprint. This
+ * project is signed by two different keys — the Expo template keystore at
+ * `android/app/debug.keystore` for `assembleDebug`, and the upload key in
+ * `credentials/` for everything `npm run release` produces — so one client id
+ * cannot possibly serve both builds.
+ *
+ * The client originally registered was bound to a *third* key: Android Studio's
+ * own `~/.android/debug.keystore`, which signs nothing in this repository.
+ * Google checks the certificate on its own side, so the app sees only a redirect
+ * that never arrives — the same symptom as the scheme bug fixed the same day,
+ * from an unrelated cause. Two failures that look identical from inside the app
+ * is why this is a test and not a comment.
+ */
+describe('the android client id and the key that signed the build', () => {
+  it('chooses the debug client only in a debug build', () => {
+    expect(auth).toMatch(/__DEV__ && config\.androidClientIdDebug/);
+  });
+
+  /* The release id is the fallback, so a build with no debug id configured
+     still sends something valid rather than nothing. */
+  it('falls back to the release client when no debug client is configured', () => {
+    expect(auth).toMatch(/\|\|\s*config\.androidClientId\b/);
+  });
+
+  /* iOS clients key off the bundle identifier, which is identical in both
+     configurations — forking it there would imply a difference that does not
+     exist. */
+  it('does not fork the ios client, which is bound to a bundle id', () => {
+    expect(auth).not.toMatch(/iosClientIdDebug/);
+  });
+
+  it('is wired through app.config so both ids actually reach the app', () => {
+    expect(config).toMatch(
+      /androidClientId:\s*process\.env\.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID\b/,
+    );
+    expect(config).toMatch(
+      /androidClientIdDebug:\s*process\.env\.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID_DEBUG\b/,
+    );
+  });
+});

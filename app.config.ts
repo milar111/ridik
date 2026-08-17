@@ -397,9 +397,20 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     oneSignal: {
       appId: process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '',
     },
+    /*
+     * Google OAuth. Four client ids, and the Android pair is not redundancy.
+     *
+     * An Android OAuth client is bound to exactly one signing fingerprint, and
+     * this project is signed by two different keys: the Expo template keystore
+     * for `assembleDebug` and the upload key in `credentials/` for anything
+     * shippable. One id therefore cannot serve both builds — `activeClientId()`
+     * chooses on `__DEV__`. `androidClientIdDebug` empty is fine and simply
+     * falls back to the release id.
+     */
     googleOAuth: {
       iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '',
       androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? '',
+      androidClientIdDebug: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID_DEBUG ?? '',
       webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '',
     },
     eas: { projectId: process.env.EAS_PROJECT_ID ?? undefined },
