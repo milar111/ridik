@@ -47,9 +47,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 24, not 22, and it matters: 22 ships npm 10, which resolves the
+      # `@typescript-eslint` peer ranges differently from the npm 11 that wrote
+      # this lock file and demands a `typescript@5.9.3` that appears nowhere in
+      # it. `npm ci` then refuses to install anything at all. Matching the major
+      # is cheaper than hand-reconciling a lock two resolvers disagree about.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       # JDK 21, not the runner's default. 25 fails `configureCMakeDebug` with
@@ -104,9 +109,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 24, not 22, and it matters: 22 ships npm 10, which resolves the
+      # `@typescript-eslint` peer ranges differently from the npm 11 that wrote
+      # this lock file and demands a `typescript@5.9.3` that appears nowhere in
+      # it. `npm ci` then refuses to install anything at all. Matching the major
+      # is cheaper than hand-reconciling a lock two resolvers disagree about.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install
