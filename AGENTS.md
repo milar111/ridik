@@ -654,5 +654,14 @@ Honest list. Everything else in the brief is built, tested and has been run on b
 - **Google Calendar sync is untested against the live API.** Every path is covered against a mocked
   transport — offline, backoff, auth loss, last-write-wins — but no OAuth client ids were available,
   so nothing has spoken to Google.
-- **The LLM path has only run against the mock provider.** The Gemini client, its retry and repair
-  loops and the prompt are all tested; no request has been made with a real key.
+- ~~The LLM path has only run against the mock provider~~ — no longer true, and the entry stayed
+  after it stopped being true, which is the worst state for an honest-gaps list. Real requests were
+  made against the live API on 16–17 August 2026: that is where the pinned model came from (the
+  first real call reported `modelVersion: gemini-3.7-flash`, not the Flash-Lite the pricing assumed)
+  and where the schema-ladder table in `settings.ts` was measured — eight representative utterances
+  per rung, which is what proved rung 0 gets HTTP 400 on every request and rung 1 answered 7 of 8
+  turns with an empty `parameters: {}`.
+  What is *still* unproven is narrower and worth keeping separate: those calls were driven by a
+  harness rather than by a turn through the app, so the pipeline's own path to the provider —
+  consent gate, budget, keychain read, executor — has never carried a live response end to end on a
+  device. Paste a key at Developer → Assistant key and say one sentence, and that gap closes.
