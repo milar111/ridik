@@ -10,12 +10,27 @@
 #   * automatically on a `v*` tag, which is the moment a build stops being a
 #     curiosity and becomes a candidate for a store.
 #
-# What comes out are **debug** builds unless the release inputs are supplied.
-# A debug APK installs on any device and is what you want for "send it to a
-# friend"; it cannot be uploaded to Play or App Store Connect. Shippable
-# artefacts come from `npm run release`, which needs the upload key in
-# `credentials/` — that key is gitignored and is the one credential that cannot
-# be rotated, so it is deliberately not available to CI.
+# What comes out are **debug** builds, and it is worth being exact about what
+# that does and does not get you, because the obvious reading is wrong.
+#
+# A debug APK carries no JavaScript. `assembleDebug` skips the bundling phase, so
+# the app fetches its bundle from a Metro dev server at run time — meaning it
+# installs anywhere and *runs* only where it can reach your machine
+# (`adb reverse tcp:8081 tcp:8081` over USB, or the same wifi). Handed to
+# somebody else it opens on a red "unable to load script" screen. Forcing a
+# bundle into it is not the fix either: the RN gradle plugin decides that by
+# variant, so making debug self-contained takes Fast Refresh away from the local
+# loop, which is the one thing debug is for.
+#
+# What you actually want for "send it to a tester" is `npm run release
+# android:apk` — a release build, self-contained, signed with the upload key in
+# `credentials/` and installable by anyone. That key is gitignored and is the one
+# credential that cannot ever be rotated, so it is deliberately not available
+# here; these artefacts are for proving the build compiles, not for handing out.
+# `npm run release android:aab` is the only thing Play accepts.
+#
+# The iOS artefact is a *simulator* app, for the same reason: a device build
+# needs the Apple developer account and its certificates.
 name: build
 
 on:

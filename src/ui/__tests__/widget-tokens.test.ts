@@ -380,3 +380,42 @@ function swiftPeak(name: string): string | null {
   const block = SWIFT.split(`static let ${name} = RidikPalette(`)[1];
   return block?.match(/platePeak: "([0-3])"/)?.[1] ?? null;
 }
+
+/**
+ * Every colour has to exist in the base folder, and this is not a style rule.
+ *
+ * `drawable/` carries no configuration qualifier, so a drawable that names
+ * `@color/x` needs `x` to have a value in *every* configuration the device might
+ * be in. A colour written only into `values-night/` has none on a light device,
+ * and Android answers a lookup it cannot satisfy with
+ * `Resources$NotFoundException` — thrown in the launcher's process, where it is
+ * a widget that fails to draw rather than a crash anyone can read.
+ *
+ * `ridik_widget_rim` and `ridik_widget_edge` were exactly that for as long as
+ * the widgets have existed. Android's own `lintVital` catches it as
+ * MissingDefaultResource — but `lintVital` runs for *release* only, so every
+ * debug build passed, every simulator check passed, and no release APK or AAB
+ * had ever been produced at all. The first attempt to build one failed on it.
+ *
+ * A scheme that does not want a border says so with a transparent one.
+ */
+describe('the android colour tables', () => {
+  it('defines every night colour in the base folder too', () => {
+    const base = Object.keys(generatedColours('light'));
+    const nightOnly = Object.keys(generatedColours('dark')).filter((n) => !base.includes(n));
+    expect(nightOnly).toEqual([]);
+  });
+
+  /* The other direction is allowed and is how the dark-only effects are
+     expressed — the light table declares them, at zero alpha. */
+  it('draws no rim and no edge in light, without omitting them', () => {
+    const light = generatedColours('light');
+    expect(light.ridik_widget_rim).toBe('#00000000');
+    expect(light.ridik_widget_edge).toBe('#00000000');
+    // And they are real colours in the dark, or the effect has been lost rather
+    // than made conditional.
+    const dark = generatedColours('dark');
+    expect(dark.ridik_widget_rim).not.toBe('#00000000');
+    expect(dark.ridik_widget_edge).not.toBe('#00000000');
+  });
+});

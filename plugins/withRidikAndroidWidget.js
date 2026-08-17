@@ -201,6 +201,17 @@ function defaultHeat(scheme) {
 const TILE = { light: '#FFF7F1', dark: '#17100C' };
 
 /**
+ * Fully transparent, for a colour that a scheme deliberately does not draw.
+ *
+ * Every colour a `drawable/` names has to exist in the base `values/` folder,
+ * because `drawable/` carries no configuration qualifier of its own: a colour
+ * defined only in `values-night/` has no value at all on a light device and
+ * throws when the launcher asks for it. So "this scheme has no border" is stated
+ * as a border of nothing, never as a missing resource.
+ */
+const NOTHING = '#00000000';
+
+/**
  * Depth, as three neutral values and one coloured one — `src/ui/theme.ts` →
  * `depth`, which is where they were solved.
  *
@@ -2170,11 +2181,6 @@ function emberColors(scheme) {
  * because it is what is written.
  */
 function colors(scheme, { ground, ink, inkSoft, danger, heat, rim, edge }) {
-  const optional = [
-    rim ? `  <color name="ridik_widget_rim">${rim}</color>` : null,
-    edge ? `  <color name="ridik_widget_edge">${edge}</color>` : null,
-  ].filter(Boolean);
-
   return `<?xml version="1.0" encoding="utf-8"?>
 <!-- ${GENERATED} -->
 <resources>
@@ -2186,7 +2192,9 @@ function colors(scheme, { ground, ink, inkSoft, danger, heat, rim, edge }) {
   <color name="ridik_widget_well">${DEPTH[scheme].well}</color>
   <color name="ridik_widget_well_floor">${DEPTH[scheme].wellFloor}</color>
   <color name="ridik_widget_bevel">${DEPTH[scheme].bevel}</color>
-${optional.length === 0 ? '' : `${optional.join('\n')}\n`}${emberColors(scheme)}
+  <color name="ridik_widget_rim">${rim}</color>
+  <color name="ridik_widget_edge">${edge}</color>
+${emberColors(scheme)}
 </resources>
 `;
 }
@@ -2473,6 +2481,24 @@ function resourceFiles() {
       ink: '#2E1508',
       inkSoft: '#BD2E1508',
       danger: '#A34133',
+      // Transparent rather than absent, and that distinction broke the release
+      // build for as long as it has existed.
+      //
+      // The rim and the edge are dark-only effects — see the note on the night
+      // block below — and they used to be expressed by *omitting* them here.
+      // But `drawable/` is unqualified, and the tile border drawable references
+      // `@color/ridik_widget_edge`, so a light-configured device resolved a
+      // colour that had a value in exactly one configuration and none in its
+      // own. Android's answer to that is `Resources$NotFoundException`, in the
+      // launcher's process, which is a widget that fails to draw rather than a
+      // widget that draws plainly.
+      //
+      // `lintVital` catches it as MissingDefaultResource — and `lintVital` only
+      // runs for release, so every debug build passed and no release build has
+      // ever completed. A fully transparent stroke *is* "no border", so this
+      // says what the design meant and always resolves.
+      rim: NOTHING,
+      edge: NOTHING,
       heat: defaultHeat('light'),
     }),
 

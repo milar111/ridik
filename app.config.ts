@@ -299,6 +299,38 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
           // `Resources.getIdentifier`, which R8 cannot see.
           enableMinifyInReleaseBuilds: true,
           enableShrinkResourcesInReleaseBuilds: true,
+          /*
+           * What R8 cannot see, and what it cost.
+           *
+           * Everything background in this app is reached by *class name as a
+           * string*, from two places R8 does not read. `AppLoaderProvider` gets
+           * the loader's name out of a manifest `meta-data` value and calls
+           * `Class.forName`; `TaskService.restoreTasks` gets each consumer's
+           * name out of SharedPreferences and does the same. R8 sees no
+           * reference to either, so it strips them — and the first release build
+           * ever produced logged
+           * `ClassNotFoundException: …RNHeadlessAppLoader`.
+           *
+           * `TaskService.loadApp` then calls `getAppLoader().loadApp(…)` with no
+           * null check, so a stripped loader is an NPE at the moment a geofence
+           * or a background fetch tries to run JavaScript with the app closed.
+           * Place reminders and the daily briefing would simply never fire in a
+           * shipped build, while working perfectly in every debug build, because
+           * minification is a release-only step.
+           *
+           * The consumers need their *names* kept as well as their code: a name
+           * persisted by one build has to still resolve after an update, and R8
+           * renames freely across builds.
+           *
+           * Sibling to the `keep.xml` that `withRidikAndroidWidget` writes for
+           * resources reached through `Resources.getIdentifier` — same blind
+           * spot, other half of the build.
+           */
+          extraProguardRules: [
+            '-keep class expo.modules.apploader.** { *; }',
+            '-keep class expo.modules.adapters.react.apploader.** { *; }',
+            '-keep class * implements expo.modules.interfaces.taskManager.TaskConsumerInterface { *; }',
+          ].join('\n'),
         },
       },
     ],
