@@ -13,7 +13,19 @@ name: checks
 on:
   push:
     branches: [main]
+    # Minutes are capped, so a commit that cannot change the answer does not
+    # spend any. Documentation and the shot list are the common case.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
   workflow_dispatch:
 
 # A second push to the same branch makes the first run pointless.
@@ -37,7 +49,9 @@ jobs:
 
       # `npm ci` and not `npm install`: it installs exactly the lock file and
       # fails if package.json and the lock have drifted, which is the whole
-      # reason to run installs on a machine that is not the author's.
+      # reason to run installs on a machine that is not the author's. It earned
+      # that on its first run — an `expo install` had added typescript to
+      # package.json without the lock, and every local command kept working.
       - name: Install
         run: npm ci
 
