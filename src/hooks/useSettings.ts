@@ -20,6 +20,7 @@ import {
 } from '@tanstack/react-query';
 
 import { createUsageMeter, type UsageSnapshot } from '@/llm/usage';
+import { isValidZone, setZoneOverride } from '@/core/time';
 import { getRepositories } from '@/repositories';
 import {
   defaultSettings,
@@ -65,6 +66,27 @@ export function useRawSetting(key: SettingKey): UseQueryResult<string | null> {
 
 /* ------------------------------------------------------------------ writes */
 
+/**
+ * The one setting that is also *module state*.
+ *
+ * `src/core/time.ts` holds the active zone in a module variable, and the only
+ * thing that ever set it was the `timezone` bootstrap step — which runs once,
+ * memoised. So changing the zone wrote the row, showed the new value, and
+ * changed nothing at all until the process was killed: every "today" boundary,
+ * day heading and dictated date kept the old zone, and "book dinner tomorrow at
+ * 9am" was stored at 9am in the zone the user had just left.
+ *
+ * Applied here rather than in an effect somewhere, because a write is the only
+ * moment the answer changes and an effect would have to guess when to look.
+ */
+function applyZone(patch: Partial<SettingsValues>): void {
+  if (!('timezone' in patch)) return;
+  const zone = patch.timezone;
+  // An invalid zone is refused rather than applied: Luxon would silently answer
+  // in UTC, and every date in the app would be wrong with nothing to point at.
+  setZoneOverride(typeof zone === 'string' && zone.trim() && isValidZone(zone) ? zone : null);
+}
+
 export function useSetSettings(): UseMutationResult<
   SettingsValues,
   Error,
@@ -73,7 +95,11 @@ export function useSetSettings(): UseMutationResult<
 > {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (patch: Partial<SettingsValues>) => getRepositories().settings.setMany(patch),
+    mutationFn: async (patch: Partial<SettingsValues>) => {
+      const values = await getRepositories().settings.setMany(patch);
+      applyZone(patch);
+      return values;
+    },
     onMutate: async (patch) => {
       await cancelKeys(client, [qk.settings.all]);
       const previous = snapshotQueries(client, [qk.settings.all]);
@@ -84,7 +110,15 @@ export function useSetSettings(): UseMutationResult<
     },
     onError: (_error, _patch, context) => restoreQueries(client, context?.previous),
     onSuccess: (values) => client.setQueryData<SettingsValues>(qk.settings.values(), values),
-    onSettled: () => invalidateKeys(client, [qk.settings.all]),
+    onSettled: (_values, _error, patch) =>
+      // A zone change invalidates everything, not just the settings.
+      //
+      // Every cached day heading, "today" boundary and `dayRange` key was
+      // computed against the old zone, so leaving them would show yesterday's
+      // agenda under today's date. It re-renders every screen, which is visible
+      // — and correct: the alternative is a screenful of dates that are quietly
+      // wrong until something else happens to refetch them.
+      invalidateKeys(client, ['timezone' in patch ? qk.all : qk.settings.all]),
   });
 }
 
@@ -95,7 +129,13 @@ export function useResetSetting(): UseMutationResult<
 > {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (key: SettingKey) => getRepositories().settings.reset(key),
+    mutationFn: async (key: SettingKey) => {
+      const value = await getRepositories().settings.reset(key);
+      // Resetting the zone means "use the device's", which is what a null
+      // override restores.
+      if (key === 'timezone') setZoneOverride(null);
+      return value;
+    },
     onSettled: () => invalidateKeys(client, [qk.settings.all]),
   });
 }
@@ -103,7 +143,11 @@ export function useResetSetting(): UseMutationResult<
 export function useResetAllSettings(): UseMutationResult<SettingsValues, Error, void> {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: () => getRepositories().settings.resetAll(),
+    mutationFn: async () => {
+      const values = await getRepositories().settings.resetAll();
+      setZoneOverride(null);
+      return values;
+    },
     onSettled: () => invalidateKeys(client, [qk.settings.all]),
   });
 }

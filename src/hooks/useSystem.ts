@@ -40,6 +40,7 @@ import {
   WHISPER_API_KEY_STORE_KEY,
 } from '@/features/voice/pipeline';
 import { clearKeptTranscript } from '@/features/voice/keep';
+import { control, resetFocusRuntime } from '@/services/focus';
 import { getRepositories } from '@/repositories';
 import type { Coords } from '@/repositories/places';
 import * as calendarService from '@/services/calendar';
@@ -466,6 +467,30 @@ export function useEraseAllData(): UseMutationResult<number, Error, void> {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async () => {
+      /*
+       * Stop the timer BEFORE the tables go, because stopping it needs the row.
+       *
+       * Erasing everything used to leave a focus session running: the runtime
+       * kept its in-memory row and its ticker, the Focus screen counted down a
+       * session that no longer existed and then froze at 00:00 for ever, and on
+       * Android the ongoing notification stayed in the shade — re-posted every
+       * 30 seconds, `sticky` and `autoDismiss: false`, so it could not even be
+       * swiped away. Only a force-stop cleared it.
+       *
+       * `cancelAllScheduled()` below does not reach it: that cancels *pending*
+       * notifications, and the ongoing one was posted immediately. It is
+       * dismissed by the runtime's own teardown and nothing else.
+       *
+       * Best effort in the strongest sense — a timer that will not stop must
+       * never be the reason somebody cannot erase their data.
+       */
+      await control('stop').catch(() => undefined);
+      try {
+        resetFocusRuntime();
+      } catch {
+        /* nothing here may fail the erase */
+      }
+
       const cleared = wipeAllTables(getRepositories().db.$client);
 
       // The unsent-transcript slot is the user's own words and it is a *file*,
