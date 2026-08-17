@@ -13,26 +13,27 @@
 
 # Ridik
 
-**A voice-first personal organiser for iOS and Android. You talk; it files.**
+**Say it once. Ridik files it.**
 
-One sentence can create a calendar event, cancel another, append a bullet to a note and add three
-items to a shopping list — in one pass, on-device, with no account.
+A voice organiser for iPhone and Android that turns what you say into calendar
+events, reminders, tasks, notes and lists — without an account, and without
+your life leaving your phone.
 
 <!-- SHOT: hero
 ![Ridik's home screen: a single microphone on a warm ember field](docs/media/hero.png)
 -->
 
-```
-"Remind me to call Ivo at 4, cancel my Math homework reminder for Sunday,
- and note down that the robotics lab needs 10k resistors."
+> **"Remind me to call Ivo at 4, cancel my Math homework reminder for Sunday,
+> and note down that the robotics lab needs 10k resistors."**
 
-    → calendar_add      { title: "Call Ivo", start: "…T16:00" }
-    → calendar_delete   { target: { query: "Math homework", on_date: "…" } }
-    → note_update       { target: { query: "robotics lab" }, append_bullets: ["10k resistors"] }
-```
+Three things, one breath:
 
-Three actions, one breath, three separate results — and if one of them fails the other two still
-land.
+- **Call Ivo** goes in your calendar at 16:00
+- **Math homework** on Sunday is cancelled
+- **10k resistors** is added to your robotics lab note
+
+Each one is reported separately, and if one of them does not work the other two
+still happen.
 
 ---
 
@@ -87,9 +88,10 @@ cycle is refused rather than deadlocked.
 ![Structured notes with a checklist section, tags, and full-text search](docs/media/notes.png)
 -->
 
-Notes, lists and checklists with FTS5 search, a micro-ledger, habits with streaks, a small CRM of
-people and the promises you made them, geofenced reminders, and focus sessions that survive the app
-being killed.
+Notes, lists and checklists you can search by typing or by asking. Somewhere to
+track what you spend. Habits with streaks. The people you know and the things
+you promised them. Reminders that go off when you *arrive* somewhere rather than
+at a time. And focus timers that keep counting even if the app gets closed.
 
 <!-- SHOT: menu
 ![Every destination in the app, on one page](docs/media/menu.png)
@@ -116,8 +118,8 @@ medium and large ones that starts a recording without opening the app.
 | --- | --- |
 | <!-- SHOT: widgets-ios ![WidgetKit faces on an iOS home screen](docs/media/widgets-ios.png) --> | <!-- SHOT: widgets-android ![The same faces on an Android home screen](docs/media/widgets-android.png) --> |
 
-Each widget runs in its own process and can only read what the app published, so one payload feeds
-all ten faces. `WIDGETS.md` is the contract.
+They update themselves as your day changes, and they work without opening the
+app at all.
 
 ---
 
@@ -127,21 +129,21 @@ all ten faces. `WIDGETS.md` is the contract.
 ![The first-run screen naming every service that receives anything](docs/media/consent.png)
 -->
 
-Everything lives in **one SQLite file on your phone**. No account, nothing to sign in to, no
-analytics.
+Everything lives in **one file on your phone**. No account, nothing to sign in
+to, no tracking.
 
-Turning speech into filed data needs a language model, so the words of your request and a short
-index of your own labels go to Google. **What is inside a note never leaves.** Nothing is sent until
-you have read that screen and agreed to it, and declining leaves a working app — the offline matcher
-still files a plain sentence.
+Understanding a sentence needs help from a computer that is not your phone, so
+the words you said — and a short list of your own labels, like the names of your
+lists and the people you know — go to Google. **What is written inside a note
+never does.** Neither does what anything cost, a phone number, an address, or
+where you have been.
 
-Every outbound path is named on that one screen: the model, the speech recogniser, optional Whisper
-transcription, and the briefing notification. Adding a fifth means adding a sentence there, and a
-test fails if it is missing.
+Ridik shows you that screen before it sends anything, ever, and names every
+service that receives something. Saying no leaves a working app.
 
-**A backup that can come back.** Settings → Your data writes every row to one JSON file and restores
-it onto any install. Restoring **merges** — it adds what is missing and never deletes or overwrites
-what is already there — and it tells you which it is going to do before it runs.
+**A backup that can actually come back.** Your whole app, as one file you can
+keep anywhere. Putting it back *adds* what is missing and never deletes or
+overwrites what is already there — and it tells you which before it starts.
 
 ---
 
@@ -170,118 +172,57 @@ out. Prices come from the store, in your own currency; the numbers above are the
 | --- | --- |
 | <!-- SHOT: hero-light ![The home screen in light mode](docs/media/hero.png) --> | <!-- SHOT: dark ![The same screen in dark mode, re-solved rather than flipped](docs/media/dark.png) --> |
 
-The palette is a warm ground lit as though the microphone were the heat source. Every "black" is a
-warm brown and every "white" is linen; a true grey next to it reads as a bug. A test measures the
-palette as a set — contrast on both grounds, a saturation ceiling, hue separation — because the
-failure mode of a colour system is that each colour is defensible and the set is not.
+The screen is lit as though the microphone were warming it. Nothing in Ridik is
+plain grey — every dark is a warm brown, every light a soft linen — and the dark
+mode is drawn from scratch rather than flipped, so it stays warm at night
+instead of turning into a black rectangle.
 
 ---
 
-## How it is built
+## Questions people ask
 
-| Layer | Choice | Why |
-| --- | --- | --- |
-| App | Expo SDK 57, React Native 0.86, React 19, TypeScript strict | Native modules via prebuild, one codebase |
-| Routing | expo-router (typed routes) | File-based, deep-linkable from a notification or a widget |
-| Storage | expo-sqlite + Drizzle | Everything reads and writes locally, instantly |
-| Server state | TanStack Query | Optimistic mutations, precise invalidation |
-| Motion | Reanimated 4 | Spring physics, interruptible, reduced-motion aware |
-| Model | Gemini, behind a provider interface | Swappable; the tool contract is the app's, not the vendor's |
-| Billing | RevenueCat, behind a provider interface | One entitlement means the same thing on both stores |
+**Do I need an account?**
+No. There is no sign-up, no email, no password. Open it and talk.
 
-```
-app/                    expo-router routes (screens only)
-  index.tsx             home: the mic, and nothing that has not earned its place beside it
-  menu.tsx              every other destination, on one page
-src/
-  core/                 pure primitives — clock, time, Result, fuzzy match, logger, format
-  db/                   schema, versioned SQL migrations, cross-runtime SQLite driver
-  repositories/         one typed repository per domain; no native imports, fully testable
-  llm/                  tool contract (Zod), prompt builder, provider clients, executor, orchestrator
-  voice/                STT, VAD, TTS, Whisper fallback
-  services/             calendar sync, billing, focus timers, geofencing, notifications, widgets
-  features/             home, briefing, consent, export, voice dock
-  hooks/                TanStack Query hooks — the only way a screen touches data
-  ui/                   design tokens and primitives
-  startup/              bootstrap sequence
-```
+**Where does my stuff live?**
+In one file on your phone. It is included in your phone's own backup, so if you
+have iCloud or Google backup switched on there is a copy in your account — and
+it comes back when you set up a new phone.
 
-Four rules hold it together:
+**Does anything leave my phone?**
+To turn what you say into filed things, the words of your request and a short
+list of your own labels — the names of your lists, projects and people — go to
+Google. What is *inside* a note never does. Neither does what anything cost, a
+phone number, an address, or where you have been. Ridik asks before it sends
+anything the first time you open it, and tells you exactly what goes.
 
-1. **Every timestamp crossing a boundary is UTC epoch milliseconds.** Wall-clock strings exist only
-   where the model speaks and where the screen renders. `src/core/time.ts` owns every conversion, so
-   a DST transition cannot move a stored instant.
-2. **The model never sees an id.** It refers to things the way you said them; resolution happens in
-   the executor, where a near-tie becomes a spoken question instead of a wrong write.
-3. **Repositories are pure.** No `expo-*` import anywhere under `src/repositories`, so the test suite
-   drives the real Drizzle driver against real SQLite — the code path that ships, not a mock.
-4. **A fuzzy match may answer "I don't know."** `resolveOne()` returns `none | unique | ambiguous`,
-   and an ambiguous match becomes a question. A wrong resolve destroys data silently, which is the
-   one failure this app is built to make impossible.
+**What if I say no?**
+The app still works. It hears you and files plain sentences on its own —
+"spent 12 on lunch", "remind me to call Ivo at four", "add milk to my shopping
+list" — with nothing leaving the phone at all. It just cannot understand the
+complicated ones.
 
-`AGENTS.md` records the rest — every invariant, and every trap that has already cost a debugging
-session.
+**Can I get my data out?**
+Yes, whenever you like, as one file you can read. Putting it back merges: it
+adds what is missing and never deletes or overwrites what is already there, and
+it tells you which before it does anything.
+
+**What if it mishears me?**
+It shows you what it did, every time, and one tap undoes it. Before it does
+anything it cannot take back, it asks first.
+
+**Is it free?**
+Everything on the phone is — notes, tasks, timers, your timetable, the widgets,
+for ever. What costs money is the part that listens and understands, because
+that runs on somebody else's computer. You get 25 free requests to try it.
 
 ---
 
-## Running it
+## For developers
 
-```bash
-npm install
-npx expo prebuild            # regenerates ios/ and android/ from app.config.ts
-(cd ios && pod install)      # prebuild --no-install skips this and deletes the workspace
-
-npx expo start               # Metro
-
-npm run ios
-
-export JAVA_HOME="$HOME/.jdks/temurin-21/Contents/Home"   # JDK 25 fails the CMake step
-npm run android
-```
-
-Requires Node 20+, Xcode 26+ with an iOS 26 simulator, the Android SDK with platform 36, and **JDK
-21**. This is a bare debug build rather than Expo Go — `expo-dev-client` is deliberately absent
-because its launcher needs a manual tap that blocks automated verification.
-
-### Configuration
-
-**Nothing secret is committed.** The Gemini key is entered in the app and stored in the device
-keychain, never in the database and never in the bundle — anything prefixed `EXPO_PUBLIC_` is
-readable inside the shipped `.apk`. Everything below is a publishable identifier, and every
-subsystem no-ops when its value is missing rather than failing:
-
-```bash
-EXPO_PUBLIC_REVENUECAT_IOS_KEY=appl_…      # unset → a local sandbox that sells nothing
-EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=goog_…
-EXPO_PUBLIC_REVENUECAT_ENTITLEMENT=…       # unset → `assistant`
-EXPO_PUBLIC_ONESIGNAL_APP_ID=…             # unset → no remote push
-EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=…         # unset → no calendar sync
-EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=…
-EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=…
-```
-
-`DEPLOY.md` has the dashboard steps.
-
-### Testing
-
-```bash
-npm test              # 117 suites, 2,180+ tests
-npm run test:logic    # plain Node — repositories, migrations, the LLM engine, services
-npm run test:ui       # jest-expo — component tests
-npm run typecheck
-npm run seed          # a realistic database, written through the real repositories
-```
-
-`logic` runs under plain Node against real SQLite via a `node:sqlite` shim of expo-sqlite's
-synchronous surface, so repository tests exercise the driver that ships. `npm run seed` builds a
-populated database and pushes it into whichever simulators are running — it is both a demo and an
-end-to-end exercise of the data layer.
-
-CI runs typecheck, lint, the full suite and a prebuild of both platforms on every push; compiled
-apps are a separate, manually-triggered workflow, because a native build is twenty minutes to prove
-something the simulators already showed.
-
----
+The stack, the architecture and how to run it are in **[DEVELOPING.md](DEVELOPING.md)**.
+`AGENTS.md` has the invariants and every trap that has already cost a debugging
+session; `WIDGETS.md` is the widget contract.
 
 ## Licence
 
