@@ -79,7 +79,15 @@ export type ExecutorEffects = {
   cancelReminders?(entityId: string): Promise<void>;
   startFocusSession?(sessionId: string): Promise<void>;
   controlFocusSession?(action: 'pause' | 'resume' | 'stop' | 'skip'): Promise<void>;
-  registerGeofences?(): Promise<void>;
+  /**
+   * Arms the OS regions after a trigger is written.
+   *
+   * The id matters. Without one this only re-diffs what is already permitted,
+   * which silently does nothing on an install that has never been asked for
+   * location — and nothing in the app ever asks. A voice-created place reminder
+   * therefore produced a confident receipt and armed nothing, for ever.
+   */
+  registerGeofences?(triggerId?: string): Promise<void>;
   syncCalendarEvent?(eventId: string): Promise<void>;
   generateBriefing?(scope: 'today' | 'tomorrow' | 'week'): Promise<string>;
   generateSummary?(input: SummaryRequest): Promise<string>;
@@ -1172,7 +1180,7 @@ export function createExecutor(ctx: ExecutionContext) {
     });
 
     if (forPlace.ok) {
-      await safely('registerGeofences', () => effects.registerGeofences?.());
+      await safely('registerGeofences', () => effects.registerGeofences?.(forPlace.value.id));
       return done(
         `I will remind you when you ${params.trigger_type === 'ENTER' ? 'get to' : 'leave'} ${forPlace.value.label}.`,
         { entityId: forPlace.value.id, href: '/places' },
@@ -1211,7 +1219,7 @@ export function createExecutor(ctx: ExecutionContext) {
       expiresAt,
       placeId: place.id,
     });
-    await safely('registerGeofences', () => effects.registerGeofences?.());
+    await safely('registerGeofences', () => effects.registerGeofences?.(trigger.id));
 
     return done(
       `Saved ${place.label} and I will remind you when you ${params.trigger_type === 'ENTER' ? 'get there' : 'leave'}.`,

@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { freezeClock } from '@/core/clock';
 import { localToEpoch, setZoneOverride } from '@/core/time';
 import { createTestDatabase, type TestDatabase } from '@/db/testing';
@@ -1074,3 +1077,46 @@ describe('executor', () => {
 /** Compile-time guard: the result shape the UI consumes must not drift. */
 const _shape: ActionResult = { toolName: 'search', ok: true, summary: 'ok' };
 void _shape;
+
+/**
+ * A place reminder has to arm the region it just created.
+ *
+ * `registerGeofences()` was called with no argument, which reaches a plain
+ * re-diff against the permission already held — and nothing in the app ever
+ * asks for location. So "remind me to pick up the frame when I get to the
+ * maker lab" wrote the trigger, armed nothing, prompted for nothing, and
+ * returned a confident receipt. Verified on a device: with the permission
+ * ungranted the log reads "geofences not resumed" and the region never exists.
+ *
+ * Passing the id is what routes it to the arming path that prompts.
+ */
+describe('a new place reminder names itself when arming', () => {
+  it('passes the trigger id so the permission can be asked for', () => {
+    const source = readFileSync(join(__dirname, '..', 'executor.ts'), 'utf8');
+    // Just `geofenceAdd` — the two branches inside it, one that reuses a saved
+    // place and one that saves a new place first.
+    const start = source.indexOf('async function geofenceAdd');
+    const end = source.indexOf('async function ', start + 10);
+    const calls = source.slice(start, end).match(/registerGeofences\?\.\([^)]*\)/g) ?? [];
+
+    expect(calls.length).toBe(2);
+    for (const call of calls) {
+      expect(call).not.toBe('registerGeofences?.()');
+    }
+  });
+
+  /**
+   * `place_save` is deliberately the other way.
+   *
+   * Saving or moving a pin is not asking for a reminder, so it must not raise a
+   * location dialog out of nowhere. A bare re-diff is the whole job there: a
+   * moved pin changes which regions the OS should watch, and nothing more.
+   */
+  it('does not prompt when a pin is merely saved or moved', () => {
+    const source = readFileSync(join(__dirname, '..', 'executor.ts'), 'utf8');
+    const start = source.indexOf('async function placeSave');
+    const end = source.indexOf('async function ', start + 10);
+
+    expect(source.slice(start, end)).toContain('registerGeofences?.()');
+  });
+});

@@ -151,6 +151,72 @@ function doctor() {
   console.log(`  ${dim(`iOS ${config.ios?.bundleIdentifier} build ${config.ios?.buildNumber}`)}`);
   console.log(`  ${dim(`Android ${config.android?.package} versionCode ${config.android?.versionCode}`)}`);
 
+  /*
+   * Configuration, before any toolchain.
+   *
+   * This section did not exist, and its absence is why "just add the keys"
+   * could not be checked: the doctor reported a healthy JDK and a valid signing
+   * identity for a build that would be rejected on upload or crash on launch.
+   * Every row here is something a store rejects for or a user notices.
+   */
+  heading('Configuration');
+  const extra = config.extra ?? {};
+  const rc = extra.revenueCat ?? {};
+  const legal = extra.legal ?? {};
+  const set = (value) => typeof value === 'string' && value.trim().length > 0;
+
+  /*
+   * A Test Store key is the one that does not merely fail — RevenueCat's own
+   * SDK warns it will CRASH in production, and App Review rejects a build
+   * carrying one. It is also the state this repo is developed in, so it is the
+   * single most likely thing to ship by accident.
+   */
+  const testStore = [rc.ios, rc.android].some((k) => set(k) && k.trim().startsWith('test_'));
+  add(
+    set(rc.ios) && set(rc.android) && !testStore,
+    'RevenueCat keys',
+    testStore
+      ? 'TEST STORE KEY — the SDK crashes in production with this and App Review rejects it. ' +
+        'Replace EXPO_PUBLIC_REVENUECAT_IOS_KEY / _ANDROID_KEY with the appl_/goog_ keys.'
+      : set(rc.ios) && set(rc.android)
+        ? 'production keys for both platforms'
+        : 'missing — the paywall will show nothing to buy',
+  );
+  add(set(rc.entitlement), 'Entitlement id', set(rc.entitlement) ? rc.entitlement : "unset — defaults to 'assistant'; must match the RevenueCat dashboard exactly");
+
+  /*
+   * Apple's Developer Program Licence Agreement, Schedule 2 §3.8(b): an
+   * auto-renewing subscription must be sold beside both links, and 3.1.2
+   * review rejects paywalls that omit them. iOS falls back to Apple's standard
+   * EULA for terms; nothing can stand in for a privacy policy.
+   */
+  add(set(legal.privacy), 'Privacy policy URL', set(legal.privacy) ? legal.privacy : 'MISSING — both stores require one and the paywall must link to it. Set EXPO_PUBLIC_PRIVACY_URL.');
+  add(set(legal.terms), 'Terms URL', set(legal.terms) ? legal.terms : "unset — iOS falls back to Apple's standard EULA, Google Play has no equivalent. Set EXPO_PUBLIC_TERMS_URL.");
+
+  const oneSignal = extra.oneSignal?.appId;
+  const pushMode = process.env.ONESIGNAL_MODE ?? '';
+  add(
+    !set(oneSignal) || pushMode === 'production',
+    'Push (OneSignal)',
+    !set(oneSignal)
+      ? 'no app id — remote push is off, which is a valid way to ship'
+      : pushMode === 'production'
+        ? 'production APNs entitlement'
+        : "ONESIGNAL_MODE is not 'production' — iOS gets a DEVELOPMENT aps-environment and silently receives no pushes, with no error anywhere",
+  );
+
+  const google = extra.googleOAuth ?? {};
+  const googleSet = [google.iosClientId, google.androidClientId, google.webClientId].filter(set).length;
+  add(
+    googleSet === 0 || googleSet === 3,
+    'Google Calendar',
+    googleSet === 3
+      ? 'all three client ids'
+      : googleSet === 0
+        ? 'not configured — calendar sync is off, which is a valid way to ship'
+        : `only ${googleSet} of 3 client ids — sign-in fails at the token exchange. The WEB client is the one people forget.`,
+  );
+
   heading('Android');
   const jdk = javaHome();
   add(
@@ -297,6 +363,7 @@ function androidApk() {
 }
 
 function androidAab() {
+  preflight('an AAB for Play');
   gradle('bundleRelease');
   const built = path.join(ROOT, 'android/app/build/outputs/bundle/release/app-release.aab');
   if (!fs.existsSync(built)) die('Gradle reported success but produced no bundle.', built);
@@ -344,6 +411,7 @@ function iosArchive() {
 }
 
 function iosIpa() {
+  preflight('an IPA for App Store Connect');
   if (!fs.existsSync(archivePath())) iosArchive();
 
   const config = appConfig();
@@ -423,10 +491,46 @@ function bump() {
   console.log(dim(`  ${config.name} ${config.version} (${next})`));
 }
 
+/**
+ * Refuses to build a store artefact that would be rejected or crash.
+ *
+ * The doctor used to only *report*. That is fine for a debug APK you are
+ * sending a friend and useless for the thing it exists to prevent: an upload
+ * carrying a RevenueCat Test Store key crashes on launch and is rejected by
+ * review, and a build with no privacy policy is rejected for that alone. Both
+ * are twenty minutes of upload and a day of waiting to find out.
+ *
+ * Only the fatal rows stop a build. A missing signing identity does not — it
+ * is checked where it is used — and an unconfigured optional feature never
+ * should: shipping without calendar sync or without push are both real
+ * choices.
+ *
+ * `--force` exists for the one honest case: proving the pipeline works before
+ * the accounts do.
+ */
+const FATAL = new Set(['RevenueCat keys', 'Privacy policy URL']);
+
+function preflight(what) {
+  const blocked = doctor();
+  const fatal = blocked.filter((row) => FATAL.has(row.label));
+  if (fatal.length === 0) return blocked;
+  if (flags.has('--force')) {
+    heading('Forced');
+    console.log(`  ${amber(`Building ${what} anyway. This artefact must not be uploaded.`)}`);
+    return blocked;
+  }
+  die(
+    `Refusing to build ${what}: ${fatal.length} thing${fatal.length > 1 ? 's' : ''} would fail review.`,
+    fatal.map((row) => `${row.label}: ${row.detail}`).join('\n  ') +
+      '\n\nFix them, or pass --force to build an artefact you will not upload.',
+  );
+  return blocked;
+}
+
 // -------------------------------------------------------------------- all
 
 function all() {
-  const blocked = doctor();
+  const blocked = preflight('a release');
   heading('Building what is possible');
   androidAab();
   androidApk();

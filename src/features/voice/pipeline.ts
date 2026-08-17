@@ -58,7 +58,7 @@ import { topUpsPurchased } from '@/services/billing/entitlement';
 import { chargeTrial, readTrialLedger } from '@/services/billing/trialLedger';
 import { pushEventNow } from '@/services/calendar';
 import { focusEffects } from '@/services/focus';
-import { refresh as refreshGeofences } from '@/services/geofence';
+import { enableFor as enableGeofence, refresh as refreshGeofences } from '@/services/geofence';
 import { CHANNELS, cancelForEntity, scheduleAt } from '@/services/notifications';
 import { registerBootstrapStep } from '@/startup/bootstrap';
 import {
@@ -117,8 +117,29 @@ export const voiceEffects: ExecutorEffects = {
   startFocusSession: focusEffects.startFocusSession,
   controlFocusSession: focusEffects.controlFocusSession,
 
-  async registerGeofences() {
-    await refreshGeofences();
+  /**
+   * Arms a newly created place reminder, asking for what it needs.
+   *
+   * `refresh()` only re-diffs against the permission already held, so on an
+   * install that has never granted location it did nothing at all — and no
+   * screen in the app asks. "Remind me to pick up the frame when I get to the
+   * maker lab" gave a successful receipt and armed no region, permanently.
+   *
+   * `enableFor` is the path that prompts: location first, then notifications,
+   * because a reminder that fires into a muted app is the same silence by
+   * another route. Falls back to a plain re-diff when the caller has no id —
+   * an unrelated refresh must not raise a permission dialog out of nowhere.
+   */
+  async registerGeofences(triggerId?: string) {
+    if (!triggerId) {
+      await refreshGeofences();
+      return;
+    }
+    const armed = await enableGeofence(triggerId);
+    // A refusal is a normal answer, not a failure: the reminder is still saved
+    // and the Places screen explains what is missing. It must not take the
+    // whole turn down with it.
+    if (!armed.ok) log.info('place reminder saved but not armed', armed.error.message);
   },
 
   async syncCalendarEvent(eventId) {
