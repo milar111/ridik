@@ -255,7 +255,7 @@ async function rememberIdentity(Purchases: PurchasesModule): Promise<void> {
      * module is only reached on a device, where the SDK exists; the same trick
      * and the same reason as `services/notifications/responses.ts`.
      */
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mode = require('@/features/voice/mode') as typeof import('@/features/voice/mode');
     await mode.writeSecret(mode.ASSISTANT_TOKEN_STORE_KEY, id);
   } catch (error) {
