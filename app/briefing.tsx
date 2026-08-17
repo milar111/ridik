@@ -27,9 +27,8 @@ import {
   useToast,
 } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
-import { useStaggeredEntry } from '@/ui/motionHooks';
+import { useStaggeredEntry , AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 const SCOPES: { value: BriefingScope; label: string }[] = [
   { value: 'today', label: 'Today' },

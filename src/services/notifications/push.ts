@@ -78,7 +78,7 @@ function appId(): string | null {
   return pushAppId(Constants.expoConfig?.extra);
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 type OneSignalModule = any;
 
 function load(): OneSignalModule | null {

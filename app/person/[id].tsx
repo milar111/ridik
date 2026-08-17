@@ -38,9 +38,8 @@ import {
 } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry } from '@/ui/motionHooks';
+import { useStaggeredEntry , AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { colorForTag } from '@/ui/theme';
 
 /** What to say to fill this screen — the empty state is the tutorial. */

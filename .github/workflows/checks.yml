@@ -63,19 +63,48 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      # Reports, does not gate — for now.
+      # Reports, does not gate — and what is left is now a known, named set.
       #
       # `npm run lint` came from the template and had never run once: eslint
       # itself was not a dependency, so the script failed with "Cannot find
-      # module 'eslint'". Installing it surfaced ~160 findings across a codebase
-      # that has never been linted, and a good half are the React Compiler's
-      # newer rules (`set-state-in-effect`, `purity`, `immutability`) firing on
-      # working, tested code that would need real refactors rather than tidying.
+      # module 'eslint'". Installing it surfaced ~169 findings across a codebase
+      # that had never been linted. On 17 August that was taken to **43**, and
+      # the difference is worth recording because almost none of it was style:
       #
-      # Gating on that would mean a public repository whose first CI run is red,
-      # which says less about the code than the badge implies. The count is
-      # printed so it can be driven down deliberately; flip `continue-on-error`
-      # off once it reaches zero.
+      #   * 34 import warnings were `jest.mock` doing its job — a mock has to be
+      #     written before the import it replaces, so `import/first` fired on
+      #     every test file. Autofixing would have hoisted the imports above the
+      #     mocks and silently un-mocked the modules: green suite, real module.
+      #     Switched off for tests only, with the reason in `eslint.config.js`.
+      #   * ~11 `eslint-disable` comments named `no-var-requires`, a rule that no
+      #     longer exists under that name, so they suppressed nothing *and* were
+      #     reported as unused. Renamed to `no-require-imports`.
+      #   * 25 unused bindings, of which three were more than tidying: a dead
+      #     `summariseDay()` in `briefingScheduler.ts` (whose removal orphaned
+      #     four more imports, which is how you know it was dead), two vestigial
+      #     store reads in `LastAction.tsx` under a comment pointing at a gate
+      #     that no longer consulted them, and a generic parameter on a method
+      #     `node-client.ts` implements without one.
+      #   * 1 `import/namespace` error on `AudioModule.AudioRecorder`, which is a
+      #     false positive — the declaration is there and tsc resolves it.
+      #     Disabled at the single site rather than by weakening the rule.
+      #
+      # The remaining 43 are 21 warnings and 22 errors:
+      #   * 13 `no-require-imports` — load-bearing, either an optional native
+      #     module inside a `try` or a lazy load that keeps the `logic` project
+      #     importable under plain Node. Downgraded to `warn` so a new one is
+      #     still visible.
+      #   * 8 `exhaustive-deps` — one judgement call each; adding a dep to the
+      #     wrong one buys a render loop.
+      #   * 22 React Compiler diagnostics (`set-state-in-effect`, `purity`,
+      #     `immutability`, `refs`) across ~12 screens. These say a pattern is not
+      #     optimally compilable, not that it is broken — the code is tested and
+      #     runs on both platforms. They need real refactors, done deliberately
+      #     and one screen at a time, not a sweep at the end of a session.
+      #
+      # Gating now would mean a red run for a set that is understood and bounded.
+      # Flip `continue-on-error` off once the compiler diagnostics are worked
+      # through; nothing else stands in the way.
       - name: Lint
         continue-on-error: true
         run: npm run lint

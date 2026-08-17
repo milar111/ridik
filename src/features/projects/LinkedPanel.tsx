@@ -14,10 +14,9 @@ import { formatDayHeading } from '@/core/time';
 import type { ProjectOverview } from '@/repositories/projects';
 import { Card, Chip, Divider, EmptyState, Section, Txt } from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry } from '@/ui/motionHooks';
+import { useStaggeredEntry , AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { colorForTag } from '@/ui/theme';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { DueChip } from './Bits';
 import type { IconName } from './constants';

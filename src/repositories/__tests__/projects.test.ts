@@ -224,7 +224,7 @@ describe('projects repository', () => {
 
   it('reorders items inside a section and appends the ones left out', async () => {
     const project = await repo.createProject({ name: 'Vacation' });
-    const [a, b, c, d] = await repo.addItems(project.id, [
+    const [a, , c] = await repo.addItems(project.id, [
       { content: 'A', sectionTitle: 'Packing' },
       { content: 'B', sectionTitle: 'Packing' },
       { content: 'C', sectionTitle: 'Packing' },

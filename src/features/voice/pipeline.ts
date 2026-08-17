@@ -51,10 +51,9 @@ import { createGeminiProvider, createHostedProvider, createMockProvider } from '
 import { getRepositories } from '@/repositories';
 import { defaultSettings, type SettingsValues } from '@/repositories/settings';
 import { creditsCoverBreach, resolveAssistantBudget, type BudgetAction } from '@/services/billing/allowance';
-import { currentEntitlement, isStoreBuild } from '@/services/billing/entitlement';
+import { currentEntitlement, isStoreBuild , topUpsPurchased } from '@/services/billing/entitlement';
 import { NO_CREDITS, purchasedFrom } from '@/services/billing/credits';
 import { chargeCredits, readCreditsUsed } from '@/services/billing/creditsLedger';
-import { topUpsPurchased } from '@/services/billing/entitlement';
 import { chargeTrial, readTrialLedger } from '@/services/billing/trialLedger';
 import { pushEventNow } from '@/services/calendar';
 import { focusEffects } from '@/services/focus';

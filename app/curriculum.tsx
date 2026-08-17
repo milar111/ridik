@@ -29,9 +29,8 @@ import type { CurriculumEntry } from '@/db/schema';
 import type { WeekParity } from '@/repositories/curriculum';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry } from '@/ui/motionHooks';
+import { useStaggeredEntry , AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { colorForTag } from '@/ui/theme';
 import { Badge, Button, Card, Chip, Divider, EmptyState, Input, Screen, Section, Segmented, SheetCard, Txt, useToast } from '@/ui/components';
 
@@ -220,7 +219,7 @@ function WeekGrid({
   dayOrder: number[];
   onEdit: (entry: CurriculumEntry) => void;
 }) {
-  const { colors, radius } = useTheme();
+  const { colors } = useTheme();
   // Column by column, left to right: `dayOrder` is Monday-first, so the week
   // fills in the direction it is read. Fading in place rather than rising — a
   // block's vertical position is the time it starts, and sliding it up from
@@ -391,7 +390,7 @@ function WeekList({
   nextBySubject: Map<string, number>;
   onEdit: (entry: CurriculumEntry) => void;
 }) {
-  const { colors, spacing } = useTheme();
+  const { spacing } = useTheme();
   const arrive = useStaggeredEntry({ from: 'below' });
   // One wave down the week rather than one per day: the days are a single
   // timetable broken by heading, and restarting the count at every heading

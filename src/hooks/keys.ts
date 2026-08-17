@@ -259,7 +259,7 @@ export type QueryKeys = typeof qk;
 export type KeyLike = readonly unknown[];
 
 /** What `onMutate` hands to `onError` so a failed optimistic write can be undone. */
-export type QuerySnapshot = ReadonlyArray<readonly [QueryKey, unknown]>;
+export type QuerySnapshot = readonly (readonly [QueryKey, unknown])[];
 
 /**
  * Stops in-flight refetches for these prefixes.

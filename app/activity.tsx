@@ -34,7 +34,7 @@ import type { ActivitySummary } from '@/repositories/activity';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { SheetCard } from '@/ui/components/SheetCard';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
+import { AnimatedPressable, usePressScale , useStaggeredEntry } from '@/ui/motionHooks';
 import {
   Button,
   Card,
@@ -49,7 +49,6 @@ import {
   useToast,
 } from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry } from '@/ui/motionHooks';
 import { colorForTag } from '@/ui/theme';
 
 type Period = 'day' | 'week' | 'month';

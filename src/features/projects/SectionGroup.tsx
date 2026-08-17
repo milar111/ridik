@@ -11,9 +11,8 @@ import { Ionicons } from '@expo/vector-icons';
 import type { ProjectItem } from '@/db/schema';
 import { Card, Divider, Txt } from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry } from '@/ui/motionHooks';
+import { useStaggeredEntry , AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { ProjectItemRow } from './ProjectItemRow';
 

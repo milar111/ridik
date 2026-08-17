@@ -39,7 +39,7 @@ export function ProjectHeader({
   onMenu: () => void;
   sharing?: boolean;
 }) {
-  const { colors, spacing } = useTheme();
+  const { spacing } = useTheme();
   const kindTint = colorForTag(project.kind);
   // `Button` sizes itself from its padding, which leaves an icon-only ghost at
   // ~37pt. These three are the screen's navigation, so they get the full 44.

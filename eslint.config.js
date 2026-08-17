@@ -27,4 +27,63 @@ module.exports = defineConfig([
       'notes/**',
     ],
   },
+  {
+    /*
+     * Two import rules do not apply to a Jest file, and switching them off here
+     * is the fix rather than a concession.
+     *
+     * `jest.mock()` is hoisted by babel above the imports in the *output*, but in
+     * the *source* it has to be written before the import it replaces — otherwise
+     * the real module is what the factory closes over. So a test file
+     * deliberately interleaves `jest.mock` calls with imports, and
+     * `import/first` reports every import that follows one. Autofixing it would
+     * hoist those imports above the mocks and silently un-mock the module: the
+     * suite would still run, against the real thing.
+     *
+     * `import/no-duplicates` fires on the same pattern — one module imported
+     * either side of a mock — and merging them has the identical effect.
+     *
+     * Both are switched off only for tests. In source they stay on, and the
+     * genuine duplicates they found there have been merged.
+     */
+    files: ['**/__tests__/**/*.{ts,tsx}', '**/*.test.{ts,tsx}'],
+    rules: {
+      'import/first': 'off',
+      'import/no-duplicates': 'off',
+      /*
+       * A source-reading test reads its subject with `require`d `node:fs`, and
+       * several suites re-require a module to observe module-level state after
+       * `jest.resetModules()`. Both are the point of the test, not a lapse.
+       */
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+  {
+    /*
+     * `require()` in source is load-bearing here, and there are two distinct
+     * reasons — both of which an `import` would break rather than tidy.
+     *
+     * **Optional native modules.** `react-native-purchases`, the widget bridge,
+     * the Live Activity module: each is loaded inside a `try` so a build without
+     * the package compiled in still runs. A static import makes the whole file
+     * unloadable when the module is absent, which is how the profile screen used
+     * to fail in tests.
+     *
+     * **Keeping the `logic` test project pure.** That project runs under plain
+     * Node against real SQLite so repositories and the LLM engine can be
+     * exercised without a simulator, and nothing in `node_modules` is
+     * transformed. A top-level `import` of anything shipping untransformed ESM —
+     * `expo-secure-store` is the one that caught us — makes the importing module
+     * fail to parse there. Inside a function the module is only reached on a
+     * device. `AGENTS.md` records both traps.
+     *
+     * Downgraded rather than disabled: a new `require` should still be visible in
+     * lint output, it just should not be an error in a codebase where it is the
+     * correct construct.
+     */
+    files: ['src/**/*.{ts,tsx}', 'app/**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'warn',
+    },
+  },
 ]);

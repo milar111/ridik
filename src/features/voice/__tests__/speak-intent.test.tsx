@@ -314,7 +314,7 @@ describe('the affordance, on the same faces on both platforms', () => {
    * about two megabytes of XML — calling it per assertion put a second on each
    * one and timed out an unrelated suite sharing the same worker.
    */
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const ANDROID: Record<string, string> = require('../../../../plugins/withRidikAndroidWidget').resourceFiles();
 
   it('is drawn on iOS everywhere except small', () => {
@@ -403,7 +403,7 @@ describe('the system control, on both platforms', () => {
    * never appears in the edit list with nothing logged anywhere.
    */
   it('registers the tile in the manifest, with the permission that binds it', () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { addSpeakTile } = require('../../../../plugins/withRidikAndroidWidget');
     const application: Record<string, unknown> = {};
     addSpeakTile(application);
@@ -423,7 +423,7 @@ describe('the system control, on both platforms', () => {
      replaced becomes two services for one class — which is a manifest merger
      failure, not a duplicate tile. */
   it('replaces its own entry on a second prebuild rather than adding a second', () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { addSpeakTile } = require('../../../../plugins/withRidikAndroidWidget');
     const application: Record<string, unknown> = {};
     addSpeakTile(application);

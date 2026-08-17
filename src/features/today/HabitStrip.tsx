@@ -6,10 +6,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { epochToLocal } from '@/core/time';
 import { invalidateKeys, qk, useLogHabit, type TodayHabit } from '@/hooks';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, useCheckPop, usePressScale } from '@/ui/motionHooks';
+import { AnimatedPressable, useCheckPop, usePressScale , useStaggeredEntry } from '@/ui/motionHooks';
 import { Chip, useToast } from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry } from '@/ui/motionHooks';
 
 type Pending = { streak: number };
 

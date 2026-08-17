@@ -14,9 +14,8 @@ import type { NoteWithBullets } from '@/repositories/notes';
 import type { NoteBullet } from '@/db/schema';
 import { Button, Checkbox, Input, Txt, useToast } from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry } from '@/ui/motionHooks';
+import { useStaggeredEntry , AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { errorMessage } from './errors';
 

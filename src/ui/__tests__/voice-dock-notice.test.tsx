@@ -89,7 +89,7 @@ async function mount(): Promise<void> {
   // `require`, not a dynamic import: this project's jest runs without
   // --experimental-vm-modules, so `import()` throws at runtime rather than
   // resolving. jest.mock is hoisted above it either way.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { VoiceDock } = require('@/features/voice/VoiceDock');
   await render(
     <SafeAreaProvider

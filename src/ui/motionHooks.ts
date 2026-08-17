@@ -45,7 +45,7 @@ import type {
   WithTimingConfig,
 } from 'react-native-reanimated';
 
-import { BREATH_MS, FADE, SPRING_ENTER, SPRING_HEAVY, SPRING_TAP, stagger } from './motion';
+import { BREATH_MS, FADE, SPRING_ENTER, SPRING_TAP, stagger } from './motion';
 
 /**
  * A `Pressable` that can take an animated style.

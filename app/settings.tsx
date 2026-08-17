@@ -17,7 +17,7 @@
  * something they switched on cannot work yet.
  */
 import { useCallback, useState } from 'react';
-import { Linking, Platform, View } from 'react-native';
+import { Linking, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
@@ -28,10 +28,7 @@ import { formatDayHeading } from '@/core/time';
 import {
   Group,
   GroupSkeleton,
-  RetryRow,
   Row,
-  SecretRow,
-  SliderRow,
   SwitchRow,
 } from '@/features/settings';
 import { useEmber, useSetting } from '@/hooks';

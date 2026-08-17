@@ -6,19 +6,10 @@
  * loads its dependencies at call time so importing this module never drags in
  * expo-notifications or the database.
  */
-import { now } from '@/core/clock';
 import type { Logger } from '@/core/logger';
 import { countLabel, joinNatural } from '@/core/format';
-import { err, fail, ok, toAppError, type Result } from '@/core/result';
-import {
-  DateTime,
-  currentZone,
-  dayRange,
-  formatSpokenTime,
-  isValidZone,
-  localDateOf,
-} from '@/core/time';
-import type { Repositories } from '@/repositories';
+import { err, ok, toAppError, type Result } from '@/core/result';
+import { DateTime, formatSpokenTime } from '@/core/time';
 
 /**
  * Every briefing notification carries this entity id, which is how the next
@@ -141,8 +132,6 @@ export async function cancelScheduledBriefing(): Promise<Result<BriefingSchedule
   }
 }
 
-type Runtime = Awaited<ReturnType<typeof loadRuntime>>;
-
 /**
  * Loaded lazily rather than imported: the scheduling maths above has to stay
  * usable in plain Node, and every one of these reaches for something only the
@@ -159,36 +148,4 @@ async function loadRuntime() {
     repos: repositories.getRepositories(),
     log: logger.createLogger('briefing'),
   };
-}
-
-/** Counts for the day the briefing lands on, never for "today". */
-async function summariseDay(
-  repos: Repositories,
-  at: number,
-  zone: string,
-  log: Runtime['log'],
-): Promise<DaySummary> {
-  try {
-    const { start, end } = dayRange(localDateOf(at, zone), zone);
-    const [events, tasks] = await Promise.all([
-      repos.calendar.listBetween(start, end),
-      repos.tasks.listActiveTasks({ dueBefore: end }),
-    ]);
-    const real = events.filter((event) => event.kind !== 'buffer');
-    // The earliest event of the day may already be over by the time the
-    // briefing lands (or may have started the night before); announcing a start
-    // time in the past is worse than announcing none.
-    const ahead = real.find((event) => event.startsAt >= at);
-    return {
-      events: real.length,
-      tasksDue: tasks.length,
-      firstEventAt: ahead?.startsAt ?? null,
-      zone,
-    };
-  } catch (error) {
-    // A broken query is no reason to skip the briefing; a bodiless one still
-    // gets the user to open the app.
-    log.warn('day summary unavailable', error);
-    return { events: 0, tasksDue: 0, firstEventAt: null, zone };
-  }
 }

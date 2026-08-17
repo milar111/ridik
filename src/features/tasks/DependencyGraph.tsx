@@ -8,9 +8,8 @@ import type { DependencyEdge } from '@/repositories/tasks';
 import { Chip, EmptyState } from '@/ui/components/Controls';
 import { MIC_CLEARANCE } from '@/ui/components/Screen';
 import { Txt } from '@/ui/components/Text';
-import { useStaggeredEntry } from '@/ui/motionHooks';
+import { useStaggeredEntry , AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { GRAPH_METRICS, layoutGraph, type LaidOutEdge } from './graphLayout';
 
@@ -31,7 +30,7 @@ export function DependencyGraph({
   edges: readonly DependencyEdge[];
   onOpen: (task: Task) => void;
 }) {
-  const { colors, radius, spacing } = useTheme();
+  const { colors, spacing } = useTheme();
   const layout = useMemo(() => layoutGraph(nodes, edges), [nodes, edges]);
   // `layoutGraph` returns the nodes in topological order, so the stagger runs
   // the way the chain does: what can be started today lands first.

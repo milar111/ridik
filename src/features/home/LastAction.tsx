@@ -58,11 +58,6 @@ export function LastAction() {
 
   const outcome = useVoiceStore((s) => s.outcome);
   const open = useVoiceStore((s) => s.open);
-  // Not for drawing — for knowing whether this screen is actually empty. See
-  // the gate below.
-  const error = useVoiceStore((s) => s.error);
-  const recovered = useVoiceStore((s) => s.recovered);
-
   const items = outcome?.items ?? [];
   const applied = items.filter((item) => item.ok);
   const headline = applied.length > 0 ? applied[applied.length - 1]! : null;

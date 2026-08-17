@@ -101,7 +101,6 @@ const METRICS: Metrics = {
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 const snapshot = (over: Record<string, unknown> = {}): any => ({
   date: '2026-08-11',
   zone: ZONE,
@@ -133,7 +132,7 @@ const event = (id: string, title: string, startsAt: number, over: Record<string,
   bufferForId: null,
   ...over,
 });
-/* eslint-enable @typescript-eslint/no-explicit-any */
+ 
 
 function wrap() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });

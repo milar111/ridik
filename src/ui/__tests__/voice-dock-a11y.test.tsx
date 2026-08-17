@@ -80,7 +80,7 @@ function setStore(overrides: Record<string, unknown> = {}): void {
 async function mount(): Promise<void> {
   // `require`, not a dynamic import: this project's jest runs without
   // --experimental-vm-modules. jest.mock is hoisted above it either way.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { VoiceDock } = require('@/features/voice/VoiceDock');
   await render(
     <SafeAreaProvider

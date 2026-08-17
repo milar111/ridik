@@ -50,7 +50,7 @@ const SWIFT = readFileSync(join(ROOT, 'targets/RidikWidget/RidikPalette.swift'),
  * plugin's own generator produces the same strings the build would write, with
  * no build step in between.
  */
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const RESOURCES: Record<string, string> = require('../../../plugins/withRidikAndroidWidget')
   .resourceFiles();
 

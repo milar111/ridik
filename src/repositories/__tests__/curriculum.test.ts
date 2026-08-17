@@ -42,7 +42,7 @@ const TIMETABLE: CurriculumEntryInput[] = [
 describe('curriculum repository', () => {
   let t: TestDatabase;
   let repo: CurriculumRepository;
-  const restores: Array<() => void> = [];
+  const restores: (() => void)[] = [];
 
   beforeEach(() => {
     t = createTestDatabase();

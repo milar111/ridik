@@ -19,8 +19,7 @@
  * `briefingPushBody` takes the bullets `composeVisual` produced, so a push can
  * never word the day differently from the screen it opens.
  */
-import type { Briefing } from '@/features/briefing';
-import type { BriefingBullets } from '@/features/briefing';
+import type { Briefing, BriefingBullets } from '@/features/briefing';
 
 /** Where a briefing push lands. */
 export const BRIEFING_HREF = '/briefing';

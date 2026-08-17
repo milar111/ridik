@@ -40,9 +40,8 @@ import { MAX_MONITORED_REGIONS } from '@/repositories/geofences';
 import type { Coords } from '@/repositories/places';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry } from '@/ui/motionHooks';
+import { useStaggeredEntry , AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { Badge, Button, Card, Chip, Divider, EmptyState, Input, Screen, Section, SheetCard, Txt, useToast } from '@/ui/components';
 
 /**
@@ -398,7 +397,7 @@ function PermissionWarning({ live, canAsk }: { live: number; canAsk: boolean }) 
       </Txt>
       <Txt variant="caption" tone="secondary">
         A place reminder has to be watched while Ridik is closed, which needs
-        location set to "Always". Until then nothing here will fire.
+        location set to “Always”. Until then nothing here will fire.
       </Txt>
       {canAsk ? (
         <Button

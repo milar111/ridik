@@ -14,9 +14,8 @@ import {
 import type { ChecklistListSummary } from '@/repositories/checklists';
 import { Button, Checkbox, Divider, Input, Txt, useToast } from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry } from '@/ui/motionHooks';
+import { useStaggeredEntry , AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
 import { ErrorRow, SkeletonRows } from './Placeholders';
 import { errorMessage } from './errors';

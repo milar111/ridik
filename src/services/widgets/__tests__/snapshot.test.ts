@@ -12,7 +12,6 @@ const { start: DAY_START, end: DAY_END } = dayRange('2026-08-11', ZONE);
 const at = (hhmm: string): number => DateTime.fromISO(`2026-08-11T${hhmm}`, { zone: ZONE }).toMillis();
 const NOON = at('12:00');
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 const snapshot = (over: Partial<TodaySnapshot> = {}): TodaySnapshot =>
   ({
     date: '2026-08-11',
@@ -58,7 +57,7 @@ const habit = (name: string, loggedToday: boolean, streak = 1, createdAt?: numbe
   loggedToday,
   streak,
 });
-/* eslint-enable @typescript-eslint/no-explicit-any */
+ 
 
 describe('buildWidgetSnapshot', () => {
   it('carries the next thing, when to leave, and the counts worth a glance', () => {
@@ -378,13 +377,12 @@ describe('the day element', () => {
 });
 
 describe('the month plate', () => {
-  /* eslint-disable @typescript-eslint/no-explicit-any */
   const onDay = (day: number, hours: number, over: Record<string, unknown> = {}): any =>
     event(`d${day}`, `Day ${day}`, DateTime.fromISO(`2026-08-${String(day).padStart(2, '0')}T09:00`, { zone: ZONE }).toMillis(), {
       endsAt: DateTime.fromISO(`2026-08-${String(day).padStart(2, '0')}T09:00`, { zone: ZONE }).toMillis() + hours * 3_600_000,
       ...over,
     });
-  /* eslint-enable @typescript-eslint/no-explicit-any */
+   
 
   it('draws a cold cell for every day of the month, and marks today', () => {
     const built = buildWidgetSnapshot({ snapshot: snapshot(), now: NOON }).month;

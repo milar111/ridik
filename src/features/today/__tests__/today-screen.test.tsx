@@ -59,7 +59,6 @@ const METRICS: Metrics = {
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 function snapshot(over: Record<string, unknown> = {}): any {
   return {
     date: '2026-08-11',
@@ -132,7 +131,7 @@ const task = (id: string, title: string, dueDate: number | null): any => ({
   createdAt: 0,
   updatedAt: 0,
 });
-/* eslint-enable @typescript-eslint/no-explicit-any */
+ 
 
 function setToday(data: unknown, over: Record<string, unknown> = {}) {
   hooks.useToday.mockReturnValue({

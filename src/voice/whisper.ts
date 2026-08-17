@@ -86,6 +86,15 @@ export async function recordAndTranscribe(
 
   try {
     await applyAudioMode({ allowsRecording: true, playsInSilentMode: true, interruptionMode: 'doNotMix' });
+    /*
+     * `import/namespace` cannot see through `expo-audio`'s native module shape and
+     * reports `AudioRecorder` as missing. It is there:
+     * `AudioModule.types.d.ts` declares `readonly AudioRecorder: typeof
+     * AudioRecorder` on the module object, TypeScript resolves it, and this line
+     * is what records the audio Whisper transcribes. A false positive on a
+     * correct call, disabled at the one site rather than by weakening the rule.
+     */
+    // eslint-disable-next-line import/namespace
     recorder = new AudioModule.AudioRecorder({});
     await recorder.prepareToRecordAsync(RECORDING_OPTIONS);
     recorder.record();

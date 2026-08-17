@@ -1,4 +1,3 @@
-import { Fragment } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,10 +6,9 @@ import { useRouter } from 'expo-router';
 import { formatTime } from '@/core/time';
 import { useTheme } from '@/ui/ThemeProvider';
 import { colorForTag } from '@/ui/theme';
-import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
+import { AnimatedPressable, usePressScale , useStaggeredEntry } from '@/ui/motionHooks';
 import { Txt } from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry } from '@/ui/motionHooks';
 
 import type { Agenda, AgendaItem } from './agenda';
 

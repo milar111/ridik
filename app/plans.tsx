@@ -96,7 +96,7 @@ export default function PlansScreen() {
 /* -------------------------------------------------------------- subscribed */
 
 function Subscribed({ plan }: { plan: Entitlement }) {
-  const { colors, spacing } = useTheme();
+  const { spacing } = useTheme();
   const toast = useToast();
   const manage = manageSubscriptionUrl();
   const at = now();

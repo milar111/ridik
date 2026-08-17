@@ -43,7 +43,6 @@ import {
   type Plan,
   type PlanChange,
   type PlanId,
-  type PlanTier,
 } from './entitlement';
 
 const log = createLogger('billing/revenuecat');
@@ -92,7 +91,7 @@ function entitlementId(): string {
   return configured ? configured : DEFAULT_ENTITLEMENT;
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 type PurchasesModule = any;
 
 function load(): PurchasesModule | null {
@@ -496,4 +495,4 @@ export function createRevenueCatProvider(): BillingProvider {
     },
   };
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
+ 

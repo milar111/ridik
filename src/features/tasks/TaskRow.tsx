@@ -11,9 +11,8 @@ import { Card, Divider } from '@/ui/components/Card';
 import { Txt } from '@/ui/components/Text';
 import { inkOn } from '@/ui/ink';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry } from '@/ui/motionHooks';
+import { useStaggeredEntry , AnimatedPressable, useCheckPop, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, useCheckPop, usePressScale } from '@/ui/motionHooks';
 
 import { bucketOf, dueLabel } from './buckets';
 

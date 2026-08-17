@@ -14,7 +14,7 @@ import {
 } from '@/core/time';
 import type { CalendarEvent } from '@/db/schema';
 import { useCalendarEvent, useDeleteEvent, useUpdateEvent } from '@/hooks';
-import { Badge, Button, Chip, Divider, Input, SheetCard, Txt, useToast } from '@/ui/components';
+import { Badge, Button, Divider, Input, SheetCard, Txt, useToast } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
 import type { Colors } from '@/ui/theme';
 

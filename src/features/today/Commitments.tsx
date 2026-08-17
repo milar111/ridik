@@ -6,10 +6,9 @@ import { useRouter } from 'expo-router';
 import { formatDayHeading } from '@/core/time';
 import type { CommitmentWithEntity } from '@/repositories/crm';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
+import { AnimatedPressable, usePressScale , useStaggeredEntry } from '@/ui/motionHooks';
 import { Badge, Divider, Txt } from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry } from '@/ui/motionHooks';
 
 /**
  * What you promised someone, and what someone promised you — the subset that

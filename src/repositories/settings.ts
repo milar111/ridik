@@ -320,7 +320,7 @@ export function createSettingsRepository(
     return out;
   }
 
-  async function writeMany(entries: Array<{ key: SettingKey; value: string }>): Promise<void> {
+  async function writeMany(entries: { key: SettingKey; value: string }[]): Promise<void> {
     const at = now();
     for (const entry of entries) {
       await db

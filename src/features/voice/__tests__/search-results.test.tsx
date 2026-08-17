@@ -75,7 +75,7 @@ function setStore(items: unknown[]): void {
 }
 
 async function mount(): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { VoiceDock } = require('@/features/voice/VoiceDock');
   await render(
     <SafeAreaProvider

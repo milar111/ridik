@@ -11,7 +11,6 @@ import {
   createOrchestrator,
   limitWords,
   parsePending,
-  type TurnOutcome,
 } from '@/llm/orchestrator';
 import { createMockProvider, LlmProviderError, type MockProviderOptions } from '@/llm/provider';
 import type { Repositories } from '@/repositories';

@@ -44,7 +44,7 @@ export type EmailOptions = { recipients?: string[]; filename?: string };
 function safeFilename(name: string, fallbackExtension: string): string {
   const base = name
     .replace(/[/\\]/g, ' ')
-    // eslint-disable-next-line no-control-regex
+     
     .replace(/[\u0000-\u001f:*?"<>|]/g, '')
     .replace(/\s+/g, ' ')
     .trim()

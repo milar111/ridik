@@ -22,7 +22,7 @@ export interface SqliteExecuteResult<T> extends SqliteRunResult {
 
 export interface SqliteStatement {
   executeSync<T>(params: SqlBindParams): SqliteExecuteResult<T>;
-  executeForRawResultSync<T extends object>(
+  executeForRawResultSync(
     params: SqlBindParams,
   ): SqliteExecuteResult<unknown[]>;
   finalizeSync(): void;

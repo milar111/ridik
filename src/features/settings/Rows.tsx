@@ -12,10 +12,9 @@ import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanima
 import { Ionicons } from '@expo/vector-icons';
 
 import { useSetSecret, type SecretSlot } from '@/hooks/useSystem';
-import { useStaggeredEntry } from '@/ui/motionHooks';
+import { useStaggeredEntry , AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
 import { still, tap } from '@/ui/motion';
-import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { Button, Card, Divider, Input, Section, Toggle, Txt, useToast } from '@/ui/components';
 
 /**
