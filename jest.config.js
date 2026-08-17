@@ -21,6 +21,22 @@ module.exports = {
       moduleNameMapper: { '^@/(.*)$': '<rootDir>/src/$1' },
     },
     {
+      /*
+       * The assistant backend. Excluded from `tsconfig.json` because it is server
+       * code that happens to live in this repo — but excluded from *tests* it was
+       * only by accident of living under `jest/`, which meant the one component
+       * that stands between a leaked model key and somebody else's invoice had no
+       * test at all. Jest transforms through babel and does not read tsconfig, so
+       * it can be covered here regardless.
+       */
+      displayName: 'server',
+      testEnvironment: 'node',
+      rootDir: __dirname,
+      testMatch: ['<rootDir>/server/**/__tests__/**/*.test.ts'],
+      transform,
+      clearMocks: true,
+    },
+    {
       displayName: 'logic',
       testEnvironment: 'node',
       rootDir: __dirname,

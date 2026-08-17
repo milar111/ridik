@@ -31,6 +31,27 @@ export const WHISPER_API_KEY_STORE_KEY = 'ridik.whisper.apiKey';
  */
 export const ASSISTANT_TOKEN_STORE_KEY = 'ridik.assistant.token';
 
+/**
+ * Store a secret, and never let failing to do so break the caller.
+ *
+ * The one writer today is the billing provider, recording the identity a store
+ * build presents to the backend. If the keychain refuses, the turn that needed
+ * the token degrades to the offline matcher with a notice — a path the app
+ * already has — which is strictly better than a crash on the way out of
+ * `configure()`, before the UI has mounted.
+ */
+export async function writeSecret(key: string, value: string): Promise<boolean> {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  try {
+    await SecureStore.setItemAsync(key, trimmed, SECURE_STORE_OPTIONS);
+    return true;
+  } catch (error) {
+    log.warn('could not store a key', { key, error });
+    return false;
+  }
+}
+
 /** A keychain that will not open is a missing key, not a crash. */
 export async function readSecret(key: string): Promise<string | null> {
   try {

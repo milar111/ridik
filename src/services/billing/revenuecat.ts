@@ -224,6 +224,45 @@ function toPlan(pkg: any): Plan | null {
   };
 }
 
+/**
+ * Record who this install is, for the backend to verify.
+ *
+ * `ASSISTANT_TOKEN_STORE_KEY` was read in two places and written by nobody, so a
+ * store build's `getToken()` returned null for ever: the hosted provider
+ * reported itself unconfigured and every turn fell to the offline matcher. A
+ * deployed backend would not have fixed it — the app had nothing to present.
+ *
+ * The id is RevenueCat's app user id. It is an identifier rather than a
+ * credential, and `server/revenuecat.ts` says at length what that does and does
+ * not buy: the server never trusts a client's claim about its *entitlement*, it
+ * asks RevenueCat with its own secret key. What the id gives the server is
+ * someone to ask about.
+ *
+ * Failure is deliberately silent. This runs inside `configure()` during
+ * bootstrap, and a keychain that will not open must not stop billing from coming
+ * up — the turn that needed a token degrades exactly as an unconfigured one does.
+ */
+async function rememberIdentity(Purchases: PurchasesModule): Promise<void> {
+  try {
+    const id = await (Purchases as unknown as { getAppUserID(): Promise<string> }).getAppUserID();
+    if (!id) return;
+    /*
+     * Required here rather than imported at the top, and not for style.
+     * `@/features/voice/mode` imports `expo-secure-store`, which ships
+     * untransformed ESM, and this module is loaded by the `logic` test project —
+     * plain Node, no transform for node_modules. A top-level import made
+     * `revenuecat-config.test.ts` fail to parse at all. Inside the function the
+     * module is only reached on a device, where the SDK exists; the same trick
+     * and the same reason as `services/notifications/responses.ts`.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mode = require('@/features/voice/mode') as typeof import('@/features/voice/mode');
+    await mode.writeSecret(mode.ASSISTANT_TOKEN_STORE_KEY, id);
+  } catch (error) {
+    log.warn('could not record the billing identity', error);
+  }
+}
+
 export function createRevenueCatProvider(): BillingProvider {
   return {
     name: 'revenuecat',
@@ -237,6 +276,7 @@ export function createRevenueCatProvider(): BillingProvider {
       const key = apiKey();
       if (!Purchases || !key) return;
       await Purchases.configure({ apiKey: key });
+      await rememberIdentity(Purchases);
       log.info('billing configured');
     },
 
@@ -363,7 +403,14 @@ export function createRevenueCatProvider(): BillingProvider {
     async restore() {
       const Purchases = load();
       if (!Purchases) throw new Error('Purchases are not available in this build.');
-      return toEntitlement(await Purchases.restorePurchases());
+      const info = await Purchases.restorePurchases();
+      // A restore can alias this install onto the identity that made the
+      // original purchase, so the id captured at `configure()` may now be the
+      // wrong one. Re-reading it here is the difference between a restored
+      // subscriber whose backend requests are attributed to them and one whose
+      // requests are attributed to a stranger with no entitlement.
+      await rememberIdentity(Purchases);
+      return toEntitlement(info);
     },
 
     /**

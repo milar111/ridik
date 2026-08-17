@@ -78,7 +78,7 @@
     "web": "expo start --web",
     "prebuild": "expo prebuild --clean",
     "typecheck": "tsc --noEmit",
-    "test": "jest --selectProjects logic ui",
+    "test": "jest --selectProjects logic ui server",
     "test:logic": "jest --selectProjects logic",
     "test:ui": "jest --selectProjects ui",
     "lint": "expo lint",
