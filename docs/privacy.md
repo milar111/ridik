@@ -1,3 +1,9 @@
+---
+layout: default
+title: Privacy Policy
+description: Ridik — Privacy Policy
+---
+
 # Ridik — Privacy Policy
 
 **Last updated: 17 August 2026**

@@ -1,3 +1,9 @@
+---
+layout: default
+title: Terms of Use
+description: Ridik — Terms of Use
+---
+
 # Ridik — Terms of Use
 
 **Last updated: 17 August 2026**
@@ -77,7 +83,7 @@ We may withdraw access to the paid assistant for a user who does these things.
 
 ## Third parties
 
-Using Ridik involves services described in the [Privacy Policy](privacy.md):
+Using Ridik involves services described in the [Privacy Policy](privacy.html):
 Google (Gemini, and Calendar if you connect it), your phone's speech recognition,
 and optionally OpenAI and OneSignal. Their terms apply to their part.
 

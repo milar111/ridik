@@ -1,0 +1,13 @@
+# GitHub Pages, for the two legal pages the stores require.
+#
+# `theme` is what makes them render as readable HTML rather than as a wall of
+# unstyled text. Without a `_config.yml` and without front matter on the pages
+# themselves, Jekyll copies a .md file verbatim — so the "privacy policy" a
+# reviewer opens would be raw markdown, or a download prompt.
+#
+# There is deliberately no CNAME here: the custom domain belongs to the
+# `milar111.github.io` user site, and Pages applies it to project sites
+# automatically. A second CNAME in this repo would fight it.
+theme: jekyll-theme-primer
+title: Ridik
+description: A voice organiser that keeps your life on your phone.
