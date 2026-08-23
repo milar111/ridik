@@ -24,10 +24,17 @@ and the test is what stops one being added that nobody can read.
 
 | Level | Char | Light | Dark | Means |
 | --- | --- | --- | --- | --- |
-| cold | `0` | `#F7CFB8` | `#3C190D` | nothing here |
-| low | `1` | `#E9A185` | `#772C19` | a little |
-| mid | `2` | `#D86B4A` | `#BB4328` | claimed / done |
+| cold | `0` | `#F2CBBD` | `#4F2216` | nothing here |
+| low | `1` | `#E59E89` | `#82321F` | a little |
+| mid | `2` | `#D86F52` | `#B84329` | claimed / done |
 | hot | `3` | `#C7360F` | `#FF5A36` | **the one urgent thing** |
+
+These are the default ember composited over `tile` at 23 / 46 / 71% (light) and
+24 / 46 / 70% (dark) — the arithmetic in `theme.ts` → `embers`, done once. The
+three surfaces below hold these exact strings and `widget-tokens.test.ts` fails
+if any of them drifts; this table used to carry a ramp solved against the app's
+`bg` rather than the widget's `tile`, which is the ground the family is actually
+drawn on.
 
 Defined once per platform — `src/ui/theme.ts` (`cells`),
 `RidikPalette.swift` (`heatCold`…`heatHot`), and the plugin's

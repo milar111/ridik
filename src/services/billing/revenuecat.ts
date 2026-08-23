@@ -79,10 +79,40 @@ function config(): Config {
   return ((Constants.expoConfig?.extra ?? {}) as { revenueCat?: Config }).revenueCat ?? {};
 }
 
+/**
+ * The prefix every key the *native* SDK will accept carries, per platform.
+ *
+ * RevenueCat issues a key per billing backend — `appl_` for the App Store,
+ * `goog_` for Play, `amzn_` for Amazon — alongside Web Billing keys (`rcb_`,
+ * and `test_` for its sandbox) that belong to a completely different SDK. They
+ * are all "a RevenueCat key" and all look plausible in an `.env`, which is
+ * exactly the problem: hand the Android SDK anything but `goog_`/`amzn_` and it
+ * puts up its own **"Wrong API Key"** dialog and *kills the process* on launch.
+ * Not a degraded paywall — an app that cannot be opened at all.
+ */
+const NATIVE_KEY_PREFIXES = { ios: ['appl_'], android: ['goog_', 'amzn_'] } as const;
+
+/**
+ * A key that is present but not this platform's is treated as **absent**.
+ *
+ * That is the whole fix, and it is deliberately not a thrown error or a warning
+ * the user can dismiss. `isAvailable()` already has a correct answer for "no key
+ * here" — register the provider that reports `sells: false`, keep the developer
+ * caps, sell nothing — and a Web Billing key on a phone means precisely that:
+ * nothing on this device can be bought with it. Letting it through so the SDK
+ * can object is how a shared `test_` key in `.env` cost an Android launch.
+ *
+ * Note this cannot mask a real misconfiguration on a store build: a hosted
+ * build forces `storeBuild: true` from the backend URL rather than asking the
+ * billing provider, so the paywall is still reached and still says the store
+ * could not be read — see the four states in `allowance.ts`.
+ */
 function apiKey(): string | null {
   const extra = config();
-  const key = Platform.OS === 'ios' ? extra.ios : extra.android;
-  return key?.trim() ? key.trim() : null;
+  const key = (Platform.OS === 'ios' ? extra.ios : extra.android)?.trim();
+  if (!key) return null;
+  const accepted = Platform.OS === 'ios' ? NATIVE_KEY_PREFIXES.ios : NATIVE_KEY_PREFIXES.android;
+  return accepted.some((prefix) => key.startsWith(prefix)) ? key : null;
 }
 
 /** Read per call, not cached: `expoConfig` is not populated at module load. */
@@ -104,7 +134,7 @@ function load(): PurchasesModule | null {
   }
 }
 
-/** True when the package is compiled in and a key exists for this platform. */
+/** True when the package is compiled in and a key *this platform's SDK accepts* exists. */
 export function isAvailable(): boolean {
   return load() !== null && apiKey() !== null;
 }

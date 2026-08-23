@@ -55,7 +55,7 @@ const RESOURCES: Record<string, string> = require('../../../plugins/withRidikAnd
   .resourceFiles();
 
 /**
- * `heatCold: Color(rgb: 0xF7CFB8)` inside a named `static let … = RidikPalette(`
+ * `heatCold: Color(rgb: 0xF2CBBD)` inside a named `static let … = RidikPalette(`
  * block.
  *
  * The default's two are `light` and `dark`; every other ember's are its name and
