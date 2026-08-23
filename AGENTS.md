@@ -487,6 +487,24 @@ adb logcat -d -s ReactNativeJS -s AndroidRuntime
 
 A change is not verified until it has run on both.
 
+**And a green log is not a running app.** A release APK carrying a RevenueCat
+Web Billing key (`test_`, `rcb_`) booted its JavaScript completely — `database
+ready`, `push ready`, `background work registered`, no `ClassNotFoundException`
+— and *then* the native SDK put up a "Wrong API Key" dialog and killed the
+process. A logcat check passed for six days while the artefact could not be
+opened. `apiKey()` refuses a foreign key now, but the lesson generalises: the
+native side can kill a process after the JS side has reported success.
+
+So every verification ends with two things a log cannot give you:
+
+```bash
+adb exec-out screencap -p > /tmp/shot.png   # LOOK at it
+adb shell pidof ai.dby.ridik                # empty means it died
+```
+
+Same on iOS: `xcrun simctl io booted screenshot`, and check the process is still
+there. Screenshot after the state you care about, not just at launch.
+
 **There is no `adb shell input tap` for the iOS simulator.** `simctl` can boot,
 install, launch, `openurl` and screenshot, and that is the whole list — nothing
 in it touches the screen. So anything behind a tap (a paywall card, a purchase
