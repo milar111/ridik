@@ -15,6 +15,7 @@ import {
   useHabits,
   useLogHabit,
 } from '@/hooks';
+import { HabitRings } from '@/features/habits';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { REFLOW_MS } from '@/ui/motion';
 import { useStaggeredEntry } from '@/ui/motionHooks';
@@ -112,6 +113,23 @@ function HabitList() {
 
   return (
     <View style={{ gap: spacing.sm }}>
+      {/*
+        The set before the individuals: the rings answer "how am I doing" in one
+        glance, which is the question the thirty-five-cell grids below can only
+        answer by being counted.
+      */}
+      <HabitRings
+        habits={ordered}
+        gridStart={calendar.gridStart}
+        today={calendar.today}
+        days={calendar.days}
+      />
+      {/*
+        Named as a region because the rings above now carry every habit's name
+        too: a query for "Workout" matches twice, and the thing worth asserting
+        about order is this list.
+      */}
+      <View testID="habit-cards" style={{ gap: spacing.sm }}>
       {ordered.map((habit, index) => (
         // The card is the unit that arrives, not its 35 grid cells: the grid is
         // a record you read, and thirty-five things fading in one after another
@@ -134,6 +152,7 @@ function HabitList() {
           />
         </Animated.View>
       ))}
+      </View>
     </View>
   );
 }

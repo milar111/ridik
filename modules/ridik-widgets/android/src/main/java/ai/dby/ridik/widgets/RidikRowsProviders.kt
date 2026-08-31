@@ -7,7 +7,7 @@ import android.content.Context
 import android.os.Bundle
 
 /**
- * The four faces the launcher can place beside Today.
+ * The fourteen faces the launcher can place beside Today.
  *
  * Each is its own receiver because Android identifies a widget by its provider
  * class: one class is one row in the picker, one label and one description. They
@@ -71,6 +71,157 @@ class RidikListWidgetProvider : AppWidgetProvider() {
 }
 
 /**
+ * Now / Next / Later. Medium and large only — `drawnSize` floors a squeezed tile
+ * to medium rather than asking for a small layout that does not exist.
+ */
+class RidikNowNextWidgetProvider : AppWidgetProvider() {
+  override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) =
+    drawRows(context, manager, ids, RidikRowsFace.Kind.NOWNEXT)
+
+  override fun onAppWidgetOptionsChanged(
+    context: Context,
+    manager: AppWidgetManager,
+    id: Int,
+    options: Bundle?,
+  ) = drawRows(context, manager, intArrayOf(id), RidikRowsFace.Kind.NOWNEXT)
+}
+
+/**
+ * The completion rings. All three sizes — two rings on small, four on medium,
+ * six on large — because the face degrades by showing fewer habits rather than
+ * by drawing the same ones smaller.
+ */
+class RidikRingsWidgetProvider : AppWidgetProvider() {
+  override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) =
+    drawRows(context, manager, ids, RidikRowsFace.Kind.RINGS)
+
+  override fun onAppWidgetOptionsChanged(
+    context: Context,
+    manager: AppWidgetManager,
+    id: Int,
+    options: Bundle?,
+  ) = drawRows(context, manager, intArrayOf(id), RidikRowsFace.Kind.RINGS)
+}
+
+/**
+ * People. Small and medium like Tasks, whose strip it borrows.
+ */
+class RidikPeopleWidgetProvider : AppWidgetProvider() {
+  override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) =
+    drawRows(context, manager, ids, RidikRowsFace.Kind.PEOPLE)
+
+  override fun onAppWidgetOptionsChanged(
+    context: Context,
+    manager: AppWidgetManager,
+    id: Int,
+    options: Bundle?,
+  ) = drawRows(context, manager, intArrayOf(id), RidikRowsFace.Kind.PEOPLE)
+}
+
+/**
+ * The week as seven cells. Small and medium — there is no eighth day for a
+ * large tile to buy, so `drawnSize` folds one back rather than drawing the same
+ * seven things taller.
+ */
+class RidikChainWidgetProvider : AppWidgetProvider() {
+  override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) =
+    drawRows(context, manager, ids, RidikRowsFace.Kind.CHAIN)
+
+  override fun onAppWidgetOptionsChanged(
+    context: Context,
+    manager: AppWidgetManager,
+    id: Int,
+    options: Bundle?,
+  ) = drawRows(context, manager, intArrayOf(id), RidikRowsFace.Kind.CHAIN)
+}
+
+/**
+ * The countdown. Small and medium — the face is one number, one title and one
+ * place, and a large tile would be that with 300dp of ground under it.
+ */
+class RidikCountdownWidgetProvider : AppWidgetProvider() {
+  override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) =
+    drawRows(context, manager, ids, RidikRowsFace.Kind.COUNTDOWN)
+
+  override fun onAppWidgetOptionsChanged(
+    context: Context,
+    manager: AppWidgetManager,
+    id: Int,
+    options: Bundle?,
+  ) = drawRows(context, manager, intArrayOf(id), RidikRowsFace.Kind.COUNTDOWN)
+}
+
+/**
+ * Focus. Small and medium — the face is a clock, a label and a strip.
+ */
+class RidikFocusWidgetProvider : AppWidgetProvider() {
+  override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) =
+    drawRows(context, manager, ids, RidikRowsFace.Kind.FOCUS)
+
+  override fun onAppWidgetOptionsChanged(
+    context: Context,
+    manager: AppWidgetManager,
+    id: Int,
+    options: Bundle?,
+  ) = drawRows(context, manager, intArrayOf(id), RidikRowsFace.Kind.FOCUS)
+}
+
+/**
+ * The four rastered faces — Skyline, Sundial, Route and Term.
+ *
+ * Four classes for the same reason as every other one here: Android identifies a
+ * widget by its provider class, and one class is one row in the picker. They
+ * share `plotted`, which is where all four are actually drawn.
+ */
+class RidikHorizonWidgetProvider : AppWidgetProvider() {
+  override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) =
+    drawRows(context, manager, ids, RidikRowsFace.Kind.HORIZON)
+
+  override fun onAppWidgetOptionsChanged(
+    context: Context,
+    manager: AppWidgetManager,
+    id: Int,
+    options: Bundle?,
+  ) = drawRows(context, manager, intArrayOf(id), RidikRowsFace.Kind.HORIZON)
+}
+
+class RidikSundialWidgetProvider : AppWidgetProvider() {
+  override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) =
+    drawRows(context, manager, ids, RidikRowsFace.Kind.SUNDIAL)
+
+  override fun onAppWidgetOptionsChanged(
+    context: Context,
+    manager: AppWidgetManager,
+    id: Int,
+    options: Bundle?,
+  ) = drawRows(context, manager, intArrayOf(id), RidikRowsFace.Kind.SUNDIAL)
+}
+
+class RidikRouteWidgetProvider : AppWidgetProvider() {
+  override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) =
+    drawRows(context, manager, ids, RidikRowsFace.Kind.ROUTE)
+
+  override fun onAppWidgetOptionsChanged(
+    context: Context,
+    manager: AppWidgetManager,
+    id: Int,
+    options: Bundle?,
+  ) = drawRows(context, manager, intArrayOf(id), RidikRowsFace.Kind.ROUTE)
+}
+
+class RidikTermWidgetProvider : AppWidgetProvider() {
+  override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) =
+    drawRows(context, manager, ids, RidikRowsFace.Kind.TERM)
+
+  override fun onAppWidgetOptionsChanged(
+    context: Context,
+    manager: AppWidgetManager,
+    id: Int,
+    options: Bundle?,
+  ) = drawRows(context, manager, intArrayOf(id), RidikRowsFace.Kind.TERM)
+}
+
+/**
  * Draws one kind into every copy of it that is placed.
  *
  * Per widget id rather than once for all of them: the same face is a month plate
@@ -113,6 +264,16 @@ internal object RidikWidgets {
     RidikTasksWidgetProvider::class.java to RidikRowsFace.Kind.TASKS,
     RidikHabitsWidgetProvider::class.java to RidikRowsFace.Kind.HABITS,
     RidikListWidgetProvider::class.java to RidikRowsFace.Kind.LIST,
+    RidikNowNextWidgetProvider::class.java to RidikRowsFace.Kind.NOWNEXT,
+    RidikRingsWidgetProvider::class.java to RidikRowsFace.Kind.RINGS,
+    RidikPeopleWidgetProvider::class.java to RidikRowsFace.Kind.PEOPLE,
+    RidikChainWidgetProvider::class.java to RidikRowsFace.Kind.CHAIN,
+    RidikCountdownWidgetProvider::class.java to RidikRowsFace.Kind.COUNTDOWN,
+    RidikHorizonWidgetProvider::class.java to RidikRowsFace.Kind.HORIZON,
+    RidikSundialWidgetProvider::class.java to RidikRowsFace.Kind.SUNDIAL,
+    RidikRouteWidgetProvider::class.java to RidikRowsFace.Kind.ROUTE,
+    RidikTermWidgetProvider::class.java to RidikRowsFace.Kind.TERM,
+    RidikFocusWidgetProvider::class.java to RidikRowsFace.Kind.FOCUS,
   )
 
   fun redrawAll(context: Context) {

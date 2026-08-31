@@ -8,6 +8,7 @@
  */
 import {
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
   type UseMutationResult,
@@ -57,6 +58,48 @@ export function useHabitHistory(
     queryKey: qk.habits.history(id ?? '', range.from ?? null, range.to ?? null),
     queryFn: () => getRepositories().habits.habitHistory(id!, range),
     enabled: (options.enabled ?? true) && Boolean(id),
+  });
+}
+
+/** What one habit's history came back as, for the many-habit read below. */
+export type HabitHistories = {
+  /** Habit id to the days it was logged on. Absent until that habit resolves. */
+  byHabit: Record<string, ReadonlySet<LocalDate>>;
+  /** True until every habit has answered. */
+  pending: boolean;
+};
+
+/**
+ * Every habit's history over one window, in a single hook.
+ *
+ * `useHabitHistory` is per-habit, and a screen showing a figure *across* habits
+ * cannot call it in a loop — a hook per iteration is the "Rendered more hooks
+ * than during the previous render" crash that `AGENTS.md` warns about, and the
+ * usual workaround (a component per habit) cannot hand its result back up to be
+ * totalled. `useQueries` is the sanctioned way to hold a variable number of
+ * queries in one place: one hook, N subscriptions, one array of results.
+ *
+ * The query keys are deliberately identical to `useHabitHistory`'s, so a screen
+ * that renders both a per-habit grid and a cross-habit total shares one fetch
+ * per habit rather than doubling every read.
+ */
+export function useHabitHistories(
+  ids: readonly string[],
+  range: { from?: LocalDate; to?: LocalDate } = {},
+): HabitHistories {
+  return useQueries({
+    queries: ids.map((id) => ({
+      queryKey: qk.habits.history(id, range.from ?? null, range.to ?? null),
+      queryFn: () => getRepositories().habits.habitHistory(id, range),
+    })),
+    combine: (results) => {
+      const byHabit: Record<string, ReadonlySet<LocalDate>> = {};
+      results.forEach((result, index) => {
+        const id = ids[index];
+        if (id && result.data) byHabit[id] = new Set(result.data);
+      });
+      return { byHabit, pending: results.some((result) => result.isPending) };
+    },
   });
 }
 

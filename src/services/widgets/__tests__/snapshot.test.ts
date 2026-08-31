@@ -197,8 +197,15 @@ describe('buildWidgetSnapshot', () => {
     expect(built.list?.open).toBe(9);
     // Both counts survive the cap, or the tile says "4 of 6" about a list of 12.
     expect(built.list?.total).toBe(12);
-    expect(built.list?.rows).toHaveLength(6);
-    expect(built.list?.rows.every((row) => !row.done)).toBe(true);
+    // Eleven, not six: the list is the one face with a large size, and
+    // `LIST_ROW_CAP` feeds it. The point of the test is that `open` and `total`
+    // are counted *before* whatever the cap is — not what the cap happens to be.
+    expect(built.list?.rows).toHaveLength(11);
+    // Open first, still. Nine open rows fill most of the cap and the two ticked
+    // ones that fit come after them, which is what lets a face ration the ticked
+    // rows by taking from the end rather than re-sorting the list itself.
+    expect(built.list?.rows.slice(0, 9).every((row) => !row.done)).toBe(true);
+    expect(built.list?.rows.slice(9).every((row) => row.done)).toBe(true);
   });
 
   it('says there is no list rather than drawing an empty one', () => {
@@ -605,5 +612,156 @@ describe('the month plate counts classes as well as events', () => {
     }).month;
 
     expect(built.load[16]).toBe('2');
+  });
+});
+
+/**
+ * The week is its own field rather than seven characters sliced out of the
+ * month plate, and these tests are about the reason why: a week straddling the
+ * 1st is half in a month the plate does not cover, and slicing would draw those
+ * days `cold` — indistinguishable from "free". A tile that confidently reports
+ * an empty Monday it knows nothing about is the failure this field prevents.
+ */
+describe('the week', () => {
+  it('starts on the Monday of the day the snapshot describes', () => {
+    // 2026-08-11 is a Tuesday, so the week starts on the 10th.
+    const built = buildWidgetSnapshot({ snapshot: snapshot(), now: NOON });
+    expect(built.week.startDate).toBe('2026-08-10');
+    expect(built.week.load).toHaveLength(7);
+    expect(built.week.todayIndex).toBe(1);
+  });
+
+  it('loads each day from the same arithmetic the plate uses', () => {
+    const monday = DateTime.fromISO('2026-08-10T09:00', { zone: ZONE }).toMillis();
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON,
+      monthEvents: [
+        // Three hours on the Monday: past the two-hour step, so `mid`.
+        { startsAt: monday, endsAt: monday + 3 * 3_600_000 },
+      ],
+    });
+
+    expect(built.week.load[0]).toBe('2');
+    // Everything else untouched, and cold rather than absent.
+    expect(built.week.load.slice(1)).toBe('000000');
+  });
+
+  it('carries a day that falls in the previous month', () => {
+    // 2026-09-01 is a Tuesday, so its week starts on Monday 31 August — a day
+    // the September plate has no cell for at all.
+    const { start, end } = dayRange('2026-09-01', ZONE);
+    const augustMonday = DateTime.fromISO('2026-08-31T10:00', { zone: ZONE }).toMillis();
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot({ date: '2026-09-01', dayStart: start, dayEnd: end, at: start }),
+      now: start + 12 * 3_600_000,
+      monthEvents: [{ startsAt: augustMonday, endsAt: augustMonday + 4 * 3_600_000 }],
+    });
+
+    expect(built.week.startDate).toBe('2026-08-31');
+    // The load is real, not cold: this is the whole point of the field.
+    expect(built.week.load[0]).toBe('2');
+    expect(built.week.todayIndex).toBe(1);
+  });
+
+  it('reports -1 for a payload whose day is not in its own week', () => {
+    // Reachable from a stale payload: the tile must be able to tell that none
+    // of these seven days is today rather than ringing the wrong one.
+    const built = buildWidgetSnapshot({ snapshot: snapshot(), now: NOON });
+    const stale = { ...built.week, todayIndex: -1 };
+    expect(stale.todayIndex).toBe(-1);
+  });
+});
+
+describe('the focus session', () => {
+  const POMODORO = [
+    { kind: 'focus' as const, minutes: 25 },
+    { kind: 'break' as const, minutes: 5 },
+    { kind: 'focus' as const, minutes: 25 },
+    { kind: 'break' as const, minutes: 5 },
+  ];
+
+  const session = (over: Record<string, unknown> = {}) => ({
+    label: 'Materials revision',
+    phases: POMODORO,
+    phaseIndex: 0,
+    phaseStartedAt: NOON,
+    pausedAt: null,
+    status: 'running' as const,
+    ...over,
+  });
+
+  it('is null when nothing is running, which is the ordinary case', () => {
+    expect(buildWidgetSnapshot({ snapshot: snapshot(), now: NOON }).focus).toBeNull();
+  });
+
+  it('cuts the session into sixteen cells of its own length, not the day', () => {
+    const built = buildWidgetSnapshot({ snapshot: snapshot(), now: NOON, focus: session() });
+    expect(built.focus?.load).toHaveLength(16);
+    expect(built.focus?.breaks).toHaveLength(16);
+    // 60 minutes over 16 cells is 3.75 minutes each. Focus runs 0–25, so cells
+    // 0–6 are focus (26.25 > 25 starts at 26.25, which is the break).
+    expect(built.focus?.load).toBe('2222222122222221');
+  });
+
+  it('marks a phase boundary and never cell zero', () => {
+    const built = buildWidgetSnapshot({ snapshot: snapshot(), now: NOON, focus: session() });
+    expect(built.focus?.breaks[0]).toBe('0');
+    // The first break cell, and the first cell back on focus after it.
+    expect(built.focus?.breaks[7]).toBe('1');
+    expect(built.focus?.breaks[8]).toBe('1');
+  });
+
+  it('sends the moments the platform counts to, not a duration', () => {
+    const built = buildWidgetSnapshot({ snapshot: snapshot(), now: NOON, focus: session() });
+    expect(built.focus?.phaseEndsAt).toBe(NOON + 25 * 60_000);
+    // The whole plan: 25 running now, then 5 + 25 + 5 still to come.
+    expect(built.focus?.endsAt).toBe(NOON + 60 * 60_000);
+  });
+
+  it('sends no end at all while paused, rather than a frozen one', () => {
+    // A paused session has no end: the minutes left are known, when they finish
+    // is not, and a countdown to a receding moment is wrong every second.
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON + 10 * 60_000,
+      focus: session({ status: 'paused', pausedAt: NOON + 6 * 60_000 }),
+    });
+    expect(built.focus?.status).toBe('paused');
+    expect(built.focus?.phaseEndsAt).toBeNull();
+    expect(built.focus?.endsAt).toBeNull();
+    // And the marker holds where it was paused rather than drifting with the
+    // clock — 6 minutes in is cell 1 of a 3.75-minute grid.
+    expect(built.focus?.nowCell).toBe(1);
+  });
+
+  it('measures elapsed from the phase, never from the session start', () => {
+    // Third phase (the second focus block) starts 30 minutes in; two minutes
+    // into it is 32 minutes, which is cell 8 of a 3.75-minute grid.
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON + 2 * 60_000,
+      focus: session({ phaseIndex: 2, phaseStartedAt: NOON }),
+    });
+    expect(built.focus?.nowCell).toBe(8);
+    expect(built.focus?.phase).toBe('focus');
+  });
+
+  it('reports the phase it is in, because a break is still a session', () => {
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON,
+      focus: session({ phaseIndex: 1 }),
+    });
+    expect(built.focus?.phase).toBe('break');
+  });
+
+  it('refuses a plan with no minutes in it rather than dividing by zero', () => {
+    const built = buildWidgetSnapshot({
+      snapshot: snapshot(),
+      now: NOON,
+      focus: session({ phases: [{ kind: 'focus' as const, minutes: 0 }] }),
+    });
+    expect(built.focus).toBeNull();
   });
 });

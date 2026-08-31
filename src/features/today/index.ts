@@ -6,8 +6,16 @@
  * this way is what lets each one sit behind its own error boundary — a bad
  * commitment row must not take the agenda down with it.
  */
-export { buildAgenda, isAgendaEmpty, type Agenda, type AgendaItem, type AgendaKind } from './agenda';
+export {
+  buildAgenda,
+  clashingKeys,
+  isAgendaEmpty,
+  type Agenda,
+  type AgendaItem,
+  type AgendaKind,
+} from './agenda';
 export { AgendaList } from './AgendaList';
+export { DayArc } from './DayArc';
 export { BriefingCard } from './BriefingCard';
 export { Commitments } from './Commitments';
 export { DueToday } from './DueToday';

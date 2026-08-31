@@ -13,7 +13,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
-import { localDateOf, monthRange } from '@/core/time';
+import { DateTime, localDateOf, monthRange } from '@/core/time';
 import type { MonthInterval } from '@/services/widgets/snapshot';
 import type { LocalDate } from '@/core/time';
 import { getRepositories } from '@/repositories';
@@ -48,7 +48,20 @@ export function useWidgetSources({ date, zone, habitIds }: UseWidgetSourcesInput
     if (!date || !zone) return null;
     // Anchored at noon, because some zones have no midnight on the day the
     // clocks go forward and `monthRange` would land in the previous month.
-    return monthRange(Date.parse(`${date}T12:00:00Z`), zone);
+    const range = monthRange(Date.parse(`${date}T12:00:00Z`), zone);
+
+    // Widened to cover the current week as well as the month, because they are
+    // not the same span: a week straddling the 1st has days in the month either
+    // side. The Chain face draws all seven, and a day this query did not load
+    // is drawn `cold` — which is indistinguishable from "free", so the tile
+    // would report an empty Monday it knows nothing about.
+    const todayNoon = DateTime.fromISO(`${date}T12:00`, { zone });
+    const weekStart = todayNoon.startOf('week').startOf('day');
+
+    return {
+      start: Math.min(range.start, weekStart.toMillis()),
+      end: Math.max(range.end, weekStart.plus({ days: 7 }).toMillis()),
+    };
   }, [date, zone]);
 
   /**

@@ -61,7 +61,9 @@ async function performRegistration(): Promise<Result<BackgroundWorkRegistration>
     await configureNotifications();
 
     const osStatus = await readOsStatus();
-    const taskRegistered = (await isTaskManagerAvailable()) ? await ensureTaskRegistered() : false;
+    const taskRegistered = (await isTaskManagerAvailable())
+      ? await ensureTaskRegistered(osStatus)
+      : false;
 
     // Both of these are OS-side and keep firing even when background refresh is
     // switched off for the app, so neither is gated on `taskRegistered`.
@@ -151,9 +153,31 @@ async function isTaskManagerAvailable(): Promise<boolean> {
   return TaskManager.isAvailableAsync().catch(() => false);
 }
 
-async function ensureTaskRegistered(): Promise<boolean> {
+/**
+ * Registers the OS task — unless the OS has already told us it will not run one.
+ *
+ * `registerTaskAsync` does **not** throw on a device reporting `Restricted`. It
+ * writes a `console.warn` and returns, having registered nothing, so the old
+ * unconditional call cost two things. The visible one was a warning on every
+ * launch of every iOS simulator, which is the one environment where background
+ * refresh is *always* restricted. The one that mattered was silent:
+ * `taskRegistered: true` was then reported for a task that does not exist, and
+ * that flag is read straight out onto `app/developer.tsx`. A read-out that
+ * cannot say whether it is bad is a decoration.
+ *
+ * `osStatus` is passed in rather than read again — `performRegistration` has
+ * already asked, and asking twice is how the two answers start disagreeing.
+ *
+ * The order matters: a task registered while the OS was still `Available` stays
+ * registered after the user revokes background refresh, so "already registered"
+ * is checked *before* the restriction and is still the honest answer.
+ */
+async function ensureTaskRegistered(
+  osStatus: BackgroundTask.BackgroundTaskStatus | null,
+): Promise<boolean> {
   try {
     if (await TaskManager.isTaskRegisteredAsync(BACKGROUND_SYNC_TASK)) return true;
+    if (osStatus === BackgroundTask.BackgroundTaskStatus.Restricted) return false;
     await BackgroundTask.registerTaskAsync(BACKGROUND_SYNC_TASK, {
       minimumInterval: MINIMUM_INTERVAL_MINUTES,
     });

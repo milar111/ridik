@@ -12,6 +12,20 @@ jest.mock('@/hooks/useChecklists', () => ({
 }));
 jest.mock('@/services/widgets/publish', () => ({ publishWidgetSnapshot: jest.fn() }));
 jest.mock('@/hooks/useWidgetSources', () => ({ useWidgetSources: jest.fn() }));
+/**
+ * Mocked **as a hook**, not as a plain function.
+ *
+ * `useActiveFocusSession` calls `useQuery`, and a stub that calls nothing makes
+ * the hook counts match by accident — which is how a real hook-order fork gets
+ * past a test that was written for it (AGENTS.md records the `PlanGroup` case).
+ * `useRef` here keeps this stub costing exactly one hook, as the real one does.
+ */
+jest.mock('@/hooks/useFocus', () => {
+  const { useRef } = jest.requireActual('react');
+  return {
+    useActiveFocusSession: () => useRef({ data: null, isPending: false }).current,
+  };
+});
 
 const { useToday } = jest.requireMock('@/hooks/useToday');
 const { useNow } = jest.requireMock('@/features/today/useNow');

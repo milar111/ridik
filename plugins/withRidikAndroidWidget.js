@@ -75,6 +75,15 @@ const IDS = {
   nextTitle: 'ridik_next_title',
   nextSub: 'ridik_next_sub',
   timer: 'ridik_timer',
+  /**
+   * The word under the live digits — "to leave" / "to go" / "on this break".
+   *
+   * Its own view rather than a prefix inside the `Chronometer`'s format string.
+   * A `Chronometer` renders one line, so "starts in 34:12" set at 34sp is
+   * fifteen monospace characters and runs off the tile; and the *verb* is not
+   * the reading, it is the label on it. iOS sets the same word the same way.
+   */
+  timerNote: 'ridik_timer_note',
   dayArea: 'ridik_day_area',
   plateArea: 'ridik_plate_area',
   railArea: 'ridik_rail_area',
@@ -96,6 +105,47 @@ const IDS = {
   wday: (c) => `ridik_wday_${c}`,
   debt: (i) => `ridik_debt_${i}`,
   row: (i) => `ridik_row_${i}`,
+  /**
+   * Now / Next / Later — three slots, each a label over a bar over a time and a
+   * title. Their own ids rather than the row ids: a row is a horizontal line and
+   * these are vertical columns, and reusing `ridik_row_<n>` for both would make
+   * `drawRows` able to address the wrong face's views by accident.
+   */
+  slotArea: 'ridik_slots',
+  /**
+   * The completion rings. `ridik_ring_<n>` is an `ImageView` the Kotlin fills
+   * with a generated bitmap; the percentage sits in its own view beside it
+   * rather than being painted into the bitmap, so the *text* stays a real
+   * `TextView` the launcher colours and a screen reader can reach.
+   */
+  ringArea: 'ridik_rings',
+  /**
+   * The week as seven cells — the Chain face.
+   *
+   * The weekday letters above them carry no id at all, because Monday-first is
+   * not a thing the payload can change: `buildWeek` fixes the order and the
+   * layout states it. Only the dates move, so only the dates are addressed.
+   */
+  /**
+   * The one `ImageView` on each of the four rastered faces.
+   *
+   * Sundial's arc, Horizon's skyline, Route's segments and Term's dot field are
+   * each a single bitmap, because `RemoteViews` cannot set a width or a height
+   * before API 31, cannot draw a curve at all, and cannot hold 365 views. See
+   * `RidikPlots.kt` for why the bitmap is a white mask and never a colour.
+   */
+  plot: 'ridik_plot',
+  plotNote: 'ridik_plot_note',
+  chainArea: 'ridik_chain',
+  chain: (i) => `ridik_chain_${i}`,
+  chainDate: (i) => `ridik_chain_date_${i}`,
+  ring: (i) => `ridik_ring_${i}`,
+  ringValue: (i) => `ridik_ring_value_${i}`,
+  ringName: (i) => `ridik_ring_name_${i}`,
+  slotLabel: (i) => `ridik_slot_label_${i}`,
+  slotBar: (i) => `ridik_slot_bar_${i}`,
+  slotTime: (i) => `ridik_slot_time_${i}`,
+  slotTitle: (i) => `ridik_slot_title_${i}`,
   rowLead: (i) => `ridik_row_lead_${i}`,
   rowText: (i) => `ridik_row_text_${i}`,
   /**
@@ -375,6 +425,22 @@ const RAIL_DAYS = { small: 7, medium: 21, large: 35 };
 const DEBT_SLOTS = { small: 12, medium: 24, large: 24 };
 const ROW_SLOTS_BY_SIZE = { small: 4, medium: 6, large: 6 };
 
+/**
+ * The checklist's slots — the one face that draws more than six.
+ *
+ * A large tile holds eleven rows at 20dp with its header, and a shopping list is
+ * the one thing on a home screen you want all of. Its own table rather than a
+ * bigger `ROW_SLOTS_BY_SIZE`, because RemoteViews cannot loop: every slot is
+ * written into the XML literally, so raising the shared number would add five
+ * permanently hidden views to every agenda, tasks and habits layout for a height
+ * only this face offers.
+ *
+ * Must equal `Slots.listRows` in `RidikCells.kt`. This table decides how many
+ * `ridik_row_<n>` views exist; the Kotlin asking for more gets id 0 back and
+ * drops those rows in silence.
+ */
+const LIST_ROW_SLOTS_BY_SIZE = { small: 4, medium: 6, large: 11 };
+
 /** Rail slots are fixed at six, whatever the size: a board occupies its rectangle. */
 const RAIL_SLOTS = 6;
 
@@ -590,9 +656,12 @@ const WIDGETS = [
     label: 'ridik_rows_habits_label',
     description: 'ridik_rows_habits_description',
     title: 'Ridik — Habits',
-    blurb: 'Six rails, five weeks, and whether today is lit.',
+    blurb: 'Six rails, three weeks, and whether today is lit.',
     layout: 'ridik_habits',
-    sizes: ['small', 'medium', 'large'],
+    // No large. Six rows cannot grow to meet 300dp of height, so the extra buys
+    // ground rather than cells — §2 rule 1 exactly. Removed by request after
+    // the placed tile was looked at.
+    sizes: ['small', 'medium'],
     previewSize: 'medium',
     clocked: [],
     cells: { width: 4, height: 3 },
@@ -620,10 +689,216 @@ const WIDGETS = [
     title: 'Ridik — List',
     blurb: 'The checklist you still have something open on.',
     layout: 'ridik_list',
+    // Large is the one size added after the first release. The provider was
+    // always resizable to 800dp and `sizeOf` reads the launcher's own report at
+    // draw time, so this only generates the file `layoutFor` was already willing
+    // to ask for — no change to the `appwidget-provider`, and every tile already
+    // placed keeps working.
+    sizes: ['small', 'medium', 'large'],
+    // Large, not medium. The picker renders a 3 × 3 card and the medium face
+    // draws five rows into it, so the tile a shopper is deciding about was
+    // advertised two thirds empty. Eleven rows is what that card actually holds.
+    previewSize: 'large',
+    clocked: [],
+    cells: { width: 3, height: 3 },
+  },
+  {
+    kind: 'people',
+    provider: 'ai.dby.ridik.widgets.RidikPeopleWidgetProvider',
+    info: 'ridik_rows_people_info',
+    label: 'ridik_rows_people_label',
+    description: 'ridik_rows_people_description',
+    title: 'Ridik — People',
+    blurb: 'Promises you owe, oldest first.',
+    layout: 'ridik_people',
+    // Small and medium only, exactly like Tasks: the face is a strip and a
+    // couple of rows, and a large tile would be that with air under it.
+    sizes: ['small', 'medium'],
+    previewSize: 'medium',
+    clocked: ['small', 'medium'],
+    cells: { width: 4, height: 2 },
+  },
+  {
+    kind: 'rings',
+    provider: 'ai.dby.ridik.widgets.RidikRingsWidgetProvider',
+    info: 'ridik_rows_rings_info',
+    label: 'ridik_rows_rings_label',
+    description: 'ridik_rows_rings_description',
+    title: 'Ridik — Rings',
+    blurb: 'How much of each habit you have kept, as a share.',
+    layout: 'ridik_rings',
+    // Medium alone. No small, because two rings is not a set — it reports on a
+    // third of somebody's habits and hides the rest without saying so, which is
+    // the one thing a tile that is entirely a tally must not do. And no large,
+    // because six rings is one 46dp row in a 300dp tile: the face has nothing to
+    // spend the height on. Removed by request after the placed tile was seen.
+    sizes: ['medium'],
+    previewSize: 'medium',
+    clocked: [],
+    cells: { width: 4, height: 2 },
+  },
+  {
+    kind: 'nownext',
+    provider: 'ai.dby.ridik.widgets.RidikNowNextWidgetProvider',
+    info: 'ridik_rows_nownext_info',
+    label: 'ridik_rows_nownext_label',
+    description: 'ridik_rows_nownext_description',
+    title: 'Ridik — Now / Next',
+    blurb: 'What you are supposed to be doing, in three words.',
+    layout: 'ridik_nownext',
+    // No small, and deliberately: three columns in 131dp is 40dp each and
+    // truncates every title. A one-slot small face is Today's readout already.
+    sizes: ['medium', 'large'],
+    previewSize: 'medium',
+    // The times are drawn from the payload, not counted down, so no clock
+    // variant — the face is re-published like every other one.
+    clocked: [],
+    cells: { width: 4, height: 2 },
+  },
+  {
+    kind: 'focus',
+    provider: 'ai.dby.ridik.widgets.RidikFocusWidgetProvider',
+    info: 'ridik_rows_focus_info',
+    label: 'ridik_rows_focus_label',
+    description: 'ridik_rows_focus_description',
+    title: 'Ridik — Focus',
+    blurb: 'A running session, counted down, with the plan behind it.',
+    layout: 'ridik_focus',
+    // Small and medium. The face is a clock, a label and a sixteen-cell strip;
+    // a large tile is those three things with 200dp of ground under them.
+    sizes: ['small', 'medium'],
+    previewSize: 'medium',
+    // The `Chronometer` formats itself off the elapsed-realtime clock, so the
+    // device's 12/24-hour setting never reaches this face.
+    clocked: [],
+    cells: { width: 4, height: 2 },
+  },
+  {
+    kind: 'horizon',
+    provider: 'ai.dby.ridik.widgets.RidikHorizonWidgetProvider',
+    info: 'ridik_rows_horizon_info',
+    label: 'ridik_rows_horizon_label',
+    description: 'ridik_rows_horizon_description',
+    title: 'Ridik — Skyline',
+    blurb: 'The day as a silhouette: how busy each half hour is, as height.',
+    layout: 'ridik_horizon',
+    // An *alternative* Today, never a companion to it — a cell here carries a
+    // height as well as a level, so the two faces on one screen would disagree
+    // about what a cell means.
+    //
+    // Medium alone: 32 blocks in 131dp is four dp each, narrower than the
+    // hairline between two of them, so the silhouette stops being a silhouette
+    // and becomes a texture. The mechanic needs the width.
+    sizes: ['medium'],
+    previewSize: 'medium',
+    clocked: [],
+    cells: { width: 4, height: 2 },
+  },
+  {
+    kind: 'sundial',
+    provider: 'ai.dby.ridik.widgets.RidikSundialWidgetProvider',
+    info: 'ridik_rows_sundial_info',
+    label: 'ridik_rows_sundial_label',
+    description: 'ridik_rows_sundial_description',
+    title: 'Ridik — Sundial',
+    blurb: 'The day as a sun crossing an arc, and where you are on it.',
+    layout: 'ridik_sundial',
+    // Medium alone, for Skyline's reason and one more: the disc is sized from
+    // the arc's own height, so on a small tile it swallows the dots it is
+    // supposed to be riding past.
+    sizes: ['medium'],
+    previewSize: 'medium',
+    clocked: [],
+    cells: { width: 4, height: 2 },
+  },
+  {
+    kind: 'route',
+    provider: 'ai.dby.ridik.widgets.RidikRouteWidgetProvider',
+    info: 'ridik_rows_route_info',
+    label: 'ridik_rows_route_label',
+    description: 'ridik_rows_route_description',
+    title: 'Ridik — Route',
+    blurb: 'The day as a journey, with a puck at where you are on it.',
+    layout: 'ridik_route',
+    // Medium alone. The face *is* a line, and a line in 131dp is 32 segments at
+    // four dp each — below the width at which a break between two of them can
+    // be seen at all, which is the whole mechanic. A large tile is the same
+    // line with 200dp of ground under it.
+    sizes: ['medium'],
+    previewSize: 'medium',
+    clocked: [],
+    // **One row.** The face is a line, and a line cannot be made taller without
+    // becoming a band — so unlike its four neighbours it cannot fill a two-row
+    // tile, and a two-row tile under it was half a tile of ground.
+    //
+    // `minWidth` has to be raised with it. The launcher derives a preview's
+    // column span from `minWidth` when the tile is short, and 240dp over an
+    // 89dp column is three — so a 4 × 1 Route was drawn three columns wide while
+    // its `ImageView` still asked for a four-column raster, and `fitXY` squashed
+    // the puck to seven tenths of its width. It came out an egg.
+    cells: { width: 4, height: 1 },
+    minWidthDp: 300,
+  },
+  {
+    kind: 'term',
+    provider: 'ai.dby.ridik.widgets.RidikTermWidgetProvider',
+    info: 'ridik_rows_term_info',
+    label: 'ridik_rows_term_label',
+    description: 'ridik_rows_term_description',
+    title: 'Ridik — Term',
+    blurb: 'One dot per day, and how many of them are behind you.',
+    layout: 'ridik_term',
+    // Small draws the month, medium the year. There is no third period to draw
+    // on a large tile — the app models no term or semester, so the honest
+    // choice was the two periods a calendar actually has.
     sizes: ['small', 'medium'],
     previewSize: 'medium',
     clocked: [],
-    cells: { width: 3, height: 3 },
+    cells: { width: 4, height: 2 },
+  },
+  {
+    kind: 'countdown',
+    provider: 'ai.dby.ridik.widgets.RidikCountdownWidgetProvider',
+    info: 'ridik_rows_countdown_info',
+    label: 'ridik_rows_countdown_label',
+    description: 'ridik_rows_countdown_description',
+    title: 'Ridik — Countdown',
+    blurb: 'How long you have got, counted down by the phone.',
+    layout: 'ridik_countdown',
+    // Small and medium. The face is one number, one title and one place; a
+    // large tile would be 300dp of ground under three lines, which is exactly
+    // the air §2 rule 1 forbids buying.
+    sizes: ['small', 'medium'],
+    previewSize: 'medium',
+    // The `Chronometer` is on the elapsed-realtime clock and formats itself, so
+    // the device's 12/24-hour setting never reaches it. The header's clock time
+    // does — and is set at run time on a view with no fixed lead column, so it
+    // needs no second layout either.
+    clocked: [],
+    cells: { width: 4, height: 2 },
+  },
+  {
+    kind: 'chain',
+    provider: 'ai.dby.ridik.widgets.RidikChainWidgetProvider',
+    info: 'ridik_rows_chain_info',
+    label: 'ridik_rows_chain_label',
+    description: 'ridik_rows_chain_description',
+    title: 'Ridik — Week',
+    blurb: 'Seven days, how full each one is, and which one is today.',
+    layout: 'ridik_chain',
+    // Small and medium. Seven cells and their dates is a *line*, and a line
+    // given 300dp of height is a line with two thirds of a tile under it —
+    // §2 rule 1 says extra height buys more cells, and there is no eighth day
+    // to buy. Large is folded back to medium in `drawnSize` rather than
+    // generated and left as a taller drawing of the same seven things.
+    sizes: ['small', 'medium'],
+    previewSize: 'medium',
+    // No clock on the face at all, so no second lead-column variant.
+    clocked: [],
+    // Two rows. A letter over a cell over a date is about a hundred and twenty
+    // dp, and a one-row tile cut the dates off the bottom — which is exactly the
+    // half of the face that says *which* day is the busy one.
+    cells: { width: 4, height: 2 },
   },
 ];
 
@@ -680,6 +955,54 @@ const SAMPLE = {
     // Three rows exist; two are drawn, because the all-day line above them
     // costs one — the same arithmetic `RidikRowsFace` does at run time.
     drawnRows: 2,
+  },
+  // 34 minutes out, with a place to be. The preview's `timer` is static text on
+  // a `Chronometer` — the picker runs none of our code, so nothing counts down
+  // there, and a blank line where the whole face's reading goes would advertise
+  // an empty tile.
+  countdown: {
+    eyebrow: 'NEXT',
+    count: '15:00',
+    timer: '34:12',
+    verb: 'TO GO',
+    title: 'Materials lab',
+    sub: 'Workshop 2',
+  },
+  // Three promises, the oldest eleven days old — its own sample and not Tasks',
+  // whose rows carry a due time in the lead. A promise has no due time; that is
+  // the whole reason the face exists.
+  people: {
+    eyebrow: 'PEOPLE',
+    count: '3 OWED',
+    debt: '31',
+    footLeft: 'oldest 11d',
+    footRight: '3 people',
+    rows: [
+      { lead: '11d', text: 'The reading list', trail: 'Ana' },
+      { lead: '6d', text: 'Send the workshop photos', trail: 'Mira' },
+      { lead: '2d', text: 'Lend Sam the torque wrench', trail: 'Sam' },
+    ],
+  },
+  // A 25/5/25/5 pomodoro, six minutes in. `load`/`breaks` are what `buildFocus`
+  // emits for that plan, and the timer is static text on a `Chronometer` —
+  // nothing counts down in the picker.
+  focus: {
+    eyebrow: 'FOCUS',
+    count: 'RUNNING',
+    load: '2222222122222221',
+    breaks: '0000000110000001',
+    spentThrough: 0,
+    timer: '19:04',
+    verb: 'OF FOCUS LEFT',
+    label: 'Materials revision',
+  },
+  // A week with a heavy Tuesday, a clear weekend, and today on the Wednesday.
+  week: {
+    eyebrow: 'THIS WEEK',
+    count: '2 CLEAR',
+    load: '2310120',
+    dates: ['10', '11', '12', '13', '14', '15', '16'],
+    todayIndex: 2,
   },
   habits: {
     eyebrow: 'HABITS',
@@ -949,8 +1272,11 @@ ${pad}android:visibility="gone" />`;
  * would have made it a panel, and a panel is a box drawn round some content
  * rather than a recess the content sits in.
  */
-function element(depth, { ember, size, sample }) {
-  const slots = DAY_SLOTS[size];
+function element(depth, { ember, size, sample, slots: override, ruler = true }) {
+  // The Focus face draws its own sixteen — a session is minutes to an hour or
+  // two, and 32 cells of a 25-minute pomodoro is 47 seconds each, below the
+  // resolution at which a boundary between two of them means anything.
+  const slots = override ?? DAY_SLOTS[size];
   const { height, spent: spentHeight, gap } = ELEMENT[size];
   const per = sample ? sample.load.length / slots : 0;
 
@@ -1013,9 +1339,7 @@ ${indent(depth + 6)}android:orientation="horizontal"
 ${indent(depth + 6)}android:padding="${WELL_PAD}dp">
 
 ${cells.join('\n\n')}
-${indent(depth + 2)}</LinearLayout>
-
-${axis(depth + 2)}
+${indent(depth + 2)}</LinearLayout>${ruler ? `\n\n${axis(depth + 2)}` : ''}
 ${indent(depth)}</LinearLayout>`;
 }
 
@@ -1929,6 +2253,1016 @@ function tasksFace({ ember, size, leadWidth, preview }) {
   return face({ ember, body: parts.join('\n\n'), preview });
 }
 
+/**
+ * Now / Next / Later — the one face that answers instead of drawing.
+ *
+ * Every other face is an instrument: it draws a quantity and lets you read it.
+ * None of them answers the plainest question anyone asks a home screen, which is
+ * "what am I supposed to be doing?" Three slots do, in three words.
+ *
+ * The primitive still appears — a 6dp bar per slot — so the tile belongs to the
+ * family rather than being a card of text that happens to share a background.
+ * That bar is the only graphic here, and it is deliberately not a strip: a strip
+ * would re-answer "how is my day shaped", which is Today's question.
+ *
+ * **One hot per tile, and on large the strip takes it.** Medium gives `hot` to
+ * the NOW slot because it is the only claim on the tile. Large draws the day
+ * element underneath, and §1.1 allows exactly one hot object — so the slots step
+ * down to 2 / 1 / 0 and the strip keeps the ember, exactly as §3.2 gives it to
+ * the element rather than to the plate.
+ *
+ * Columns, not rows, and that is why there is no small: three columns in 131dp
+ * is 40dp each and truncates every title (§2 rule 2). A one-slot small face
+ * would be Today's readout with a different word over it.
+ */
+function slots(depth, { ember, big, sample }) {
+  const labels = ['NOW', 'NEXT', 'LATER'];
+  const columns = labels.map((label, index) => {
+    const row = sample && sample.rows && sample.rows[index] ? sample.rows[index] : null;
+    // Medium: the NOW slot is the tile's one hot object. Large: the strip is,
+    // so these step down and none of them competes with it.
+    const level = big ? Math.max(0, 2 - index) : index === 0 ? 3 : Math.max(0, 2 - index);
+    const pad = indent(depth + 6);
+    return `${indent(depth + 2)}<LinearLayout
+${pad}android:layout_width="0dp"
+${pad}android:layout_height="wrap_content"
+${pad}android:layout_weight="1"${index === 0 ? '' : `\n${pad}android:layout_marginStart="12dp"`}
+${pad}android:orientation="vertical">
+
+${indent(depth + 4)}<TextView
+${indent(depth + 8)}android:id="@+id/${IDS.slotLabel(index)}"
+${indent(depth + 8)}android:layout_width="match_parent"
+${indent(depth + 8)}android:layout_height="wrap_content"
+${indent(depth + 8)}android:fontFamily="monospace"
+${indent(depth + 8)}android:includeFontPadding="false"
+${indent(depth + 8)}android:letterSpacing="0.14"
+${indent(depth + 8)}android:maxLines="1"
+${indent(depth + 8)}android:text="${label}"
+${indent(depth + 8)}android:textColor="@color/ridik_widget_ink_soft"
+${indent(depth + 8)}android:textSize="9sp" />
+
+${cell(depth + 4, {
+      id: IDS.slotBar(index),
+      ember,
+      level,
+      width: 'match_parent',
+      height: '6dp',
+      marginStart: null,
+      marginEnd: null,
+    }).replace(/^/, '')}
+
+${indent(depth + 4)}<TextView
+${indent(depth + 8)}android:id="@+id/${IDS.slotTime(index)}"
+${indent(depth + 8)}android:layout_width="match_parent"
+${indent(depth + 8)}android:layout_height="wrap_content"
+${indent(depth + 8)}android:layout_marginTop="5dp"
+${indent(depth + 8)}android:ellipsize="end"
+${indent(depth + 8)}android:fontFamily="monospace"
+${indent(depth + 8)}android:includeFontPadding="false"
+${indent(depth + 8)}android:maxLines="1"${text(depth + 8, row ? row.lead : null)}
+${indent(depth + 8)}android:textColor="@color/${accentColour(ember)}"
+${indent(depth + 8)}android:textSize="12sp" />
+
+${indent(depth + 4)}<TextView
+${indent(depth + 8)}android:id="@+id/${IDS.slotTitle(index)}"
+${indent(depth + 8)}android:layout_width="match_parent"
+${indent(depth + 8)}android:layout_height="wrap_content"
+${indent(depth + 8)}android:layout_marginTop="1dp"
+${indent(depth + 8)}android:ellipsize="end"
+${indent(depth + 8)}android:includeFontPadding="false"
+${indent(depth + 8)}android:lineSpacingMultiplier="1.15"
+${indent(depth + 8)}android:maxLines="2"${text(depth + 8, row ? row.text : null)}
+${indent(depth + 8)}android:textColor="@color/ridik_widget_ink"
+${indent(depth + 8)}android:textSize="13sp" />
+${indent(depth + 2)}</LinearLayout>`;
+  });
+
+  return `${indent(depth)}<LinearLayout
+${indent(depth + 4)}android:id="@+id/${IDS.slotArea}"
+${indent(depth + 4)}android:layout_width="match_parent"
+${indent(depth + 4)}android:layout_height="wrap_content"
+${indent(depth + 4)}android:layout_marginTop="8dp"
+${indent(depth + 4)}android:baselineAligned="false"
+${indent(depth + 4)}android:orientation="horizontal">
+
+${columns.join('\n\n')}
+${indent(depth)}</LinearLayout>`;
+}
+
+/**
+ * The completion rings — the one face in the family that draws a proportion.
+ *
+ * §1 bans progress rings across the family and that ban is not vacated by this
+ * face; it is *narrowed*, and the narrowing is written down in §1 rather than
+ * left implicit in the code. The argument for a tile is genuinely weaker than
+ * for the app screen the pattern came from — a ring read from across a room is a
+ * smear where four discrete levels are not — so this exists as a face the user
+ * chooses, never as a replacement for the Habits rails beside it.
+ *
+ * Every ring is an `ImageView` the Kotlin fills with a bitmap, because
+ * RemoteViews cannot draw an arc. It is tinted here rather than coloured there:
+ * see `RidikRings.kt` for why a colour computed in the provider is computed in
+ * the wrong process, and why the bitmap is a white mask.
+ */
+/**
+ * People — the debt primitive, pointed at promises.
+ *
+ * Tasks' age axis transfers unchanged: one cell per outstanding promise, oldest
+ * left, the single oldest hot. Nothing new is invented, which is why this is the
+ * cheapest new face in the family.
+ *
+ * The reason to have it is that it is the only face whose data nothing else in
+ * the app surfaces at a glance. A promise with no due date never becomes
+ * overdue, so it never appears on Tasks and never appears in a briefing — it
+ * just gets older. This is the app's quietest failure, and a strip is the fix.
+ */
+function peopleFace({ ember, size, preview }) {
+  const sample = preview ? SAMPLE.people : null;
+  const parts = [
+    header(4, sample ? { ember, size, eyebrow: sample.eyebrow, count: sample.count } : { ember, size }),
+    debt(4, { ember, size, sample }),
+    // A footer, never `axis()`. The ruler under the day strip reads 07 … 23
+    // because that strip is hours; this strip is *ages*, and an hour ruler under
+    // it was labelling days since a promise was made with times of day.
+    footer(4, { sample }),
+    slack(4),
+    rows(4, {
+      ember,
+      slots: ROW_SLOTS_BY_SIZE[size],
+      leadWidth: LEAD.narrow,
+      sample,
+      fill: false,
+    }),
+    copy(4),
+  ];
+  return face({ ember, body: parts.join('\n\n'), preview });
+}
+
+/**
+ * The live clock, and a plain `TextView` standing in for it in the picker.
+ *
+ * A `Chronometer` **ignores `android:text`**: it formats its own elapsed time on
+ * inflation, so a preview layout carrying one drew a confident `00:00` — the
+ * face whose entire content is a number, advertising itself as broken. Nothing
+ * sets it in the picker, because nothing of ours runs there, so the preview
+ * emits a `TextView` with the sample time in it instead. The live layouts keep
+ * the `Chronometer`; `countdown()` is what drives it.
+ */
+function timerNote(depth, { sample }) {
+  const pad = indent(depth + 4);
+  return `${indent(depth)}<TextView
+${pad}android:id="@+id/${IDS.timerNote}"
+${pad}android:layout_width="match_parent"
+${pad}android:layout_height="wrap_content"
+${pad}android:ellipsize="end"
+${pad}android:fontFamily="monospace"
+${pad}android:includeFontPadding="false"
+${pad}android:letterSpacing="0.08"
+${pad}android:maxLines="1"${text(depth + 4, sample)}
+${pad}android:textColor="@color/ridik_widget_ink_soft"
+${pad}android:textSize="10sp" />`;
+}
+
+function timerView(depth, { ember, preview, sample, size, big }) {
+  const tag = preview ? 'TextView' : 'Chronometer';
+  const pad = indent(depth + 4);
+  return `${indent(depth)}<${tag}
+${pad}android:id="@+id/${IDS.timer}"
+${pad}android:layout_width="match_parent"
+${pad}android:layout_height="wrap_content"
+${pad}android:layout_marginTop="8dp"
+${pad}android:ellipsize="end"
+${pad}android:fontFamily="monospace"
+${pad}android:includeFontPadding="false"
+${pad}android:maxLines="1"${text(depth + 4, sample)}
+${pad}android:textColor="@color/${accentColour(ember)}"
+${pad}android:textSize="${big}sp"${attr(depth + 4, 'visibility', sample ? null : 'gone')} />`;
+}
+
+/**
+ * The countdown — the one face that is still moving when nothing is publishing.
+ *
+ * `Chronometer` with `setChronometerCountDown(true)` is the only genuinely live
+ * element Android gives a widget for zero wakeups. Today already uses it for the
+ * travel buffer; this face is that element promoted to the whole tile and
+ * pointed at the *start* as well, because most things on a calendar have no
+ * buffer to leave for and the question "how long have I got" is asked of them
+ * just the same.
+ *
+ * The verb rides in the `Chronometer`'s own format string rather than in a
+ * label beside it — a live view next to a static one re-measures the row every
+ * second and the two disagree about their baseline for one frame each time.
+ * That is also why the place is on its own line here and not in the format: at
+ * this size the format string is the tile's hero and a location in it would
+ * push the digits out of the reading.
+ */
+function countdownFace({ ember, size, preview }) {
+  const sample = preview ? SAMPLE.countdown : null;
+  const pad = indent(8);
+  const timer = timerView(4, {
+    ember,
+    preview,
+    sample: sample ? sample.timer : null,
+    size,
+    // The digits *are* the face, so they are sized like it. At 34 they were a
+    // reading with half a tile of ground under them; at 52 they are the object
+    // the tile is for and the title underneath is a label on it.
+    big: size === 'small' ? 40 : 52,
+  });
+
+  const title = `${indent(4)}<TextView
+${pad}android:id="@+id/${IDS.nextTitle}"
+${pad}android:layout_width="match_parent"
+${pad}android:layout_height="wrap_content"
+${pad}android:layout_marginTop="6dp"
+${pad}android:ellipsize="end"
+${pad}android:includeFontPadding="false"
+${pad}android:maxLines="${size === 'small' ? 2 : 1}"${text(8, sample ? sample.title : null)}
+${pad}android:textColor="@color/ridik_widget_ink"
+${pad}android:textSize="${size === 'small' ? 15 : 17}sp" />`;
+
+  const sub = `${indent(4)}<TextView
+${pad}android:id="@+id/${IDS.nextSub}"
+${pad}android:layout_width="match_parent"
+${pad}android:layout_height="wrap_content"
+${pad}android:layout_marginTop="3dp"
+${pad}android:ellipsize="end"
+${pad}android:includeFontPadding="false"
+${pad}android:maxLines="1"${text(8, sample ? sample.sub : null)}
+${pad}android:textColor="@color/ridik_widget_ink_soft"
+${pad}android:textSize="12sp" />`;
+
+  // The slack sits *between* the reading and the label, not under both: the
+  // digits are the tile's one object and belong at the top, and the thing they
+  // are counting towards belongs on the floor where the eye lands last. Under
+  // both, a two-row tile was three lines and a hand's width of empty ground.
+  const body = [
+    header(4, sample ? { ember, size, eyebrow: sample.eyebrow, count: sample.count } : { ember, size }),
+    timer,
+    timerNote(4, { sample: sample ? sample.verb : null }),
+    slack(4),
+    title,
+    sub,
+    copy(4),
+  ].join('\n\n');
+  return face({ ember, body, preview });
+}
+
+/**
+ * Focus — the one face with a live clock over something that has a natural end.
+ *
+ * A running session is the only thing in the app that deserves a `Chronometer`
+ * more than "leave in 34 min" does: a day has no end to count towards, and a
+ * 40-minute session ends in 40 minutes by construction.
+ *
+ * The strip is the same generator every other day-shaped face uses, at sixteen
+ * slots instead of thirty-two — so a phase boundary is the same 2pt hairline the
+ * day strip draws, made by the same code.
+ */
+function focusFace({ ember, size, preview }) {
+  const sample = preview ? SAMPLE.focus : null;
+  const pad = indent(8);
+  const timer = timerView(4, {
+    ember,
+    preview,
+    sample: sample ? sample.timer : null,
+    size,
+    // A step smaller than Countdown's: the session strip is under this one, so
+    // the tile has a second object and the digits do not have to carry it alone.
+    big: size === 'small' ? 34 : 44,
+  });
+
+  const label = `${indent(4)}<TextView
+${pad}android:id="@+id/${IDS.nextTitle}"
+${pad}android:layout_width="match_parent"
+${pad}android:layout_height="wrap_content"
+${pad}android:layout_marginTop="4dp"
+${pad}android:ellipsize="end"
+${pad}android:includeFontPadding="false"
+${pad}android:maxLines="1"${text(8, sample ? sample.label : null)}
+${pad}android:textColor="@color/ridik_widget_ink"
+${pad}android:textSize="${size === 'small' ? 13 : 15}sp" />`;
+
+  const body = [
+    header(4, sample ? { ember, size, eyebrow: sample.eyebrow, count: sample.count } : { ember, size }),
+    timer,
+    timerNote(4, { sample: sample ? sample.verb : null }),
+    label,
+    slack(4),
+    // No ruler. `axis()` labels the five quarters of the *waking window* — 07,
+    // 11, 15, 19, 23 — and this strip is a forty-minute session. An hour ruler
+    // under it is a label from a different measurement, which is the same
+    // mistake the People face was making with the same generator.
+    element(4, { ember, size, sample, slots: FOCUS_SLOTS, ruler: false }),
+    copy(4),
+  ].join('\n\n');
+  return face({ ember, body, preview });
+}
+
+/** Must equal `FOCUS_CELLS` in `snapshot.ts` and `WidgetSnapshot.FOCUS_CELLS`. */
+const FOCUS_SLOTS = 16;
+
+/* ------------------------------------------------- the four rastered faces */
+
+/**
+ * The height the bitmap is given, per face and per size.
+ *
+ * A fixed dp on the `ImageView` rather than a weight: `RemoteViews` cannot read
+ * a measured height back, so the Kotlin has to know how tall the raster should
+ * be before it draws one, and the only way for the two to agree is a constant
+ * they both state. `PLOT_HEIGHT` in `RidikRowsFace.kt` is the other end.
+ */
+/**
+ * **The graphic fills its tile.** A two-row Android tile is about 205dp, of
+ * which the frame, the header and the caption take 77 — so the box is 128 and
+ * every one of these takes it.
+ *
+ * These used to be the iOS heights scaled to the Android width, which left a
+ * third of the tile as ground under a small drawing: correct in shape and cheap
+ * to look at. What made *that* necessary in the first place was the sun and the
+ * puck being sized from the height alone, so a taller box inflated them into
+ * blots. They are clamped against the horizontal step now — `RidikPlots` and
+ * `sundialGeometry` — so the box is free to grow and the ornaments on it are not.
+ *
+ * Route is the exception and is a *line*: it cannot be made taller without
+ * becoming a band, so its tile is one row rather than two. See its `cells`.
+ *
+ * Its 44 was 30, which was too short twice over. The line is 27% of the box, so
+ * 30 drew an eight-dp hairline; and the 50-odd dp a medium tile had left over
+ * all went into one hole between the line and its caption. It is centred in the
+ * slack now rather than pushed off it — `PlotScaffold` on the iOS side.
+ */
+const PLOT_HEIGHT = {
+  horizon: { medium: 128 },
+  sundial: { medium: 128 },
+  route: { medium: 44 },
+  term: { small: 104, medium: 128 },
+};
+
+/**
+ * The face's one `ImageView`, plus the line under it that says what it shows.
+ *
+ * `android:tint` is a colour *reference*, so the launcher resolves it against
+ * its own light/dark — which is the entire reason these four can be rastered at
+ * all. Nothing about the bitmap is a colour; see `RidikPlots.kt`.
+ */
+function plot(depth, { ember, kind, size, preview, note }) {
+  const pad = indent(depth + 4);
+  const height = PLOT_HEIGHT[kind][size];
+  // The slack is *between* the graphic and its caption. The graphic is drawn at
+  // a fixed aspect and must not grow into the tile — everything on it is sized
+  // from its own box — so the height a two-row Android tile has spare goes under
+  // it, and the caption sits on the floor where the eye lands last.
+  return `${indent(depth)}<ImageView
+${pad}android:id="@+id/${IDS.plot}"
+${pad}android:layout_width="match_parent"
+${pad}android:layout_height="${height}dp"
+${pad}android:layout_marginTop="10dp"
+${pad}android:importantForAccessibility="no"
+${pad}android:scaleType="fitXY"${preview ? `\n${pad}android:src="@drawable/ridik_preview_${kind}"` : ''}
+${pad}android:tint="@color/${accentColour(ember)}" />
+
+${slack(depth)}
+
+${indent(depth)}<TextView
+${pad}android:id="@+id/${IDS.plotNote}"
+${pad}android:layout_width="match_parent"
+${pad}android:layout_height="wrap_content"
+${pad}android:ellipsize="end"
+${pad}android:includeFontPadding="false"
+${pad}android:maxLines="1"${text(depth + 4, note)}
+${pad}android:textColor="@color/ridik_widget_ink_soft"
+${pad}android:textSize="11sp" />`;
+}
+
+function plotFace({ ember, kind, size, preview, eyebrow, count, note }) {
+  const body = [
+    header(4, preview ? { ember, size, eyebrow, count } : { ember, size }),
+    plot(4, { ember, kind, size, preview, note: preview ? note : null }),
+    copy(4),
+  ].join('\n\n');
+  return face({ ember, body, preview });
+}
+
+/* ------------------------------------------------------- the preview rasters */
+
+/**
+ * The picker runs none of our code, so a rastered face would show an empty box
+ * there — and "the widgets look blank" is judged in the gallery, before a tile
+ * is ever placed.
+ *
+ * The answer is a **vector** drawable per face, generated here from the same
+ * geometry the Kotlin rasters at run time. A vector is a build-time file the
+ * launcher inflates like any other resource, it carries `android:fillAlpha` so
+ * the four levels survive, and it is tinted by the same `android:tint` — so the
+ * preview and the live tile are the same drawing made twice, rather than a
+ * hand-drawn impression of one.
+ *
+ * ## The viewport has to be the shape of the box it lands in
+ *
+ * `scaleType="fitXY"` scales a drawable to the view **without preserving its
+ * aspect**. A single 300 × 100 viewport for all four therefore stretched every
+ * one of them by a different amount in each axis — and on Route, a 300 × 100
+ * vector landing in a 208 × 26 view made the puck three and a half times wider
+ * than it was tall. It drew as a great ember blot lying across the line, which
+ * is exactly what the picker was showing.
+ *
+ * So each preview gets its own viewport, in **dp**, equal to the box it will be
+ * drawn into: the tile's content width at its declared cell count, by the
+ * `ImageView`'s own fixed height. Any residual stretch is then the difference
+ * between the launcher's cell and `minWidth`, which is a few percent rather
+ * than a factor of three.
+ */
+function plotViewport(kind, widget) {
+  return {
+    width: widget.cells.width * PREVIEW_CELL_DP - PAD_H * 2,
+    height: PLOT_HEIGHT[kind][widget.previewSize],
+  };
+}
+
+
+/**
+ * How wide one grid cell is when the *picker* draws a preview.
+ *
+ * Not `minWidth`'s 60dp, which is the smallest a tile may be squeezed to and not
+ * the size anything is ever drawn at. Measured instead: a four-cell preview on a
+ * 411dp phone renders 356dp wide, which is 89 a cell.
+ *
+ * It only has to be close. What it replaces was a single 300 × 100 viewport for
+ * every face, which stretched the Route puck to three and a half times its own
+ * width; being out by the ratio of one phone's width to another's leaves a
+ * circle a percent or two oval. The *live* tile does not use this at all — it
+ * rasters against the width the launcher reports for that particular copy.
+ */
+const PREVIEW_CELL_DP = 89;
+
+/** Matches `RidikPlots.ALPHA` — the four levels as opacities. */
+const PLOT_ALPHA = [0.18, 0.36, 0.66, 1];
+
+function vector({ width, height }, paths) {
+  const body = paths
+    .map(
+      (p) => `    <path
+        android:fillAlpha="${p.alpha.toFixed(2)}"
+        android:fillColor="#FFFFFF"
+        android:pathData="${p.d}" />`,
+    )
+    .join('\n');
+  return `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="${width}dp"
+    android:height="${height}dp"
+    android:viewportWidth="${width}"
+    android:viewportHeight="${height}">
+${body}
+</vector>
+`;
+}
+
+/** A rounded rectangle as path data, because `<path>` is all a vector has. */
+function roundedPath(x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
+  const n = (v) => Number(v.toFixed(2));
+  return [
+    `M${n(x + radius)},${n(y)}`,
+    `H${n(x + w - radius)}`,
+    `A${n(radius)},${n(radius)} 0 0 1 ${n(x + w)},${n(y + radius)}`,
+    `V${n(y + h - radius)}`,
+    `A${n(radius)},${n(radius)} 0 0 1 ${n(x + w - radius)},${n(y + h)}`,
+    `H${n(x + radius)}`,
+    `A${n(radius)},${n(radius)} 0 0 1 ${n(x)},${n(y + h - radius)}`,
+    `V${n(y + radius)}`,
+    `A${n(radius)},${n(radius)} 0 0 1 ${n(x + radius)},${n(y)}`,
+    'Z',
+  ].join(' ');
+}
+
+/**
+ * A rectangle rounded on one end, the other, both or neither.
+ *
+ * What lets a run of segments read as one line: only the two outer corners of
+ * the whole rail are round, and every join inside it is square.
+ */
+function capPath(x, y, w, h, r, { left = false, right = false } = {}) {
+  const radius = Math.min(r, w / 2, h / 2);
+  const n = (v) => Number(v.toFixed(2));
+  const arc = (px, py) => `A${n(radius)},${n(radius)} 0 0 1 ${n(px)},${n(py)}`;
+  const parts = [`M${n(x + (left ? radius : 0))},${n(y)}`];
+  parts.push(`H${n(x + w - (right ? radius : 0))}`);
+  if (right) {
+    parts.push(arc(x + w, y + radius), `V${n(y + h - radius)}`, arc(x + w - radius, y + h));
+  } else {
+    parts.push(`V${n(y + h)}`);
+  }
+  parts.push(`H${n(x + (left ? radius : 0))}`);
+  if (left) {
+    parts.push(arc(x, y + h - radius), `V${n(y + radius)}`, arc(x + radius, y));
+  } else {
+    parts.push(`V${n(y)}`);
+  }
+  parts.push('Z');
+  return parts.join(' ');
+}
+
+function circlePath(cx, cy, r) {
+  const n = (v) => Number(v.toFixed(2));
+  return `M${n(cx - r)},${n(cy)} a${n(r)},${n(r)} 0 1 0 ${n(r * 2)},0 a${n(r)},${n(r)} 0 1 0 ${n(-r * 2)},0 Z`;
+}
+
+/**
+ * A ring, as a vector, for the picker.
+ *
+ * The live tile fills each ring with `setImageViewBitmap` — `RemoteViews` cannot
+ * draw an arc, so `RidikRings.kt` rasters one. Nothing of ours runs in the
+ * picker, so the `ImageView` there had no drawable at all and the whole face
+ * rendered as an eyebrow over an empty tile: the widget most in need of a
+ * preview was the one with none.
+ *
+ * A vector has **no stroke**, so an arc has to be drawn as a filled annulus
+ * sector — the outer edge swept forwards, the inner edge swept back, closed.
+ * The numbers are the same numbers: `RidikRings.rate` and `RidikRings.label` in
+ * both Swift and Kotlin, restated here so the picker cannot advertise a
+ * percentage the tile would not draw.
+ */
+const RING_VIEWPORT = 100;
+
+/** Matches `RidikRings.STROKE_RATIO` — 4.5 points on a 42-point ring. */
+const RING_STROKE = (RING_VIEWPORT * 4.5) / 42;
+
+function ringRate(history) {
+  if (!history) return 0;
+  return [...history].filter((c) => c === '1').length / history.length;
+}
+
+function ringLabel(history) {
+  if (!history) return '—';
+  const kept = [...history].filter((c) => c === '1').length;
+  if (kept >= history.length) return '100%';
+  return `${Math.floor((kept * 100) / history.length)}%`;
+}
+
+/** One annulus sector, from twelve o'clock clockwise. */
+function ringSector(fraction) {
+  const n = (v) => Number(v.toFixed(2));
+  const c = RING_VIEWPORT / 2;
+  const outer = c - RING_STROKE / 2 + RING_STROKE / 2;
+  const rMid = c - RING_STROKE / 2;
+  const rOut = rMid + RING_STROKE / 2;
+  const rIn = rMid - RING_STROKE / 2;
+  const sweep = Math.min(Math.max(fraction, 0), 1) * 360;
+  // A full sweep has no sector — it is the whole annulus, and a 360° arc with
+  // the same start and end point degenerates to nothing at all.
+  if (sweep >= 359.9) return annulus(rOut, rIn);
+  const at = (deg, r) => {
+    const rad = ((deg - 90) * Math.PI) / 180;
+    return [n(c + r * Math.cos(rad)), n(c + r * Math.sin(rad))];
+  };
+  const large = sweep > 180 ? 1 : 0;
+  const [x0, y0] = at(0, rOut);
+  const [x1, y1] = at(sweep, rOut);
+  const [x2, y2] = at(sweep, rIn);
+  const [x3, y3] = at(0, rIn);
+  void outer;
+  return `M${x0},${y0} A${n(rOut)},${n(rOut)} 0 ${large} 1 ${x1},${y1} L${x2},${y2} A${n(rIn)},${n(rIn)} 0 ${large} 0 ${x3},${y3} Z`;
+}
+
+/** The full ring, as two circles wound in opposite directions. */
+function annulus(rOut, rIn) {
+  const n = (v) => Number(v.toFixed(2));
+  const c = RING_VIEWPORT / 2;
+  return (
+    `M${n(c - rOut)},${n(c)} a${n(rOut)},${n(rOut)} 0 1 0 ${n(rOut * 2)},0 a${n(rOut)},${n(rOut)} 0 1 0 ${n(-rOut * 2)},0 Z ` +
+    `M${n(c - rIn)},${n(c)} a${n(rIn)},${n(rIn)} 0 1 1 ${n(rIn * 2)},0 a${n(rIn)},${n(rIn)} 0 1 1 ${n(-rIn * 2)},0 Z`
+  );
+}
+
+function ringPreview(history) {
+  const rMid = RING_VIEWPORT / 2 - RING_STROKE / 2;
+  const paths = [
+    // The track first, at the same alpha `RidikRings.TRACK_ALPHA` uses.
+    { alpha: 60 / 255, d: annulus(rMid + RING_STROKE / 2, rMid - RING_STROKE / 2) },
+  ];
+  const rate = ringRate(history);
+  if (rate > 0) paths.push({ alpha: 1, d: ringSector(rate) });
+  return vector({ width: RING_VIEWPORT, height: RING_VIEWPORT }, paths);
+}
+
+function skylinePreview(box) {
+  const { width, height } = box;
+  const { load, breaks, spentThrough: spent } = SAMPLE.day;
+  const step = width / load.length;
+  const floor = height * 0.12;
+  const paths = [];
+  for (let i = 0; i < load.length; i++) {
+    const level = Number(load[i]);
+    const behind = i <= spent;
+    const full = floor + (height - floor) * (level / 3);
+    const tall = behind ? full * 0.38 : full;
+    const gap = breaks[i] === '1' ? 3 : 1.5;
+    paths.push({
+      alpha: PLOT_ALPHA[level] * (behind ? 0.55 : 1),
+      d: roundedPath(i * step, height - tall, Math.max(step - gap, 1), tall, 2),
+    });
+  }
+  return vector(box, paths);
+}
+
+function sundialPreview(box) {
+  const { width, height } = box;
+  const { load, spentThrough: spent } = SAMPLE.day;
+  const g = sundialGeometry(width, height, load.length);
+  const paths = [];
+
+  // The track, as a thin ribbon: a vector has no stroke, so the curve is drawn
+  // as a filled sliver offset above and below itself.
+  const half = 0.75;
+  const top = [];
+  const bottom = [];
+  for (let i = 0; i <= 48; i++) {
+    const [px, py] = g.at(i / 48);
+    top.push(`${px.toFixed(2)},${(py - half).toFixed(2)}`);
+    bottom.unshift(`${px.toFixed(2)},${(py + half).toFixed(2)}`);
+  }
+  paths.push({ alpha: PLOT_ALPHA[0], d: `M${top.join(' L')} L${bottom.join(' L')} Z` });
+
+  for (let i = 0; i < load.length; i++) {
+    const level = Number(load[i]);
+    const behind = i <= spent;
+    const [px, py] = g.at((i + 0.5) / load.length);
+    paths.push({
+      alpha: PLOT_ALPHA[level] * (behind ? 0.55 : 1),
+      d: circlePath(px, py, behind ? g.dot * 0.55 : g.dot),
+    });
+  }
+  const [dx, dy] = g.at((spent + 1) / load.length);
+  paths.push({ alpha: 1, d: circlePath(dx, dy, g.disc) });
+  return vector(box, paths);
+}
+
+/**
+ * The arc, stated once so the preview and `RidikPlots.sundial` cannot drift.
+ *
+ * A **quadratic** with its control point at the horizontal midpoint, which makes
+ * `x(t)` linear in `t` exactly — so `t` is the fraction of the day elapsed and
+ * nothing has to be inverted numerically. Same as `src/features/today/arc.ts`.
+ *
+ * `dot` is clamped against the *step* and not only against the height: 32 dots
+ * across 208dp is 6.5dp each, and a dot sized purely from a 76dp arc is 8.4dp
+ * across, so they overlapped into a caterpillar. Nothing about a dot means
+ * anything once it touches its neighbour.
+ */
+function sundialGeometry(width, height, cells) {
+  const inset = width * 0.05;
+  const step = width / Math.max(cells, 1);
+  // Clamped against the step as well as the height, exactly like the dots. The
+  // disc is a sun riding the arc; sized from the box alone it grows with any
+  // tile taller than it is dense, and past about one step wide it stops being a
+  // marker and becomes a blot covering the hours it is sitting on.
+  const disc = Math.min(height * 0.13, step * 0.95);
+  const dot = Math.min(height * 0.055, step * 0.38);
+  const base = height - disc - 2;
+  const peak = disc + 2;
+  // A quadratic passes at half its control point's offset, so the control is
+  // lifted to twice the height the curve should actually reach.
+  const control = base - (base - peak) * 2;
+  return {
+    disc,
+    dot,
+    at(t) {
+      const u = 1 - t;
+      return [
+        inset + t * (width - inset * 2),
+        u * u * base + 2 * u * t * control + t * t * base,
+      ];
+    },
+  };
+}
+
+/**
+ * The line is continuous and only its ends are rounded.
+ *
+ * Each segment used to be its own rounded rectangle with a hairline after it,
+ * and at thirty-two of them across a tile that is ten units wide by nine tall
+ * with a four-unit radius — which is a circle. The face drew as a row of beads
+ * rather than as a route. A vector cannot clip the way the Kotlin does, so the
+ * caps are drawn instead: the first segment rounded on its left, the last on its
+ * right, everything between them square and touching.
+ */
+function routePreview(box) {
+  const { width, height } = box;
+  const { load, breaks, spentThrough: spent } = SAMPLE.day;
+  const step = width / load.length;
+  const thick = height * 0.34;
+  const thin = thick * 0.42;
+  const mid = height / 2;
+  const paths = [];
+  for (let i = 0; i < load.length; i++) {
+    const level = Number(load[i]);
+    const behind = i <= spent;
+    const h = behind ? thin : thick;
+    // No gap between two cells of the same booking — only where one starts.
+    const gap = breaks[i] === '1' ? 2.5 : 0;
+    paths.push({
+      alpha: PLOT_ALPHA[level] * (behind ? 0.55 : 1),
+      d: capPath(i * step, mid - h / 2, Math.max(step - gap, 1), h, h / 2, {
+        left: i === 0,
+        right: i === load.length - 1,
+      }),
+    });
+  }
+  const puck = routePuck(width, height, load.length);
+  const px = ((spent + 1) / load.length) * width;
+  paths.push({
+    alpha: 1,
+    d: circlePath(Math.min(Math.max(px, puck), width - puck), mid, puck),
+  });
+  return vector(box, paths);
+}
+
+/**
+ * The puck's radius, clamped against the segment step as well as the height.
+ *
+ * Transit's puck is a marker sitting on a line, and it stops being one the
+ * moment it is wider than a few segments — at that point it is a blot covering
+ * the part of the day it is supposed to be pointing at.
+ */
+function routePuck(width, height, cells) {
+  return Math.min(height * 0.5, (width / Math.max(cells, 1)) * 1.6);
+}
+
+function termPreview(box) {
+  const { width, height } = box;
+  // 365 days with 241 behind you — the same shape the medium tile draws.
+  const total = 365;
+  const elapsed = 241;
+  const columns = 31;
+  const rows = Math.ceil(total / columns);
+  const cellW = width / columns;
+  const cellH = height / rows;
+  const r = Math.max(Math.min(cellW, cellH) / 2 - 0.6, 0.6);
+  const paths = [];
+  for (let i = 0; i < total; i++) {
+    const cx = (i % columns) * cellW + cellW / 2;
+    const cy = Math.floor(i / columns) * cellH + cellH / 2;
+    // Full size throughout — see `RidikPlots.dots` for why a dot does not burn
+    // down the way a cell does.
+    if (i < elapsed) paths.push({ alpha: 0.5, d: circlePath(cx, cy, r) });
+    else if (i === elapsed) paths.push({ alpha: 1, d: circlePath(cx, cy, r) });
+    else paths.push({ alpha: PLOT_ALPHA[0], d: circlePath(cx, cy, r) });
+  }
+  return vector(box, paths);
+}
+
+/**
+ * Monday first, and stated here rather than computed.
+ *
+ * `buildWeek` in `snapshot.ts` starts every week on a Monday regardless of the
+ * device's locale, so these seven letters are a constant of the payload and not
+ * of the phone. Writing them into the layout is what lets them carry no id: a
+ * `RemoteViews` that never has to set them cannot set them wrong.
+ */
+const CHAIN_DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+/**
+ * How tall a day reads at each size.
+ *
+ * Tall enough to fill the tile: seven cells in a band across the top of a
+ * two-row widget with nothing under them is the same cheap drawing every other
+ * face on this page was making. A day is a *column* here, not a chip.
+ */
+/**
+ * The bar's own height, and the reason medium is 68 rather than 96.
+ *
+ * A column is a 9sp letter, three of gap, the bar, three more and a 10sp date.
+ * At 96 that is a 125dp cell under a 17dp header with ten of padding — 152 of
+ * the 130-odd a two-row tile has — so it clipped, and what it clipped was the
+ * date row. `RidikChainView` is the other end of these, and it takes less again
+ * on a clear week, where the sentence underneath needs the room.
+ */
+const CHAIN_HEIGHT = { small: 44, medium: 68 };
+
+function chainRow(depth, { ember, size, sample }) {
+  const height = CHAIN_HEIGHT[size];
+  const columns = CHAIN_DAYS.map((letter, index) => {
+    const pad = indent(depth + 6);
+    const level = sample ? Number(sample.load[index]) : 0;
+    const today = sample ? index === sample.todayIndex : false;
+    return `${indent(depth + 2)}<LinearLayout
+${pad}android:layout_width="0dp"
+${pad}android:layout_height="wrap_content"
+${pad}android:layout_weight="1"${index === 0 ? '' : `\n${pad}android:layout_marginStart="4dp"`}
+${pad}android:gravity="center_horizontal"
+${pad}android:orientation="vertical">
+
+${indent(depth + 4)}<TextView
+${indent(depth + 8)}android:layout_width="match_parent"
+${indent(depth + 8)}android:layout_height="wrap_content"
+${indent(depth + 8)}android:gravity="center"
+${indent(depth + 8)}android:includeFontPadding="false"
+${indent(depth + 8)}android:maxLines="1"
+${indent(depth + 8)}android:text="${letter}"
+${indent(depth + 8)}android:textColor="@color/ridik_widget_ink_soft"
+${indent(depth + 8)}android:textSize="9sp" />
+
+${indent(depth + 4)}<ImageView
+${indent(depth + 8)}android:id="@+id/${IDS.chain(index)}"
+${indent(depth + 8)}android:layout_width="match_parent"
+${indent(depth + 8)}android:layout_height="${height}dp"
+${indent(depth + 8)}android:layout_marginTop="3dp"
+${indent(depth + 8)}android:background="@drawable/${heatDrawable(ember, level, today)}"
+${indent(depth + 8)}android:importantForAccessibility="no" />
+
+${indent(depth + 4)}<TextView
+${indent(depth + 8)}android:id="@+id/${IDS.chainDate(index)}"
+${indent(depth + 8)}android:layout_width="match_parent"
+${indent(depth + 8)}android:layout_height="wrap_content"
+${indent(depth + 8)}android:layout_marginTop="3dp"
+${indent(depth + 8)}android:fontFamily="monospace"
+${indent(depth + 8)}android:gravity="center"
+${indent(depth + 8)}android:includeFontPadding="false"
+${indent(depth + 8)}android:maxLines="1"${text(depth + 8, sample ? sample.dates[index] : null)}
+${indent(depth + 8)}android:textColor="@color/ridik_widget_ink_soft"
+${indent(depth + 8)}android:textSize="10sp" />
+${indent(depth + 2)}</LinearLayout>`;
+  });
+
+  return `${indent(depth)}<LinearLayout
+${indent(depth + 4)}android:id="@+id/${IDS.chainArea}"
+${indent(depth + 4)}android:layout_width="match_parent"
+${indent(depth + 4)}android:layout_height="wrap_content"
+${indent(depth + 4)}android:layout_marginTop="10dp"
+${indent(depth + 4)}android:baselineAligned="false"
+${indent(depth + 4)}android:orientation="horizontal">
+
+${columns.join('\n\n')}
+${indent(depth)}</LinearLayout>`;
+}
+
+function chainFace({ ember, size, preview }) {
+  const sample = preview ? SAMPLE.week : null;
+  // "WEEK" on a small tile, matching `RidikChainView` and `RidikRowsFace.chain`:
+  // 130dp has to carry the eyebrow, the count and the gap between them, and
+  // "THIS WEEK" truncated to "THIS W…" — which promised that something had been
+  // left out, and what it left out was the word that mattered. The picker has to
+  // agree with the live tile or the card advertises a face nobody gets.
+  const eyebrow = size === 'small' ? 'WEEK' : sample && sample.eyebrow;
+  const body = [
+    header(4, sample ? { ember, size, eyebrow, count: sample.count } : { ember, size }),
+    chainRow(4, { ember, size, sample }),
+    slack(4),
+    copy(4),
+  ].join('\n\n');
+  return face({ ember, body, preview });
+}
+
+/**
+ * The rings, laid out in rows of three — with the name *beside* each one.
+ *
+ * The under-label version of this face did not fit and never had, on either
+ * platform. A 56 dp ring with four dp of gap and an eleven-sp name under it is a
+ * 73 dp row; two rows plus the header asked for about 189 of the 130-odd dp a
+ * two-row tile actually has. Neither WidgetKit nor a launcher complains about
+ * that — they clip — so the face shipped with its header cut off the top and the
+ * second row's names cut off the bottom.
+ *
+ * Height is the scarce axis and width is the abundant one: three columns of a
+ * 312 dp box is 97 each, and a name reads perfectly well in the 49 the ring does
+ * not want. Moving it sideways buys the whole row back, 42 dp instead of 73, and
+ * all six habits still show. `RidikRingsView` carries the same arithmetic and
+ * the same two numbers.
+ */
+function ringGrid(depth, { ember, slots, sample }) {
+  const perRow = slots > 3 ? 3 : slots;
+  const rows = [];
+  for (let start = 0; start < slots; start += perRow) {
+    const columns = [];
+    for (let index = start; index < Math.min(start + perRow, slots); index++) {
+      const row = sample && sample.rails && sample.rails[index] ? sample.rails[index] : null;
+      const pad = indent(depth + 8);
+      columns.push(`${indent(depth + 4)}<LinearLayout
+${pad}android:layout_width="0dp"
+${pad}android:layout_height="wrap_content"
+${pad}android:layout_weight="1"${index === start ? '' : `\n${pad}android:layout_marginStart="10dp"`}
+${pad}android:baselineAligned="false"
+${pad}android:gravity="center_vertical"
+${pad}android:orientation="horizontal">
+
+${indent(depth + 6)}<FrameLayout
+${indent(depth + 10)}android:layout_width="${RING_DP}dp"
+${indent(depth + 10)}android:layout_height="${RING_DP}dp">
+
+${indent(depth + 8)}<ImageView
+${indent(depth + 12)}android:id="@+id/${IDS.ring(index)}"
+${indent(depth + 12)}android:layout_width="match_parent"
+${indent(depth + 12)}android:layout_height="match_parent"
+${indent(depth + 12)}android:importantForAccessibility="no"
+${indent(depth + 12)}android:scaleType="fitCenter"${row ? `\n${indent(depth + 12)}android:src="@drawable/ridik_preview_ring_${index}"` : ''}
+${indent(depth + 12)}android:tint="@color/${accentColour(ember)}" />
+
+${indent(depth + 8)}<TextView
+${indent(depth + 12)}android:id="@+id/${IDS.ringValue(index)}"
+${indent(depth + 12)}android:layout_width="match_parent"
+${indent(depth + 12)}android:layout_height="match_parent"
+${indent(depth + 12)}android:gravity="center"
+${indent(depth + 12)}android:includeFontPadding="false"
+${indent(depth + 12)}android:maxLines="1"${text(depth + 12, row ? ringLabel(row.history) : null)}
+${indent(depth + 12)}android:textColor="@color/ridik_widget_ink"
+${indent(depth + 12)}android:textSize="12sp"
+${indent(depth + 12)}android:textStyle="bold" />
+${indent(depth + 6)}</FrameLayout>
+
+${indent(depth + 6)}<TextView
+${indent(depth + 10)}android:id="@+id/${IDS.ringName(index)}"
+${indent(depth + 10)}android:layout_width="0dp"
+${indent(depth + 10)}android:layout_height="wrap_content"
+${indent(depth + 10)}android:layout_weight="1"
+${indent(depth + 10)}android:layout_marginStart="6dp"
+${indent(depth + 10)}android:ellipsize="end"
+${indent(depth + 10)}android:includeFontPadding="false"
+${indent(depth + 10)}android:maxLines="2"${text(depth + 10, row ? row.name : null)}
+${indent(depth + 10)}android:textColor="@color/ridik_widget_ink_soft"
+${indent(depth + 10)}android:textSize="10sp" />
+${indent(depth + 4)}</LinearLayout>`);
+    }
+
+    rows.push(`${indent(depth + 2)}<LinearLayout
+${indent(depth + 6)}android:layout_width="match_parent"
+${indent(depth + 6)}android:layout_height="wrap_content"${start === 0 ? '' : `\n${indent(depth + 6)}android:layout_marginTop="10dp"`}
+${indent(depth + 6)}android:baselineAligned="false"
+${indent(depth + 6)}android:orientation="horizontal">
+
+${columns.join('\n\n')}
+${indent(depth + 2)}</LinearLayout>`);
+  }
+
+  return `${indent(depth)}<LinearLayout
+${indent(depth + 4)}android:id="@+id/${IDS.ringArea}"
+${indent(depth + 4)}android:layout_width="match_parent"
+${indent(depth + 4)}android:layout_height="wrap_content"
+${indent(depth + 4)}android:layout_marginTop="10dp"
+${indent(depth + 4)}android:orientation="vertical">
+
+${rows.join('\n\n')}
+${indent(depth)}</LinearLayout>`;
+}
+
+/**
+ * The ring's own height.
+ *
+ * 42, down from 56. The name moved out from under it, which is what made two
+ * rows fit at all — see `ringGrid`. `RidikRingsView.Ring.diameter` is the other
+ * end of this, and `RidikRings.STROKE_RATIO` is scaled to match.
+ */
+const RING_DP = 42;
+
+/** How many rings each size holds without the names colliding. */
+/**
+ * Six on medium, in two rows of three — every habit the payload carries, and a
+ * tile that is full rather than a band over a field of ground.
+ */
+const RING_SLOTS_BY_SIZE = { small: 2, medium: 6, large: 6 };
+
+function ringsFace({ ember, size, preview }) {
+  const sample = preview ? SAMPLE.habits : null;
+  const body = [
+    header(4, sample ? { ember, size, eyebrow: sample.eyebrow, count: sample.count } : { ember, size }),
+    ringGrid(4, { ember, slots: RING_SLOTS_BY_SIZE[size], sample }),
+    slack(4),
+    copy(4),
+  ].join('\n\n');
+  return face({ ember, body, preview });
+}
+
+function nowNextFace({ ember, size, preview }) {
+  // `SAMPLE.today` is a readout and a headline and carries no `rows`, so the
+  // three slots drew a label and a bar and nothing else — the picker showed the
+  // one face in the family whose whole job is to *answer* saying nothing at all.
+  // The agenda's rows are what a slot is built from, and they are already here.
+  const sample = preview ? { ...SAMPLE.today, rows: SAMPLE.cal.rows } : null;
+  const day = preview ? SAMPLE.day : null;
+  const big = size === 'large';
+  const parts = [
+    header(4, sample ? { ember, size, eyebrow: sample.eyebrow, count: sample.count } : { ember, size }),
+    // `big` here is about the *heat*, not the size: the element below is the
+    // tile's one hot object at both sizes now, so the slots step down to
+    // mid / low / cold at both. §1.1 allows exactly one.
+    slots(4, { ember, big: true, sample }),
+  ];
+  // §2 rule 1 — extra height buys more cells before it buys air. Medium draws
+  // the element too: three words across the top of a two-row tile and nothing
+  // under them was the same cheap drawing the rest of this page was making, and
+  // the strip is the one thing that can fill it while saying something. The
+  // element and the rows are the same generators Today and Calendar use, so this
+  // face and a Today tile beside it draw the identical strip.
+  parts.push(slack(4));
+  parts.push(element(4, { ember, size, sample: day, ruler: big }));
+  if (big) {
+    parts.push(rows(4, { ember, slots: 4, leadWidth: LEAD.wide, sample, fill: false }));
+  }
+  parts.push(copy(4));
+  return face({ ember, body: parts.join('\n\n'), preview });
+}
+
 function listFace({ ember, size, preview }) {
   const sample = preview ? SAMPLE.list : null;
   const body = [
@@ -1936,7 +3270,7 @@ function listFace({ ember, size, preview }) {
     // The marks first and the sentence under them — §4, and where iOS puts it.
     // "All twelve done." above the column it is about read as a heading for a
     // list that then contradicted it.
-    tickRows(4, { ember, slots: ROW_SLOTS_BY_SIZE[size], sample, fill: false }),
+    tickRows(4, { ember, slots: LIST_ROW_SLOTS_BY_SIZE[size], sample, fill: false }),
     // Marks at the top, sentence on the bottom edge, air between: the two ends
     // of the tile are occupied, so a tall checklist reads as a tall checklist
     // rather than as a short one with a void under it.
@@ -1974,6 +3308,58 @@ function layouts() {
         return habitsFace({ ember, size, preview });
       case 'tasks':
         return tasksFace({ ember, size, leadWidth, preview });
+      case 'nownext':
+        return nowNextFace({ ember, size, preview });
+      case 'focus':
+        return focusFace({ ember, size, preview });
+      case 'horizon':
+        return plotFace({
+          ember,
+          kind: 'horizon',
+          size,
+          preview,
+          eyebrow: SAMPLE.today.eyebrow,
+          count: SAMPLE.today.count,
+          note: '15:00  ·  Materials lab',
+        });
+      case 'sundial':
+        return plotFace({
+          ember,
+          kind: 'sundial',
+          size,
+          preview,
+          eyebrow: SAMPLE.today.eyebrow,
+          count: SAMPLE.today.count,
+          note: '6h 20m left today',
+        });
+      case 'route':
+        return plotFace({
+          ember,
+          kind: 'route',
+          size,
+          preview,
+          eyebrow: SAMPLE.today.eyebrow,
+          count: SAMPLE.today.count,
+          note: '3 stops left  ·  next 15:00',
+        });
+      case 'term':
+        return plotFace({
+          ember,
+          kind: 'term',
+          size,
+          preview,
+          eyebrow: '2026',
+          count: 'DAY 242',
+          note: '123 days left',
+        });
+      case 'countdown':
+        return countdownFace({ ember, size, preview });
+      case 'chain':
+        return chainFace({ ember, size, preview });
+      case 'rings':
+        return ringsFace({ ember, size, preview });
+      case 'people':
+        return peopleFace({ ember, size, preview });
       default:
         return listFace({ ember, size, preview });
     }
@@ -2043,7 +3429,7 @@ function info(widget) {
     android:minHeight="${widget.cells.height * 55}dp"
     android:minResizeHeight="110dp"
     android:minResizeWidth="140dp"
-    android:minWidth="${widget.cells.width * 60}dp"
+    android:minWidth="${widget.minWidthDp ?? widget.cells.width * 60}dp"
     android:previewLayout="@layout/${widget.layout}_preview"
     android:resizeMode="horizontal|vertical"
     android:targetCellHeight="${widget.cells.height}"
@@ -2430,6 +3816,13 @@ function ground(radius, { night, ember }) {
 `;
 }
 
+/** The entry a rastered face's preview needs its geometry from. */
+function widgetOf(kind) {
+  const found = WIDGETS.find((widget) => widget.kind === kind);
+  if (!found) throw new Error(`No widget declared for kind '${kind}'`);
+  return found;
+}
+
 function resourceFiles() {
   // Android 12 clips widgets to a corner radius it picks itself. Matching it is
   // the difference between a rounded card and a rounded card with a sliver of
@@ -2454,6 +3847,20 @@ function resourceFiles() {
     [`drawable/${MIC_DRAWABLE}.xml`]: micDrawable(),
 
     'raw/ridik_widget_keep.xml': keepRules(),
+
+    // The four rastered faces, as vectors, for the picker alone — see
+    // `PLOT_VIEWPORT`. The live tiles set a bitmap over these.
+    'drawable/ridik_preview_horizon.xml': skylinePreview(plotViewport('horizon', widgetOf('horizon'))),
+    'drawable/ridik_preview_sundial.xml': sundialPreview(plotViewport('sundial', widgetOf('sundial'))),
+    'drawable/ridik_preview_route.xml': routePreview(plotViewport('route', widgetOf('route'))),
+    'drawable/ridik_preview_term.xml': termPreview(plotViewport('term', widgetOf('term'))),
+
+    // One per ring the medium face draws — see `ringPreview`.
+    ...Object.fromEntries(
+      SAMPLE.habits.rails
+        .slice(0, RING_SLOTS_BY_SIZE[widgetOf('rings').previewSize])
+        .map((rail, index) => [`drawable/ridik_preview_ring_${index}.xml`, ringPreview(rail.history)]),
+    ),
 
     // Linen and a warm near-black — the widget's own tile, and deliberately not
     // the app's saturated field. A widget sits between other apps' tiles and

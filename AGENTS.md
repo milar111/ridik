@@ -146,7 +146,7 @@ different products. These are banned; use the replacement:
 | `Alert.alert` | `useConfirm()` | Two OS dialogs that ignore the palette, disagree about button order, and Android has no `destructive` style |
 | `ActivityIndicator` | `Spinner` | Tapered ticks vs a sweeping arc |
 | `shadowColor`/`elevation` | `elevate()` from `src/ui/shadow.ts` | Android ignores every iOS shadow prop and cannot colour or offset `elevation` |
-| bare `RefreshControl` | `Refresh` | `tintColor` is iOS-only, `colors` Android-only |
+| bare `RefreshControl` | `useRefresh()` | `tintColor` is iOS-only, `colors` Android-only — **and it is a hook, not a component.** `ScrollView`'s `refreshControl` is cloned with internal props by the native view manager, so a *wrapper* component there receives none of them and the whole list renders blank on Android with nothing logged anywhere. Three screens shipped like that. Hoist `const refreshControl = useRefresh({...})` above the return and pass the element. |
 
 A sheet is `SHEET` in `app/_layout.tsx`, and it is the one place where the two
 platforms deliberately take **different** options to reach the same result:
@@ -551,7 +551,8 @@ the first one.
 invariants, normative for both platforms. Read it before touching a face; read
 this section for what will bite you while you do.
 
-One payload, five faces per platform. `src/services/widgets/snapshot.ts` builds it; everything
+One payload, fourteen faces per platform, plus an iOS-only Lock Screen set.
+`src/services/widgets/snapshot.ts` builds it; everything
 a widget draws is computed there, where it can be tested under plain Node, because neither
 WidgetKit nor an `AppWidgetProvider` can run this app's JavaScript or open its SQLite file.
 
@@ -560,7 +561,56 @@ Four numbers have to agree across four files, and nothing fails loudly when they
 | What | Where |
 | --- | --- |
 | `WIDGET_SNAPSHOT_VERSION` | `snapshot.ts`, `SnapshotStore.supportedVersion` (Swift), `WidgetSnapshot.SUPPORTED_VERSION` (Kotlin) |
+| `PLOT_HEIGHT` | `PLOT_HEIGHT` in the Android plugin, `plotHeightDp()` in `RidikRowsFace.kt`, the `height:` on each `Ridik*View` in `RidikPlotViews.swift` |
+| `FOCUS_CELLS` = 16 | `snapshot.ts`, `WidgetSnapshot.FOCUS_CELLS` (Kotlin), `FOCUS_SLOTS` in the Android plugin, `SessionStrip.slots` (Swift) |
 | `ROW_CAP` = 6 | `snapshot.ts`, `RidikRowsFace.ROW_SLOTS`, `ROW_SLOTS` in the Android plugin |
+| `LIST_ROW_CAP` = 11 | `snapshot.ts`, `Slots.listRows` (Kotlin), `LIST_ROW_SLOTS_BY_SIZE` in the Android plugin |
+
+**`ios/` is generated, so editing `targets/` and building compiles the old
+file.** `targets/RidikWidget/` is the source of truth and what is committed;
+`@bacons/apple-targets` copies it into `ios/RidikWidget/` at prebuild, and the
+Xcode project's file references point at the *copy*. `xcodebuild` never reads
+`targets/`. Four faces were fixed there, the widget scheme built clean —
+**BUILD SUCCEEDED, zero errors** — and the tile did not change by a pixel,
+because the build had faithfully compiled months-old copies. A green build is not
+evidence that your edit was compiled. Re-run prebuild, or
+`rsync -a targets/RidikWidget/ ios/RidikWidget/` for a fast loop;
+`src/ui/__tests__/widget-target-sync.test.ts` fails when the two drift and skips
+when `ios/` is absent.
+
+**A widget face can be rendered on real iOS with no tapping at all.** These are
+plain SwiftUI views, so they compile for the simulator SDK as an ordinary
+executable and run *inside* the simulator, where `ImageRenderer` rasterises them
+against real iOS metrics and SF Symbols:
+
+```bash
+xcrun -sdk iphonesimulator swiftc -target arm64-apple-ios18.0-simulator \
+  -sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)" -o bench src/*.swift
+xcrun simctl spawn booted ./bench /tmp/bench    # writes PNGs to the HOST /tmp
+```
+
+`notes/tilelab` is that bench. It is the only way to *see* a face without placing
+one by hand: `simctl` has no tap, touch or input subcommand at all, the simulated
+app exposes no accessibility tree, and driving the widget gallery by desktop
+coordinates was tried and abandoned — the window has a title bar the obvious
+arithmetic misses, and a mis-aimed tap silently launches Calendar instead.
+
+**A tile clips in silence, so a face's height has to be added up rather than
+eyeballed.** Four faces shipped overflowing their own box — Rings, Route, Week
+and Now/Next — and not one of them logged, warned or failed a test. What goes
+missing is whatever the layout put last, which is why it reads as anything but a
+layout bug: Week silently lost its entire date row, Rings and Now/Next lost their
+*headers*, so the tiles were reporting on a day they no longer named. A medium
+tile's content box is **312 x 130** points after WidgetKit's own inset, and 130
+is the whole budget for header, graphic, caption and any empty-state sentence
+underneath. Rings was asking for 189 of it.
+
+`notes/tilelab` renders every face at that exact box in about a second, which is
+the only way to see this without placing a widget by hand — `simctl` cannot touch
+the screen and an `adb` long-press cannot be simulated. Two traps are written up
+in its README; the sharp one is that `widgetFamily` has no setter and
+`previewContext` does not populate it, so "small" renders are silently medium
+views in a small box unless the bench patches its own copies.
 
 **Bump the version whenever the payload shape changes.** An older widget reading a newer
 payload draws "Ridik was updated" rather than a half-decoded face — that is the whole point of

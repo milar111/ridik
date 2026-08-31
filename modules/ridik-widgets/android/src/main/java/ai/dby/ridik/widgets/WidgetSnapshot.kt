@@ -25,6 +25,53 @@ internal data class AgendaRow(
 /** `dueAt` is null for a task due today that carries no time. */
 internal data class TaskRow(val title: String, val dueAt: Long?, val overdue: Boolean)
 
+/** A promise owed to somebody, and how long it has been owed. */
+internal data class PersonRow(val name: String, val text: String, val age: Int)
+
+/**
+ * The current week, Monday first — the Chain face.
+ *
+ * Its own block rather than seven characters sliced out of the month plate: a
+ * week straddling the 1st is half in a month the plate does not cover.
+ */
+/**
+ * The running focus session — the Focus face. Null when there is none.
+ *
+ * The strip here is **the session, not the day**: `FOCUS_CELLS` slices of the
+ * booked block, `mid` for focus and `low` for a break, so the shape of a
+ * pomodoro plan is visible before any of it has been spent.
+ *
+ * `phaseEndsAt` and `endsAt` are *moments*, and both are 0 while paused — a
+ * paused session has no end, and a `Chronometer` counting to a moment that keeps
+ * receding is wrong every second it is on screen.
+ */
+internal data class WidgetFocus(
+  val label: String,
+  /** "focus" or "break". A break in a session is still a session. */
+  val phase: String,
+  /** "running" or "paused". */
+  val status: String,
+  /** Epoch ms this phase ends at, or 0 while paused. */
+  val phaseEndsAt: Long,
+  /** Epoch ms the whole plan ends at, or 0 while paused. */
+  val endsAt: Long,
+  val load: String,
+  val breaks: String,
+  /** Index of the cell now is inside, or -1. */
+  val nowCell: Int,
+) {
+  val onBreak: Boolean get() = phase == "break"
+  val paused: Boolean get() = status == "paused"
+}
+
+internal data class WidgetWeek(
+  val startDate: String,
+  /** Seven heat characters, Monday first. */
+  val load: String,
+  /** 0-6 index of today, or -1 when the payload is not this week's. */
+  val todayIndex: Int,
+)
+
 internal data class HabitRow(
   val name: String,
   val doneToday: Boolean,
@@ -176,6 +223,17 @@ internal data class WidgetSnapshot(
   val habitsDone: Int,
   val habitsTotal: Int,
   val habitRows: List<HabitRow>,
+  /** Open promises, counted before the caps. */
+  val week: WidgetWeek,
+  /** The running focus session, or null — which is the ordinary case. */
+  val focus: WidgetFocus?,
+  /** Open promises, counted before the caps. */
+  val peopleOwed: Int,
+  /** Distinct people owed something. */
+  val peopleCount: Int,
+  /** Days since each promise was made, oldest first. */
+  val peopleAges: List<Int>,
+  val peopleRows: List<PersonRow>,
   val agenda: List<AgendaRow>,
   /** All-day titles. A calendar widget that drops these loses whole days. */
   val allDay: List<String>,
@@ -189,7 +247,7 @@ internal data class WidgetSnapshot(
      * newer payload into half a face: it draws "Ridik was updated." instead,
      * which is the whole point of the field.
      */
-    const val SUPPORTED_VERSION = 4
+    const val SUPPORTED_VERSION = 6
 
     /**
      * What a fresh install draws, and the answer to every question this file
@@ -237,6 +295,39 @@ internal data class WidgetSnapshot(
 
     private val COLD_MONTH = WidgetMonth(month = "", weekStartsOn = 1, load = "", today = 0)
 
+    /** Must equal `FOCUS_CELLS` in `src/services/widgets/snapshot.ts`. */
+    const val FOCUS_CELLS = 16
+
+    /** Seven cold days and no today: what a payload without a week decodes to. */
+    private val COLD_WEEK = WidgetWeek(startDate = "", load = "0000000", todayIndex = -1)
+
+    private fun parseFocus(row: JSONObject) = WidgetFocus(
+      label = row.string("label") ?: "",
+      phase = row.string("phase") ?: "focus",
+      status = row.string("status") ?: "running",
+      phaseEndsAt = row.optLong("phaseEndsAt", 0L),
+      endsAt = row.optLong("endsAt", 0L),
+      // Padded rather than trusted: the face indexes these `FOCUS_CELLS` times
+      // and a short string would be an exception on a launcher's binder thread.
+      load = (row.string("load") ?: "").padEnd(FOCUS_CELLS, '0').take(FOCUS_CELLS),
+      breaks = (row.string("breaks") ?: "").padEnd(FOCUS_CELLS, '0').take(FOCUS_CELLS),
+      nowCell = row.optInt("nowCell", -1),
+    )
+
+    private fun parseWeek(row: JSONObject) = WidgetWeek(
+      startDate = row.string("startDate") ?: "",
+      // Padded rather than trusted: a face indexes this seven times and a short
+      // string would be an exception on a launcher's binder thread.
+      load = (row.string("load") ?: "").padEnd(7, '0').take(7),
+      todayIndex = row.optInt("todayIndex", -1),
+    )
+
+    private fun parsePerson(row: JSONObject) = PersonRow(
+      name = row.string("name") ?: "",
+      text = row.string("text") ?: "",
+      age = row.optInt("age", 0),
+    )
+
     private val NOTHING_CONFIGURED =
       WidgetConfigured(calendar = false, tasks = false, habits = false, lists = false)
 
@@ -245,6 +336,7 @@ internal data class WidgetSnapshot(
       val root = JSONObject(json)
       val tasks = root.optJSONObject("tasks")
       val habits = root.optJSONObject("habits")
+      val people = root.optJSONObject("people")
       WidgetSnapshot(
         version = root.optInt("version", 0),
         publishedAt = root.optLong("publishedAt", 0L),
@@ -265,6 +357,12 @@ internal data class WidgetSnapshot(
         habitsDone = habits?.optInt("done", 0) ?: 0,
         habitsTotal = habits?.optInt("total", 0) ?: 0,
         habitRows = habits?.optJSONArray("rows").map { parseHabit(it) },
+        week = root.optJSONObject("week")?.let { parseWeek(it) } ?: COLD_WEEK,
+        focus = root.optJSONObject("focus")?.let { parseFocus(it) },
+        peopleOwed = people?.optInt("owed", 0) ?: 0,
+        peopleCount = people?.optInt("count", 0) ?: 0,
+        peopleAges = people?.optJSONArray("ages").ints(),
+        peopleRows = people?.optJSONArray("rows").map { parsePerson(it) },
         agenda = root.optJSONArray("agenda").map { parseAgenda(it) },
         allDay = root.optJSONArray("allDay").strings(),
         list = root.optJSONObject("list")?.let { parseList(it) },

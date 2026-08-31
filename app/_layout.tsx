@@ -1,3 +1,7 @@
+// First, deliberately: it filters a message `expo-notifications` prints as a
+// side effect of being imported, so any import that reaches it must come after.
+import '@/startup/logbox';
+
 import { useEffect, useState } from 'react';
 import { StyleSheet, View , Platform, useColorScheme } from 'react-native';
 import { Stack } from 'expo-router';

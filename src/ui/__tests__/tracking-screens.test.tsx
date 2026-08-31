@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -329,7 +329,11 @@ describe('habits screen', () => {
     await wrap(<HabitsScreen />);
 
     expect(await screen.findByText('AT RISK')).toBeTruthy();
-    const names = screen.getAllByText(/^(Anki|Workout)$/).map((node) => node.props.children);
+    // Scoped to the card list: the summary rings above label every habit too,
+    // so an unscoped query matches each name twice and says nothing about the
+    // ordering this test is actually about.
+    const cards = within(screen.getByTestId('habit-cards'));
+    const names = cards.getAllByText(/^(Anki|Workout)$/).map((node) => node.props.children);
     expect(names).toEqual(['Workout', 'Anki']);
   });
 
@@ -357,7 +361,9 @@ describe('habits screen', () => {
     ]);
 
     await wrap(<HabitsScreen />);
-    await fireEvent(await screen.findByText('Anki'), 'longPress');
+    // The card, not the summary ring that now carries the same name.
+    const cards = within(await screen.findByTestId('habit-cards'));
+    await fireEvent(await cards.findByText('Anki'), 'longPress');
 
     // The app's own dialog now, so the assertion is on what is on screen rather
     // than on the arguments handed to the OS.

@@ -1,7 +1,8 @@
 # Ridik widgets — the contract
 
-Two platforms draw the same six faces from one published payload. Nothing is
-shared between them at build time: an Xcode extension links neither the app nor
+Two platforms draw **fourteen** faces from one published payload, and iOS draws a
+fifteenth on the Lock Screen (§7c — the one place the family is deliberately not
+symmetrical, and §7b says why). Nothing is shared between them at build time: an Xcode extension links neither the app nor
 React Native, and an Android widget is XML replayed by the launcher. So this
 file is the shared source, and it is normative. Where the code and this file
 disagree, one of them is a bug.
@@ -61,6 +62,30 @@ three agree and that the ramp keeps its own rules.
 machine-made: progress rings, gradients and glows, hairline separator rules,
 big-number-with-caption as a whole face, three evenly spaced stat pills, and any
 second hue. There is no green and no blue anywhere in these widgets.
+
+**The one narrowing, and it is a narrowing rather than a repeal.** §3.7 *Rings*
+draws a proportion as a stroked arc, which the paragraph above forbids. It exists
+because the user asked for it after seeing the same encoding on the Habits
+*screen*, and the two are not the same argument: a screen is read at arm's length
+by someone who opened it deliberately, where a proportion beats a bucket; a tile
+is glanced at across a room, where a ring is a smear and four discrete levels are
+not. So the rule now reads: **no face may draw a proportion as its graphic unless
+the user chose that face over one that does not.** Rings is offered *beside*
+Habits and never instead of it, and no other face may take a ring without the
+same argument being made again here. `Tank` and `Lens` remain unbuilt on exactly
+this reasoning — a ban that bends once per request is not a ban.
+
+**The second narrowing, and it is a distinction rather than a second exception.**
+§3.14 *Sundial* draws a curve with a disc riding it, which reads at a glance like
+the ring the paragraph above bans. It is not one, and the rule that separates
+them is one sentence: **a path carrying a position marker is permitted; a closed
+ring encoding a fraction is not.** A progress ring says "62% of a goal" and
+invites you to compare two of them side by side. Sundial says "you are here,
+between these two ends", which is exactly what the burn-down step in invariant 3
+already says — drawn so that it can be read across a room instead of found. The
+test is whether anything on the face encodes a *proportion*: on Sundial nothing
+does, and on Rings the whole face does, which is why the two needed different
+sentences.
 
 ---
 
@@ -222,7 +247,7 @@ large. The line costs about 18pt and the arithmetic has to know.
 - All-day events: draw `allDay[0]` as a line under the header when present.
 - Tap → `ridik:///calendar`.
 
-### 3.3 Habits — small, medium, large
+### 3.3 Habits — small, medium
 
 ```
 ┌ medium · 305×131 ─────────────────────────────────────────────┐
@@ -237,8 +262,12 @@ large. The line costs about 18pt and the arithmetic has to know.
 └───────────────────────────────────────────────────────────────┘
 ```
 
-- **Window: 7 / 21 / 35 days.** Take the *last* N characters of
-  `habits.rows[].history`, which is 35 long and ends on `day.date`.
+- **Window: 7 / 21 days.** Take the *last* N characters of
+  `habits.rows[].history`, which is 35 long and ends on `day.date`. The 35-day
+  board went with the large size: six rows cannot grow to meet 321pt of height,
+  so the extra bought ground rather than cells — §2 rule 1 exactly. Android caps
+  `railSizeOf` at medium so a wide tile cannot ask for a layout that is no
+  longer generated.
 - Levels are **binary**: `'0'` → cold, `'1'` → mid, **and the last cell, if
   `'1'`, is hot**. If today is not done there is no hot cell on the tile, and
   that absence is the message.
@@ -247,7 +276,7 @@ large. The line costs about 18pt and the arithmetic has to know.
 - Names live in a **left gutter**, never above the rail. The cross-habit read —
   "everything dies on a Sunday" — is a vertical read down aligned columns, and a
   name line between rails destroys it.
-- Streak in the gutter only when > 1 (`12d`). Large also shows `best 31`.
+- Streak in the gutter only when > 1 (`12d`).
 - **Always draw all six rail slots**, whether or not a habit exists for them. A
   board occupies its rectangle at zero habits; a list does not. The empty slots
   teach the capacity without a word.
@@ -279,7 +308,7 @@ large. The line costs about 18pt and the arithmetic has to know.
   the payload has always carried the real date.
 - Tap → `ridik:///tasks`.
 
-### 3.5 List — small, medium
+### 3.5 List — small, medium, large
 
 The quiet one. **No cells, by decision** — a checklist has no time axis and
 inventing one would be decoration. One tile without a graphic is what makes the
@@ -290,6 +319,38 @@ first, done struck through in `inkSoft`. The marks are cold-filled 7pt cells
 with a 1pt ground inset — the family's primitive at its quietest.
 
 Tap → `ridik:///notes?pane=lists&list=<urlencoded name>`.
+
+**Large, and why this face gets one when Today does not.** Four rows on small,
+five on medium, **eleven on large** — 321pt holds that many at 20pt with the
+header. Today's large would be the medium face with air around it, but a
+shopping list is the one thing on a home screen you want *all* of, and a list
+you cannot see the end of is a list you still have to open the app for.
+
+It is the only face that draws more than six rows, so it is the only one whose
+payload carries more: `LIST_ROW_CAP` in `snapshot.ts` is 11 while `ROW_CAP`
+stays 6, and the slots are generated per-kind — `LIST_ROW_SLOTS_BY_SIZE` in the
+Android plugin, `Slots.listRows` in `RidikCells.kt`. Raising the shared number
+instead would write five permanently hidden views into every agenda, tasks and
+habits layout, because RemoteViews cannot loop. Row *count* is not payload
+*shape*, so this needs no `WIDGET_SNAPSHOT_VERSION` bump: every face already
+slices the array to its own slots, and an older widget handed a longer one draws
+its own number of rows and no more.
+
+**Done rows are rationed at eleven, never at four or five.** Open-first with
+everything struck through after it works at five rows because you rarely see both
+halves at once. At eleven you always do, and a list two-thirds crossed out reads
+as *finished* when most of it is not — the one misreading a tile that is entirely
+a tally cannot afford. So large shows **at most three** done rows and counts the
+rest as `+3 done` under the column.
+
+Capped rather than dropped, and that is the whole argument: the struck-through
+rows are the only evidence on the tile that it is showing a list somebody is
+working through, so a face that hid them would look identical whether it was live
+or three days stale. `4 OF 12` in the header says what is left; `+3 done` says
+what is behind you and is not on the tile. `doneRowsOnLarge` in
+`RidikRowsView.swift` and `DONE_ROWS_ON_LARGE` in `RidikRowsFace.kt` are the same
+number for the same reason the row counts match — the same list must not be a
+different length on the phone next to yours.
 
 ### 3.6 The mic — the one control in the family
 
@@ -318,6 +379,390 @@ the two halves of that rule and both say no.
 
 Not on the notice pane either. "Nothing published yet." and "Ridik was updated."
 are the two states where the tile has no header, on both platforms.
+
+---
+
+### 3.7 Rings — medium only
+
+Adopted from the `clay` direction by request, and the only face that draws a
+proportion — see §1 for the narrowing that permits it, which is a narrowing and
+not a repeal.
+
+One ring per habit: a stroked arc from twelve o'clock clockwise, the share of the
+payload's 35-day history that was kept, with the percentage inside the ring
+rather than under it. **Six rings, in two rows of three, each with its habit's
+name beside it rather than underneath.** 42dp across, 4.5 of stroke.
+
+One row of four across the top of a medium tile left two thirds of it as ground —
+the face that is entirely a tally, drawn as a band over a field of nothing. Two
+rows of three fill the tile *and* show every habit the payload carries, which is
+the thing this face exists to do and the reason it refuses a size that would hide
+some of them.
+
+**The name is beside the ring because two rows of it do not otherwise fit, and
+never did.** A 56dp ring with four of gap and an eleven-point name under it is a
+73dp row; two of those plus the header asked for about 189 of the 130-odd a
+medium tile's content box actually has. Neither WidgetKit nor a launcher reports
+that — both clip in silence — so the face shipped with its header cut off the top
+edge and the second row's names cut off the bottom. Height is the scarce axis
+here and width is the abundant one: three columns of a 312dp box is 97 each, and
+a name reads perfectly well in the 49 the ring does not want. Sideways, the row
+costs 42 instead of 73 and all six habits still show.
+
+**No small, and no large.** Two rings is not a set: it reports on a third of
+somebody's habits and hides the rest without saying so, which is the one thing a
+face that is entirely a tally must not do. And there is no seventh habit for a
+large tile to draw, so the height would buy ground — what §2 rule 1 forbids.
+Android floors every tile of it to the medium layout rather than asking for a
+file that does not exist; an unresolved layout id draws nothing at all.
+
+Order is the payload's order and is never sorted by how well each habit is going.
+That is the same rule the rails follow, for the same reason: re-sorting would
+reshuffle the board every time anything is logged, and a ring and a rail must
+describe the same habit in the same position.
+
+The number is floored and `100%` is reserved for a record with nothing missed —
+34 of 35 says 97, because a habit with a missed day claiming a full score is the
+one number on this face that would be a lie. `RidikRings` in Swift and
+`RidikRings.kt` hold the identical arithmetic.
+
+**The picker needs its own arc.** The live tile is filled by
+`setImageViewBitmap`, and nothing of ours runs in the widget gallery — so the
+`ImageView` there had no drawable and the face rendered as an eyebrow over an
+empty tile, which is the one place a widget is judged before it is placed. The
+preview draws a **vector** instead, built from the same rate arithmetic. A vector
+has no stroke, so the arc is a filled annulus sector.
+
+**Android rasters the arc; iOS trims a circle.** RemoteViews cannot draw an arc,
+so the Kotlin generates a bitmap — and that bitmap is a **white alpha mask**,
+tinted by `android:tint` in the layout. A colour computed in the provider is
+computed against the *app's* configuration rather than the launcher's, which is
+the near-black-on-near-black bug in §5; a tint is a colour *reference* the
+launcher resolves in its own process. It is the same trick the mic glyph uses.
+
+Tap → `ridik:///habits`.
+
+### 3.8 Now / Next / Later — medium, large
+
+The one face that **answers** instead of drawing. Every other tile is an
+instrument: it draws a quantity and lets you read it. None of them answers the
+plainest question anyone asks a home screen, which is *what am I supposed to be
+doing?* Three slots do, in three words.
+
+The primitive still appears — one 6pt bar per slot — so the tile belongs to the
+family rather than being a card of text on a matching background. It is
+deliberately not a *strip*: a strip would re-answer "how is my day shaped", which
+is §3.1's question and §3.1's face.
+
+**Everything is classified against the reading process's own clock.** Which row
+is happening now changes every minute while nothing is republished, so none of it
+can come from the payload. `agenda` is "what is left of today"; this asks the
+clock which of those rows the moment is inside. A face that let the publisher
+decide would be wrong for up to half an hour at a time and look entirely
+plausible doing it.
+
+`NOW` stays empty when nothing is running rather than borrowing the next thing.
+"Now: Robotics lab" when Robotics lab starts in two hours is the one lie this
+face is in a position to tell, and the empty copy exists so it does not have to.
+
+**Both sizes draw the day element underneath**, and §1.1 allows exactly one hot
+object — so the slots step down to mid / low / cold and the element keeps the
+ember, the same trade §3.2 makes between the strip and the plate. Large adds the
+agenda rows and the ruler on top of that.
+
+Medium used to stop at the three slots and give `hot` to NOW, which left two
+thirds of the tile as ground under three words. The strip is the one thing that
+can fill it while still saying something, and it is the same element §3.1 draws
+from the same payload — so this face and a Today tile beside it agree about the
+day.
+
+**No small.** Three columns in 131pt is 40pt each and truncates every title (§2
+rule 2). A one-slot small face would be §3.1's readout with a different word over
+it.
+
+Tap → `ridik:///today`.
+
+---
+
+### 3.9 People — small, medium
+
+The debt primitive from §3.4, pointed at promises: one cell per outstanding
+promise, oldest left, the single oldest hot. No new primitive and no new
+arithmetic — which makes it the cheapest face in the family to have added.
+
+It earns a tile because it is the only face whose data **nothing else in the app
+surfaces at a glance**. A promise with no due date can never become overdue, so
+it never reaches Tasks, never reaches "due today" and never reaches a briefing.
+It simply gets older. That is the app's quietest failure mode, and a strip whose
+oldest cell is the hot one is the whole fix.
+
+**Not gated on the day, and that is the one departure from §3.4.** Tasks is a
+tally of a particular day and a stale payload keeps its shape while losing its
+counts. A promise made three weeks ago is exactly as owed this morning as it was
+last night, so "Yesterday's plan." over this face would be a claim about the
+wrong thing — the same reasoning that keeps the checklist ungated.
+
+The ages are days since the promise was **made**, not days past due. For most of
+these rows there is no due date to be past, which is the point.
+
+Tap → `ridik:///people`.
+
+---
+
+### 3.10 Week — small, medium
+
+Seven cells, Monday first, with today ringed, a weekday letter above each and its
+date below. **A day is a column here, not a chip** — the cells take the tile's
+height, because seven of them in a band across the top with nothing underneath is
+the same cheap drawing every other face on this page was making. The only face that answers a question about *tomorrow*: §3.1 draws
+the day you are standing in and §3.2 draws a month you have to find the row in,
+and neither says "Thursday is the bad one" at a glance.
+
+**The week is its own payload field and never seven characters of the month
+plate.** A week straddling the 1st is half in a month the plate has no cells for,
+and slicing would draw those days `cold` — which is how this face says *free*, so
+the tile would report a clear Monday over a Monday with four things on it.
+`buildWeek` publishes the seven days directly, using the same overlap arithmetic
+as the plate so the two can never disagree about a day they both draw.
+
+**Staleness is not asked, deliberately.** `todayIndex` is `-1` when the payload
+is not this week's, so no cell is ringed and the face stops claiming a today.
+That is the honest degradation and it differs from the agenda's: the *shape* of a
+week published yesterday is still the shape of this week.
+
+The dates are what stop this being a second habits rail. Seven anonymous cells
+say "some days are busier"; an `11` under the hot one says *which* day, which is
+the only question a week-shaped tile is asked.
+
+**No large.** §2 rule 1 — extra height buys more cells before it buys air, and
+there is no eighth day to buy.
+
+Tap → `ridik:///calendar`.
+
+---
+
+### 3.11 Countdown — small, medium
+
+One number, one title, one place. The only face that is still moving when nothing
+is publishing: `Text(_:style: .timer)` on iOS and `Chronometer` with
+`setChronometerCountDown(true)` on Android are the one genuinely live element
+either platform gives for zero wakeups.
+
+**It counts to the start, not only to the buffer.** §3.1 already carries a live
+number and it counts to `leaveAt` and says "leave in" — honest, and silent for
+most of a calendar, because most things have no travel buffer. This face counts
+to whichever moment comes first and **changes the verb with it**: "leave in"
+while there is a buffer to leave for, "starts in" when there is not. Carrying the
+wrong verb over the right number is the single lie a live countdown can tell, so
+the two travel together and are chosen in one expression.
+
+**Past it, the face stops counting.** A `Chronometer` counts past its base as
+readily as down to it, and `Text(_:style:)` does the same — one left running
+unattended reads a rising number where a falling one was. Two things stop that:
+the timer is only mounted while there is time left on it, and the moment it runs
+out is already a redraw (a one-shot `AlarmManager` on Android with its own
+request code, a timeline entry on iOS). Past the start the face says *happening
+now*, which is a sentence and not a number, because a countdown at zero reads as
+a fault rather than as an answer.
+
+**No large.** Three lines and 300pt of ground under them is the air §2 rule 1
+exists to forbid.
+
+Tap → `ridik:///today`.
+
+---
+
+### 3.12 Focus — small, medium
+
+The one face with a live clock over something that has a **natural end**. §3.11
+counts to a travel buffer, which most things on a calendar do not have; a running
+session ends in forty minutes by construction rather than by inference, which is
+what makes a countdown over it honest.
+
+**The strip is the session, not the day.** Sixteen cells of the booked block —
+`mid` for focus, `low` for a break — so the shape of a pomodoro plan is visible
+before any of it has been spent. Spent cells burn down to the same 38% as
+everywhere else, the current cell is the tile's one hot object, and a phase
+boundary is the same 2pt hairline §3.1 draws. Nothing new is invented, and
+sixteen rather than thirty-two because 32 cells of a 25-minute pomodoro is 47
+seconds each — below the resolution at which a boundary means anything.
+
+**Nothing running is a state and it is the common one.** The clock is hidden, the
+strip is drawn fully cold, and the copy is "No session." / *Say "focus for 40
+minutes"*. A timer tile showing a stale `00:00` is worse than a blank one, which
+is §4 applied to a face whose whole content is a number.
+
+**Paused stops the clock rather than freezing a number in it.** The payload sends
+*no moments at all* while paused — a paused session has no end, because the
+minutes left are known and when they will finish is not, and a countdown to a
+receding moment is wrong every second it is on screen. The header says PAUSED and
+the strip holds its marker where the pause caught it.
+
+This is the face that would most benefit from iOS Live Activities, which
+`src/services/focus/liveActivity.ts` is already a capability-detected adapter
+for. Same extension, so the marginal cost of both is one target, not two.
+
+Tap → `ridik:///today`.
+
+---
+
+### 3.13 Skyline — medium only · *an alternative Today*
+
+The same 32 cells as §3.1, but **their height is their level**, which turns the
+strip into a silhouette of the day instead of a bar of it. A flat strip tells you
+*when* you are busy; a skyline tells you *how* busy at a glance, because height
+is read pre-attentively where four opacities are not.
+
+Burn-down still marks now: a spent block keeps its height and drops to the same
+38% §1.3 gives a cell, so the step survives and the face can still show that it
+is stale. Breaks are the same 2pt hairline before a new booking.
+
+**Medium only.** Thirty-two blocks in 131pt is four points each — narrower than
+the hairline between two of them, so the silhouette stops being a silhouette and
+becomes a texture. The mechanic needs the width.
+
+**It is an alternative Today and never a companion to it**, and the picker's
+description says so. It gives a cell a height *as well as* a level, which is a
+second encoding of one variable — precisely §8's objection to gradients. Two
+tiles disagreeing about what a cell means on one home screen is the failure; the
+user choosing one reading over the other is not.
+
+**The graphic fills its tile.** Every ornament on these faces is sized from the
+box it is drawn in — the sundial's disc is 13% of its height, the route's line
+27% of its own — which for a while meant the box had to be pinned to a fixed
+aspect, because a taller one did not draw the same picture larger, it drew a
+*different* picture with a blot for a sun. That left a third of a two-row tile as
+ground under a small drawing: correct in shape and cheap to look at, which is the
+worse failure of the two. The ornaments are clamped against the horizontal
+*step* now — the disc, the dots and the puck all are — so the box is free to grow
+and the things on it are not.
+
+**Route is the exception, and it is why it has a one-row tile.** A route is a
+line, and a line cannot be made taller without becoming a band. On Android it
+declares `4 × 1`; WidgetKit has no such family, so on iOS it keeps `systemMedium`
+and the line sits above its caption rather than being stretched to meet it.
+
+**Its box is 44, and the slack is split rather than spent.** At 30 the line was
+27% of too little — an eight-point hairline — and every one of the 50-odd points
+a medium tile had left over went into a *single* gap between the line and its
+caption, which reads as a face with something missing out of the middle. The box
+is 44 now and the leftover is halved above and below it, so the line sits in the
+middle of its tile, which is what it is. The graphic is still a fixed height:
+everything on it is sized from its own box, so letting it grow would draw a
+different picture rather than a bigger one.
+
+Widening the box is the same trap in the other axis, and only Android has it:
+`scaleType="fitXY"` does not preserve aspect, so a raster whose shape differs
+from its `ImageView`'s stretches everything in it. That is what made the puck an
+egg, twice — once from a shared 300 × 100 viewport, and once from a 4 × 1 tile
+whose *preview card* the launcher drew three columns wide. A short widget's span
+is derived from `minWidth`, so `minWidth` has to agree with `cells.width`.
+
+Tap → `ridik:///today`.
+
+---
+
+### 3.14 Sundial — medium only · *an alternative Today*
+
+The same 32 cells laid on a curve, with a solid disc riding it at `now`. Cells
+behind you **shrink** rather than burn down, because a curve has no baseline to
+burn towards. The disc is the tile's one hot object, so §1.1 holds unchanged.
+
+§1 carries the narrowing that permits it, and the short version is that a path
+with a position marker is not a ring: nothing on this face encodes a proportion.
+
+The curve is a **quadratic with its control point at the horizontal midpoint**,
+which makes `x(t)` linear in `t` exactly — so `t` *is* the fraction of the window
+elapsed and no numeric inversion is needed anywhere. `src/features/today/arc.ts`,
+`RidikPlots.sundial` and `Sundial.Geometry` in Swift hold the identical
+arithmetic, so the app screen and both platforms' tiles put the sun in the same
+place.
+
+**Medium only**, for Skyline's reason and one more: the disc is sized from the
+arc's own height, so on a small tile it swallows the dots it is meant to be
+riding past. Both the disc and the dots are clamped against the *step* as well as
+the height for that reason — 32 dots across a medium tile is about 6.5pt each, and a dot
+sized purely from the arc overlapped its neighbours into a caterpillar. Nothing
+about a dot means anything once it touches the one beside it.
+
+What it gives up is precision: 32 cells on a straight line are individually
+countable, 32 dots on a curve are not. Same conclusion as §3.13 and for the same
+reason — an alternative Today, never a companion.
+
+Tap → `ridik:///today`.
+
+---
+
+### 3.15 Route — medium only · *an alternative Today*
+
+The day as a line, its bookings as segments, and `now` as a puck. Spent segments
+**thin** behind you rather than burning down — a horizontal line has no baseline
+either, the same substitution §3.14 makes.
+
+**The line is continuous, and the rounding is on its ends.** Each segment butts
+against the next; a hairline of ground is left only where a booking actually
+begins. The caps belong to the *rail* and are applied once — a `clipPath` on
+Android, a `clipShape` on iOS — never per segment. Rounding each one instead
+turned thirty-two segments across a tile into thirty-two beads at ten points wide
+by nine tall, which is the whole metaphor gone.
+
+**A track is laid full width before any of it is drawn**, and the paragraph above
+is why that had to be said out loud. "Continuous" was a claim about the *clip*,
+and it said nothing about what got drawn into it: an empty cell is level 0, which
+is 18% of the accent, and a *spent* empty cell is that times 0.55, which is ten.
+Ten per cent of an ember, four points tall, is nothing — so the entire morning of
+an ordinary day rendered as blank ground and the route began at the puck. The
+face read as a slider somebody had dragged, which is the one thing a journey must
+not: no road behind you. Burn-down cannot answer it the way §3.13 does, because a
+silhouette has a baseline to shrink towards and a line has none. So the road goes
+down first at 13%, and the day is drawn on top of it.
+
+It is honest about position and not about duration. A puck wide enough to see is
+about twenty-five minutes of a day, so it reads as *where you are* and never as
+*how long this takes*; that is the one thing about this face that could be
+mistaken for a measurement, so it is written down. Its radius is clamped against
+the segment step as well as the height: past a few segments wide it stops being a
+marker sitting on a line and becomes a blot over the part of the day it points
+at.
+
+**Medium alone.** The face *is* a line, and 32 segments in 131pt is four points
+each — narrower than the break between two of them, which is the whole mechanic.
+A large tile is the same line with 200pt of ground under it. Android floors any
+squeezed tile to the medium layout rather than asking for a file that does not
+exist.
+
+Tap → `ridik:///today`.
+
+---
+
+### 3.16 Term — small, medium
+
+One dot per day, today the hot one, and a count under them. The only expressive
+face that needed **no amendment at all**: a dot is the cell at its smallest, and
+today is the one hot object.
+
+**Burn-down is the one rule that does not transfer, and the face says why.**
+§1.3 is a *height* rule — same level, 38% height, bottom-aligned — and a dot has
+no height to take 38% of. Shrinking one takes the ink away in both axes at once,
+which drew 241 days of history as a faint speckle under 124 solid days still to
+come: the past read as *less* present than the future, which is the opposite of
+what the face is for. So every dot is full size and only the opacity moves — the
+history is the filled mass, today is the hot one, the days ahead are the faint
+tail. That is how *one year*, the app this is lifted from, draws it.
+
+It reads **no load**, which is what lets it sit beside §3.14 without the two
+arguing about what a cell means — one is a count of days, the other a measure of
+them. It is also the only one of the four that composes with anything.
+
+**Small draws the month, medium the year.** There is no *term*, because the app
+models no term or semester; naming one the user never entered would be the face
+inventing its own data. The two periods a calendar actually has are the two it
+draws.
+
+The day is taken from the **payload's** own date, never the device's: a tile
+published in another zone must not count a day the user has not had yet.
+
+Tap → `ridik:///calendar`.
 
 ---
 
@@ -360,7 +805,7 @@ Two rules behind that table:
   and "wrong version" — the two states where there is genuinely nothing to draw.
   Android redraws at most every thirty minutes, so from midnight until the app
   is next opened this is what every tile on the home screen looks like; routing
-  it through the notice pane blanks five widgets every morning.
+  it through the notice pane blanks every widget on the home screen every morning.
 
 The gallery preview is where "the widgets look blank" is judged *before one is
 ever placed*. Previews ship populated, with the same fake data on both
@@ -485,11 +930,22 @@ layout variant.
 The same mic, one layer further out: **iOS 18 `ControlWidget`** in the existing
 extension (`RidikControls.swift`), **Android `TileService`**
 (`RidikSpeakTileService.kt`), registered by the same plugin that registers the
-five providers. Both open `ridik:///?speak=1`.
+every provider. Both open `ridik:///?speak=1`.
 
-**Both platforms or neither.** A quick-capture button on one and not the other
-is the AGENTS.md failure arriving through the door nobody would spot in a
-screenshot comparison — so `speak-intent.test.tsx` asserts them as a pair.
+**Both platforms or neither — and the rule is about *controls*.** A
+quick-capture button on one platform and not the other is the AGENTS.md failure
+arriving through the door nobody would spot in a screenshot comparison, so
+`speak-intent.test.tsx` asserts them as a pair.
+
+That rule was written here, about this button, and it is stated in those terms
+deliberately: it does **not** govern every surface. §7c ships a Lock Screen set
+on iOS alone. The difference is what the failure actually is — a capability that
+exists on one platform and is *invisible* on the other, so the user of the poorer
+one never learns what they are missing and the two products diverge in the dark.
+Android has no Lock Screen widget surface at all; the capability is not hidden
+there, it is absent, the way widgets themselves were until a year ago. The
+nearest Android equivalent is a notification, which is a different product
+decision and not a translation of this one.
 
 What makes this cheap is that a control is **not a widget**. It reads no
 snapshot, has no size, no layout, no timeline and no update period; it is a
@@ -500,7 +956,7 @@ Three things that are the platforms being awkward rather than decisions:
 
 - **`ControlWidget` is iOS 18 and this extension ships to 16.4.** The bundle
   adds it through `if #available` — `WidgetBundleBuilder` calls
-  `buildLimitedAvailability` — so a phone on 17 gets the five widgets and is
+  `buildLimitedAvailability` — so a phone on 17 gets every widget and is
   never told the control exists. Raising the extension's floor two majors to
   ship a button would be the wrong trade.
 - **`startActivityAndCollapse` changed shape in API 34.** The `Intent` overload
@@ -521,14 +977,57 @@ button off every Lock Screen and out of every Quick Settings panel it is on.
 
 ---
 
+## 7c. The Lock Screen — iOS only
+
+Three accessory families in **one** gallery row (`RidikLockWidget`), because the
+Lock Screen's picker groups by slot: the user is choosing what goes in the
+circular well, and three separate entries offering one family each would look
+like three copies of the same thing.
+
+iOS alone, and §7b is amended above to say why that is allowed. `RidikLockView`
+carries the same argument in the source.
+
+**Monochrome is a clarifying test, not a palette problem.** The accessory
+renderer flattens everything to white at whatever alpha it is given, so the ember
+does not reach this file and the four levels become 22 / 45 / 70 / 100%. Either
+that is a loss or it is proof the encoding was never about hue — it is the
+second, and nothing here needed rethinking to lose it. That is the argument.
+
+| Family | Draws | The rule it is holding to |
+| --- | --- | --- |
+| `accessoryInline` | `15:00  Materials lab` | The only thing in the family that is **words only** — no graphic is possible. Everything is spent on the answer; an eyebrow and a count would eat the width. Never blank: "Nothing scheduled" is a real answer, an empty line looks like a failure. |
+| `accessoryCircular` | The next time, the day in six buckets, the overdue count | **Not a ring.** `Gauge` in `.accessoryCircularCapacity` is right there and is the exact shape §1 bans; the ban does not lapse because the system handed you a circle. Six buckets is as many as 72 points holds while a filled one can still be told from an empty one, and each is the **busiest** cell in its sixth — averaging would report a free afternoon that has one immovable hour in it. |
+| `accessoryRectangular` | The eyebrow, the whole 32-cell strip, the next thing | The only family with room for the day, so it draws all of it — same cells, same burn-down, same 2pt break before a new booking. |
+
+The `kind` string is as permanent as any other: renaming `RidikLockWidget` takes
+the tile off every Lock Screen it is on.
+
+---
+
 ## 8. What is deliberately not here
 
-- **No bitmaps on Android.** Quantising heat into four fixed levels is what
-  removes the need: every cell is a `View` with a drawable background. A
-  `Canvas` bitmap would bring the ~1MB Binder ceiling and a night-mode seam —
-  the bitmap resolves the *app* process's configuration while the layout's
-  `@color/` references resolve the *launcher's*, so a launcher-side dark flip
-  would leave a light bitmap on a dark ground for up to thirty minutes.
+- **No bitmaps on Android, except where `RemoteViews` cannot draw the shape at
+  all.** This used to be unqualified, and the reasoning behind it still stands
+  for every face built from cells: quantising heat into four fixed levels means
+  each one is a `View` with a `@drawable/` background the launcher resolves in
+  its own process, so there is no night-mode seam and no Binder pressure.
+
+  Five faces cannot be built that way and are rastered — Rings (§3.7), Skyline
+  (§3.13), Sundial (§3.14), Route (§3.15) and Term (§3.16). `RemoteViews` cannot
+  set a view's width or height before API 31 and this app ships to 26, cannot
+  draw a curve at any level, and cannot hold 365 views inside one Binder
+  transaction. So the choice was those five or nothing, and the seam is closed
+  rather than avoided: **every bitmap here is a white alpha mask and never a
+  colour**, tinted by `android:tint` in the layout, which is a colour *reference*
+  the launcher resolves against its own light/dark exactly as it does a cell.
+  `RidikPlots.kt` and `RidikRings.kt` are the two files allowed to raster, and
+  neither of them may call `resources.getColor`.
+
+  What that costs is real and is why these are the only five: one tint is one
+  hue, so the four levels become four *opacities* rather than four inks. On a
+  face built from cells that would be a loss, because a `mid` cell has to mean
+  the same thing on every tile. On these five it is not, because on all five the
+  encoding is a position, a height or a share — never the hue.
 - **No gradients.** Heat is quantised into four detents. A continuous ramp
   encodes one variable with no tick marks, so "is that two things at three or
   four" becomes unanswerable — and a warm continuous glow is the current

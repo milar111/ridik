@@ -6,6 +6,7 @@ import {
   AgendaList,
   BriefingCard,
   Commitments,
+  DayArc,
   DueToday,
   FocusCard,
   HabitStrip,
@@ -20,7 +21,7 @@ import {
   useNow,
 } from '@/features/today';
 import { invalidateKeys, qk, useToday } from '@/hooks';
-import { EmptyState, Refresh, Screen, Section } from '@/ui/components';
+import { EmptyState, Screen, Section, useRefresh } from '@/ui/components';
 
 /**
  * "What does my day look like?" — answered in one screen and one query.
@@ -63,6 +64,13 @@ export default function TodayScreen() {
     }
   }, [client]);
 
+  // A hook, not `<Refresh />`: what reaches `refreshControl` has to be the
+  // `RefreshControl` element itself. See the note in `Refresh.tsx`.
+  const refreshControl = useRefresh({
+    refreshing,
+    onRefresh: () => void onRefresh(),
+  });
+
   const dayIsEmpty =
     snapshot != null &&
     agenda != null &&
@@ -82,9 +90,7 @@ export default function TodayScreen() {
       title="Today"
       subtitle={longDate(snapshot?.at ?? at, snapshot?.zone)}
       right={<TodayHeaderActions sync={snapshot?.sync} />}
-      refreshControl={
-        <Refresh refreshing={refreshing} onRefresh={() => void onRefresh()} />
-      }
+      refreshControl={refreshControl}
     >
       <SectionBoundary label="briefing">
         <BriefingCard />
@@ -132,6 +138,20 @@ export default function TodayScreen() {
 
           {!isAgendaEmpty(agenda) ? (
             <Section title="Agenda">
+              {/*
+                Above the list, inside the same section and the same boundary:
+                the arc is the header of the day, not a section of its own, and a
+                curve that failed to draw must not take the rows with it.
+              */}
+              <SectionBoundary label="day arc">
+                <DayArc
+                  agenda={agenda}
+                  window={{ start: snapshot.dayStart, end: snapshot.dayEnd }}
+                  now={at}
+                  zone={snapshot.zone}
+                  testID="today-day-arc"
+                />
+              </SectionBoundary>
               <SectionBoundary label="agenda">
                 <AgendaList agenda={agenda} now={at} zone={snapshot.zone} />
               </SectionBoundary>

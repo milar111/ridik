@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,7 +11,7 @@ import { AnimatedPressable, usePressScale , useStaggeredEntry } from '@/ui/motio
 import { Txt } from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
 
-import type { Agenda, AgendaItem } from './agenda';
+import { clashingKeys, type Agenda, type AgendaItem } from './agenda';
 
 /**
  * The day as a single time-ordered column.
@@ -26,6 +27,11 @@ export function AgendaList({ agenda, now, zone }: { agenda: Agenda; now: number;
   // as a single list, so the timed ones carry on counting where all-day stopped
   // rather than restarting the stagger halfway down.
   const arrive = useStaggeredEntry({ from: 'below' });
+
+  // Computed once for the column rather than per row: a row cannot know it
+  // clashes without seeing its neighbours, and asking each one to look would
+  // walk the day n times over.
+  const clashes = useMemo(() => clashingKeys(agenda), [agenda]);
 
   return (
     <View>
@@ -54,6 +60,7 @@ export function AgendaList({ agenda, now, zone }: { agenda: Agenda; now: number;
             item={item}
             now={now}
             zone={zone}
+            clash={clashes.has(item.key)}
             // The rule is already a line; a divider under it would double it.
             divider={(index > 0 || agenda.allDay.length > 0) && index !== agenda.nowIndex}
           />
@@ -91,12 +98,15 @@ function Row({
   zone,
   allDay,
   divider,
+  clash,
 }: {
   item: AgendaItem;
   now: number;
   zone: string;
   allDay?: boolean;
   divider?: boolean;
+  /** This row overlaps another appointment. See `clashingKeys`. */
+  clash?: boolean;
 }) {
   const router = useRouter();
   const { colors } = useTheme();
@@ -122,9 +132,14 @@ function Row({
   return (
     <AnimatedPressable
       accessibilityRole="button"
-      accessibilityLabel={
-        allDay ? `${title}, all day` : `${title} at ${formatTime(item.startsAt, zone)}`
-      }
+      accessibilityLabel={[
+        allDay ? `${title}, all day` : `${title} at ${formatTime(item.startsAt, zone)}`,
+        // Otherwise the one row that needs reading most is the one whose warning
+        // is a coloured pill and nothing else.
+        clash ? 'clashes with another appointment' : null,
+      ]
+        .filter(Boolean)
+        .join(', ')}
       accessibilityHint="Opens the calendar"
       onPress={() => router.push('/calendar')}
       // A buffer row is deliberately half-height, which would leave it a 32pt
@@ -170,6 +185,14 @@ function Row({
         ) : null}
       </View>
 
+      {clash ? (
+        <View style={[styles.clash, { backgroundColor: colors.warningMuted }]}>
+          <Txt variant="eyebrow" style={[styles.clashLabel, { color: colors.warning }]}>
+            CLASH
+          </Txt>
+        </View>
+      ) : null}
+
       {isBuffer ? (
         <Ionicons name="walk-outline" size={13} color={colors.textTertiary} />
       ) : item.kind === 'class' ? (
@@ -186,6 +209,10 @@ const styles = StyleSheet.create({
   dot: { width: 6, height: 6, borderRadius: 3 },
   dotGap: { width: 6 },
   body: { flex: 1, gap: 1 },
+  clash: { paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 },
+  // Tracked mono sized to its own content is measured short on Android and
+  // loses its last character; an explicit width plus `textAlign` is the fix.
+  clashLabel: { width: 42, textAlign: 'center' },
   now: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6 },
   nowDot: { width: 5, height: 5, borderRadius: 2.5 },
   nowLine: { flex: 1, height: StyleSheet.hairlineWidth },

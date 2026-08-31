@@ -133,6 +133,23 @@ internal object Slots {
   fun debt(size: WidgetSize) = if (size == WidgetSize.SMALL) 12 else 24
 
   fun rows(size: WidgetSize) = if (size == WidgetSize.SMALL) 4 else 6
+
+  /**
+   * The checklist's slots, which are the one place the family draws more than six.
+   *
+   * A large tile holds eleven rows at 20dp with its header, and the list is the
+   * face worth reading in full rather than glancing at. Its own function rather
+   * than a bigger `rows()`: every other face would then generate five hidden
+   * views per layout variant for a size it does not offer, and RemoteViews
+   * cannot loop, so those views are written into the XML whether or not anything
+   * ever fills them.
+   *
+   * Must equal `LIST_ROW_SLOTS_BY_SIZE` in `plugins/withRidikAndroidWidget.js`.
+   * The generated layout is the only thing that decides how many
+   * `ridik_row_<n>` views actually exist; asking for more resolves to id 0 and
+   * the row is silently dropped.
+   */
+  fun listRows(size: WidgetSize) = if (size == WidgetSize.LARGE) 11 else rows(size)
 }
 
 /**
@@ -169,6 +186,17 @@ internal class WidgetIds(context: Context, layoutName: String, val ember: String
   val nextTitle = id("ridik_next_title")
   val nextSub = id("ridik_next_sub")
   val timer = id("ridik_timer")
+
+  /**
+   * The one `ImageView` on each of the four rastered faces, and the line under
+   * it. `RemoteViews` cannot draw a curve, cannot set a width or a height before
+   * API 31 and cannot hold 365 views — see `RidikPlots`.
+   */
+  val plot = id("ridik_plot")
+  val plotNote = id("ridik_plot_note")
+
+  /** The word under the live digits — see `IDS.timerNote` in the plugin. */
+  val timerNote = id("ridik_timer_note")
   val dayArea = id("ridik_day_area")
   val plateArea = id("ridik_plate_area")
   val railArea = id("ridik_rail_area")
@@ -584,7 +612,7 @@ internal fun RemoteViews.element(
 }
 
 /** "4h 30m free from now" — the strip has no words, so TalkBack is given some. */
-private fun dayDescription(day: WidgetDay, nowMinutes: Int): String {
+internal fun dayDescription(day: WidgetDay, nowMinutes: Int): String {
   val free = unclaimedMinutes(day, nowMinutes)
   return "Today: ${spanText(free)} unclaimed from now"
 }
@@ -941,15 +969,34 @@ private fun RemoteViews.rowText(ids: WidgetIds, slot: Int, text: String, soft: B
  * view beside a static one has to re-measure the row every second, and the two
  * would disagree about their baseline for one frame each time.
  */
-internal fun RemoteViews.countdown(ids: WidgetIds, leaveAt: Long, aside: String?) {
+internal fun RemoteViews.countdown(
+  ids: WidgetIds,
+  target: Long,
+  aside: String?,
+  /**
+   * What the digits are counting towards.
+   *
+   * Today only ever counts to a travel buffer, so it never passes one. The
+   * Countdown face counts to the *start* when there is no buffer to leave for,
+   * and "leave in 34:12" over a lecture nobody travels to is the one lie a live
+   * number on a tile is in a position to tell.
+   */
+  verb: String = "leave in",
+) {
   val now = System.currentTimeMillis()
   setViewVisibility(ids.timer, View.VISIBLE)
   setChronometer(
     ids.timer,
-    SystemClock.elapsedRealtime() + (leaveAt - now),
-    // `%` in a location would be read as a format specifier by `String.format`
-    // and throw inside the launcher, taking the whole tile with it.
-    "leave in %s" + if (aside.isNullOrEmpty()) "" else "  ·  ${aside.replace("%", "%%")}",
+    SystemClock.elapsedRealtime() + (target - now),
+    // `%` in a location — or in a verb — would be read as a format specifier by
+    // `String.format` and throw inside the launcher, taking the whole tile with
+    // it. The verb is ours and has none, but it is escaped on the same line so
+    // that stays true of whatever it becomes.
+    // An empty verb means the digits are the whole reading — the Focus face,
+    // where the eyebrow already says which phase is being counted. Prefixing a
+    // bare space would shift them off the tile's own left edge.
+    (if (verb.isEmpty()) "" else verb.replace("%", "%%") + " ") + "%s" +
+      if (aside.isNullOrEmpty()) "" else "  ·  ${aside.replace("%", "%%")}",
     true,
   )
   setChronometerCountDown(ids.timer, true)

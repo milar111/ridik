@@ -241,6 +241,7 @@ struct RidikListView: View {
   }
 
   private var small: Bool { family == .systemSmall }
+  private var large: Bool { family == .systemLarge }
 
   /// The tile opens the list it was showing, not the pane in general.
   private var destination: URL {
@@ -287,6 +288,9 @@ struct RidikListView: View {
       )
     }
     let done = list.open == 0
+    // Computed once: it is read by the row list and again by the caption below,
+    // and two calls could only ever disagree.
+    let ration = rationed(rows, done: done)
 
     VStack(alignment: .leading, spacing: 0) {
       // The tally is the only number the quiet face has, and it is what the
@@ -321,8 +325,11 @@ struct RidikListView: View {
           // an agenda reads as a paragraph. Medium keeps seven: five rows and
           // an emphasised tally already fill 131 points, and a row of somebody's
           // list is worth more than the air between two of them.
-          VStack(alignment: .leading, spacing: small ? 9 : 7) {
-            ForEach(Array(rows.prefix(capacity(done: done)))) { row in
+          // Large tightens to 5: eleven rows plus a header is the whole tile,
+          // and the air that makes a four-row list read as a composition is
+          // exactly what there is no room for once the list is worth reading.
+          VStack(alignment: .leading, spacing: small ? 9 : large ? 5 : 7) {
+            ForEach(ration.drawn) { row in
               RowLine(
                 row: row,
                 palette: palette,
@@ -337,7 +344,14 @@ struct RidikListView: View {
 
       Spacer(minLength: small ? 4 : 2)
 
-      if let closing = closingLine(list) {
+      // The rationed-away rows are counted here rather than silently dropped.
+      // `4 OF 12` in the header says what is *left*; this says what is already
+      // behind you and is not on the tile, which is the half a capped list would
+      // otherwise misreport. Checked before `closingLine` because a list with
+      // hidden done rows is by definition not an empty or a finished one.
+      if ration.hiddenDone > 0 {
+        EmptyNote(headline: "+\(ration.hiddenDone) done", palette: palette, compact: small)
+      } else if let closing = closingLine(list) {
         // Under the drawing, as §4 requires — the sentence is a caption on the
         // marks, not a replacement for them.
         EmptyNote(headline: closing, palette: palette, compact: small)
@@ -366,10 +380,51 @@ struct RidikListView: View {
     }
   }
 
+  /**
+   How many rows the tile has room for.
+
+   Eleven on large: 321 points holds that many at 20pt with the header, and this
+   is the one face in the family worth reading in full rather than glancing at —
+   a shopping list you cannot see the end of is a list you still have to open the
+   app for.
+   */
   private func capacity(done: Bool) -> Int {
-    let rows = small ? 4 : 5
+    let rows = large ? 11 : small ? 4 : 5
     // The sentence costs a row when it is there.
     return done ? rows - 1 : rows
+  }
+
+  /**
+   At eleven rows, the struck-through ones have to be rationed.
+
+   Open-first with everything struck through after it works at five rows because
+   you rarely see both halves at once. At eleven you always do, and a list that
+   is two-thirds crossed out reads as *finished* when most of it is not — the one
+   misreading this face cannot afford, because the whole tile is a tally.
+
+   So the done rows are capped and the rest are counted. Capped rather than
+   dropped: the crossed-out rows are the only evidence on the tile that it is
+   showing a list somebody is actually working through, and a face that hid them
+   entirely would look identical whether it was live or three days stale.
+
+   Only large rations them. Smaller sizes never fit enough rows for the
+   proportion to mislead.
+   */
+  private static let doneRowsOnLarge = 3
+
+  private func rationed(_ rows: [RidikRow], done: Bool) -> (drawn: [RidikRow], hiddenDone: Int) {
+    let room = capacity(done: done)
+    guard large else { return (Array(rows.prefix(room)), 0) }
+
+    // `snapshot.ts` sorts open before done, so this split needs no predicate of
+    // its own — and must not invent one, or the two would disagree about order.
+    let open = rows.filter { !$0.spent }
+    let finished = rows.filter { $0.spent }
+
+    let openShown = Array(open.prefix(room))
+    let roomLeft = max(0, room - openShown.count)
+    let doneShown = Array(finished.prefix(min(roomLeft, Self.doneRowsOnLarge)))
+    return (openShown + doneShown, finished.count - doneShown.count)
   }
 
   /**

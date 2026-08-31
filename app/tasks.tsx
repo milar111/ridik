@@ -18,7 +18,7 @@ import {
 } from '@/features/tasks';
 import { useActiveTasks, useProjects, useTaskGraph, useTasks } from '@/hooks';
 import { Segmented } from '@/ui/components/Controls';
-import { Refresh } from '@/ui/components/Refresh';
+import { useRefresh } from '@/ui/components/Refresh';
 import { MIC_CLEARANCE, Screen } from '@/ui/components/Screen';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
@@ -92,6 +92,15 @@ export default function TasksScreen() {
   // only thing that can move.
   const viewPress = usePressScale({ scale: 0.86 });
 
+  // A hook, not `<Refresh />`: what reaches `refreshControl` has to be the
+  // `RefreshControl` element itself. This screen's `Screen` is `scroll={false}`,
+  // so the wrapper only ever emptied the list below rather than the whole page —
+  // which read as "no tasks" and is why it went unnoticed longest.
+  const refreshControl = useRefresh({
+    refreshing: active.isRefetching || graph.isRefetching,
+    onRefresh: refresh,
+  });
+
   return (
     <Screen
       back
@@ -155,9 +164,7 @@ export default function TasksScreen() {
               gap: spacing.lg,
             }}
             showsVerticalScrollIndicator={false}
-            refreshControl={
-              <Refresh refreshing={active.isRefetching || graph.isRefetching} onRefresh={refresh} />
-            }
+            refreshControl={refreshControl}
           >
             <ErrorBoundary label="task list">
               {view === 'active' ? (

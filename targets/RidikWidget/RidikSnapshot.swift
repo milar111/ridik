@@ -191,6 +191,90 @@ struct WidgetSnapshot: Decodable {
     var open: Int { dueToday + overdue }
   }
 
+  /**
+   The running focus session — the Focus face. `nil` when there is none, which is
+   the ordinary case and a state the face draws for.
+
+   The strip is **the session, not the day**: sixteen slices of the booked block,
+   `mid` for focus and `low` for a break, so the shape of a pomodoro plan is
+   visible before any of it has been spent.
+
+   `phaseEndsAt` and `endsAt` are *moments* and both are `nil` while paused. A
+   paused session has no end — the minutes left are known, when they finish is
+   not — and `Text(_:style: .timer)` pointed at a receding moment is wrong every
+   second it is on screen.
+   */
+  struct Focus: Decodable {
+    let label: String
+    /// "focus" or "break". A break in a session is still a session.
+    let phase: String
+    /// "running" or "paused".
+    let status: String
+    let phaseEndsAt: Double?
+    let endsAt: Double?
+    let load: String
+    let breaks: String
+    /// Index of the cell now is inside, or -1.
+    let nowCell: Int
+
+    var cells: [Character] { Array(load) }
+    var breakCells: [Character] { Array(breaks) }
+    var phaseEnd: Date? { phaseEndsAt.map(Date.init(epochMilliseconds:)) }
+    var end: Date? { endsAt.map(Date.init(epochMilliseconds:)) }
+    var paused: Bool { status == "paused" }
+    var onBreak: Bool { phase == "break" }
+  }
+
+  /**
+   The current week, Monday first — the Chain face.
+
+   Its own block rather than seven characters sliced out of the month plate: a
+   week straddling the 1st is half in a month the plate has no cells for, and
+   slicing would draw those days `cold`, which is indistinguishable from "free".
+   */
+  struct Week: Decodable {
+    /// 'YYYY-MM-DD' of the Monday this string starts on.
+    let startDate: String
+    /// Seven heat characters, Monday first.
+    let load: String
+    /// 0-6 index of today, or -1 when the payload is not this week's.
+    let todayIndex: Int
+
+    /// Padded rather than trusted: a face indexes this seven times.
+    var cells: [Character] {
+      let padded = load.count >= 7 ? String(load.prefix(7)) : load + String(repeating: "0", count: 7 - load.count)
+      return Array(padded)
+    }
+  }
+
+  /**
+   Promises outstanding — the People face.
+
+   The one thing in this app nothing else surfaces at a glance: a promise with no
+   due date can never become overdue, so it never reaches Tasks and never reaches
+   a briefing. `ages` is days since it was *made*, not days past due, because for
+   most of these rows there is no due date to be past.
+   */
+  struct People: Decodable {
+    /// Open commitments, counted before `ages` and `rows` are capped.
+    let owed: Int
+    /// Distinct people owed something — the footer's "7 people".
+    let count: Int
+    /// Days since each promise was made, oldest first.
+    let ages: [Int]
+    let rows: [PersonRow]
+  }
+
+  struct PersonRow: Decodable, Identifiable {
+    let name: String
+    let text: String
+    let age: Int
+
+    /// Two promises to the same person can share a text; the index separates them.
+    func id(at offset: Int) -> String { "\(offset)-\(name)-\(text)" }
+    var id: String { "\(name)-\(text)-\(age)" }
+  }
+
   struct Habits: Decodable {
     let done: Int
     let total: Int
@@ -233,6 +317,10 @@ struct WidgetSnapshot: Decodable {
   let next: Next?
   let tasks: Tasks
   let habits: Habits
+  let week: Week
+  /// The running focus session, or nil — the ordinary case.
+  let focus: Focus?
+  let people: People
   /// What is left of today, in order. Empty once the day is behind you.
   let agenda: [AgendaRow]
   /// All-day titles. A calendar that silently omits them loses whole days.
@@ -489,7 +577,7 @@ enum WidgetBlankReason {
 /// Reads what the app left in the shared container.
 enum SnapshotStore {
   /// Must match `WIDGET_SNAPSHOT_VERSION` in `src/services/widgets/snapshot.ts`.
-  static let supportedVersion = 4
+  static let supportedVersion = 6
 
   /// Twin of `RidikWidgetsModule.defaultsKey`.
   static let defaultsKey = "ridik.widget.snapshot"
@@ -696,6 +784,18 @@ extension WidgetSnapshot {
             name: "Vitamin", doneToday: false, streak: 0, longestStreak: 3,
             history: history("0000100", doneToday: false)
           ),
+        ]
+      ),
+      week: Week(startDate: "2026-08-10", load: "1220310", todayIndex: 2),
+      focus: nil,
+      people: People(
+        owed: 3,
+        count: 3,
+        ages: [11, 4, 2],
+        rows: [
+          PersonRow(name: "Ana", text: "Send the reading list", age: 11),
+          PersonRow(name: "Ivo", text: "Ask for the lab key", age: 4),
+          PersonRow(name: "Mum", text: "Reply to her message", age: 2),
         ]
       ),
       agenda: [

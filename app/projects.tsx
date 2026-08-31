@@ -29,7 +29,7 @@ import {
   errorMessage,
   type MenuOption,
 } from '@/features/projects';
-import { Button, EmptyState, Refresh, Screen, Section, useToast } from '@/ui/components';
+import { Button, EmptyState, Screen, Section, useRefresh, useToast } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { REFLOW_MS } from '@/ui/motion';
 import { useStaggeredEntry } from '@/ui/motionHooks';
@@ -120,6 +120,13 @@ export default function ProjectsScreen() {
     ];
   };
 
+  // A hook, not `<Refresh />`: what reaches `refreshControl` has to be the
+  // `RefreshControl` element itself. See the note in `Refresh.tsx`.
+  const refreshControl = useRefresh({
+    refreshing: summaries.isFetching && !summaries.isPending,
+    onRefresh: () => void summaries.refetch(),
+  });
+
   return (
     <Screen
       back
@@ -136,12 +143,7 @@ export default function ProjectsScreen() {
           testID="project-new"
         />
       }
-      refreshControl={
-        <Refresh
-          refreshing={summaries.isFetching && !summaries.isPending}
-          onRefresh={() => void summaries.refetch()}
-        />
-      }
+      refreshControl={refreshControl}
     >
       <ErrorBoundary label="projects">
         {summaries.isPending ? (

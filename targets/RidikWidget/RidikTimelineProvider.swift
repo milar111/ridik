@@ -53,6 +53,13 @@ struct RidikTimelineProvider: TimelineProvider {
         if let leaveAt = next.leaveDate, leaveAt > now { moments.insert(leaveAt) }
         if next.startDate > now { moments.insert(next.startDate) }
       }
+      // The Focus face's clock counts to the end of the current phase, and
+      // `Text(_:style: .timer)` counts *past* its date as readily as down to it.
+      // Without this entry a finished pomodoro would sit there counting upwards
+      // until something else happened to republish.
+      if let session = snapshot.focus, let phaseEnd = session.phaseEnd, phaseEnd > now {
+        moments.insert(phaseEnd)
+      }
       // Every provider in the bundle shares this timeline, so the agenda's own
       // moments belong here too: a row changes from "later" to "now" at its
       // start, and it is the only face that can say so.

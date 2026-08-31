@@ -139,7 +139,14 @@ export function createDevelopmentProvider(): BillingProvider {
         );
         return;
       }
-      log.warn('no store is configured; purchases are local to this device and buy nothing');
+      // `info`, not `warn`: `SANDBOX_ALLOWED` is only true in a debug build, and
+      // there this is the expected state rather than a fault — the developer
+      // caps are what a personal build is supposed to run on. The case worth
+      // shouting about is the one directly above, and it still does. Warning on
+      // every launch of every debug build put a permanent LogBox notice over the
+      // app, and an overlay that is always up is one nobody reads — the same
+      // reasoning `background/index.ts` applies to a first-launch permission.
+      log.info('no store is configured; purchases are local to this device and buy nothing');
     },
 
     async plans() {

@@ -116,3 +116,54 @@ function byStart(a: AgendaItem, b: AgendaItem): number {
 export function isAgendaEmpty(agenda: Agenda): boolean {
   return agenda.allDay.length === 0 && agenda.timed.length === 0;
 }
+
+/**
+ * The keys of every timed item that overlaps another one.
+ *
+ * A double-booking is the one thing a chronological list actively hides: two
+ * rows an hour apart on screen can be the same hour of the day, and the reader
+ * has to subtract end times in their head to notice. The app already treats
+ * double-booking as worth interrupting a voice turn for — `alwaysAsks` in
+ * `confirm.ts` exists for it — so the day it produced should not be the one
+ * place it goes unmarked.
+ *
+ * Two rules, both deliberate:
+ *
+ *  - **Half-open comparison.** Back-to-back is not a clash: an event ending at
+ *    14:00 and one starting at 14:00 is a normal timetable, and flagging it
+ *    would put a badge on most school days and teach the user to ignore it.
+ *  - **Buffers never clash.** A travel or prep block exists precisely to sit
+ *    against the appointment it precedes, and `bufferFor` is drawn on the row
+ *    already. Two appointments may each earn their own buffer at the same
+ *    minute, which is why `buildAgenda` exempts them from de-duplication too.
+ *  - **Nothing without a duration clashes.** A reminder is a point in time, not
+ *    a claim on the calendar: "bring calipers at 17:00" during a lab that runs
+ *    16:00–18:00 is the *intended* arrangement, not a conflict. Keyed on the
+ *    span being empty rather than on `kind`, because that is the property that
+ *    actually makes it un-bookable — a zero-length row cannot be given to two
+ *    things at once.
+ *
+ * `O(n²)` on purpose: `n` is one local day's worth of rows, the list is already
+ * sorted so most pairs exit on the first comparison, and an interval tree here
+ * would be a data structure nobody could check by reading.
+ */
+export function clashingKeys(agenda: Agenda): ReadonlySet<string> {
+  const clashing = new Set<string>();
+  const items = agenda.timed.filter(
+    (item) => item.kind !== 'buffer' && item.endsAt > item.startsAt,
+  );
+  for (let i = 0; i < items.length; i += 1) {
+    const a = items[i]!;
+    for (let j = i + 1; j < items.length; j += 1) {
+      const b = items[j]!;
+      // Sorted by start, so once one starts at or after `a` ends, so does the
+      // rest of the list and this row has no further overlaps to find.
+      if (b.startsAt >= a.endsAt) break;
+      if (a.startsAt < b.endsAt) {
+        clashing.add(a.key);
+        clashing.add(b.key);
+      }
+    }
+  }
+  return clashing;
+}

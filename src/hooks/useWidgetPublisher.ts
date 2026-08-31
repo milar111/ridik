@@ -1,10 +1,12 @@
 import { useEffect, useMemo } from 'react';
 
 import { useNow } from '@/features/today/useNow';
+import { parsePhases } from '@/repositories/focusSessions';
 import { buildWidgetSnapshot } from '@/services/widgets/snapshot';
 import { publishWidgetSnapshot } from '@/services/widgets/publish';
 import { useChecklistItems, useChecklistNames } from './useChecklists';
 import { useEmberChoice } from './useEmber';
+import { useActiveFocusSession } from './useFocus';
 import { useToday } from './useToday';
 import { useWidgetSources } from './useWidgetSources';
 
@@ -55,6 +57,17 @@ export function useWidgetPublisher(): void {
     [snapshot?.habits],
   );
 
+  /**
+   * The running focus session, for the Focus face.
+   *
+   * `null` is the ordinary case and the face draws for it. What must not happen
+   * is publishing `null` *while the query is still in flight*: the tile would
+   * say "No session." over one that is running, and if the app is closed in that
+   * beat that is what stays on the home screen. So it joins the settled gate
+   * below, exactly as the checklist does and for the same reason.
+   */
+  const session = useActiveFocusSession();
+
   const sources = useWidgetSources({
     date: snapshot?.date,
     zone: snapshot?.zone,
@@ -75,7 +88,7 @@ export function useWidgetPublisher(): void {
    * which is why `focus` is checked before `items` at all.
    */
   const listSettled = !names.isPending && (!focus || !items.isPending);
-  const ready = listSettled && sources.settled;
+  const ready = listSettled && !session.isPending && sources.settled;
 
   useEffect(() => {
     if (!snapshot || !ready) return;
@@ -88,7 +101,33 @@ export function useWidgetPublisher(): void {
         habitHistory: sources.habitHistory,
         counts: sources.counts,
         ember,
+        // The row, not a derived state: `buildFocus` needs the phase list and
+        // when the current one started, and does its own arithmetic against the
+        // publish clock so the payload and the tile agree about the same moment.
+        focus: session.data
+          ? {
+              label: session.data.label,
+              phases: parsePhases(session.data.phases),
+              phaseIndex: session.data.phaseIndex,
+              phaseStartedAt: session.data.phaseStartedAt,
+              pausedAt: session.data.pausedAt,
+              status: session.data.status === 'paused' ? 'paused' : 'running',
+            }
+          : null,
       }),
     );
-  }, [snapshot, at, list, ready, sources.monthEvents, sources.habitHistory, sources.counts, ember]);
+  }, [
+    snapshot,
+    at,
+    list,
+    ready,
+    sources.monthEvents,
+    sources.habitHistory,
+    sources.counts,
+    ember,
+    // Pausing a session changes nothing about the day and everything about the
+    // Focus tile: without this the strip would keep its shape and the countdown
+    // would keep running until the next minute tick republished by accident.
+    session.data,
+  ]);
 }

@@ -22,6 +22,7 @@ enum Route {
   static let calendar = url("ridik:///calendar")
   static let tasks = url("ridik:///tasks")
   static let habits = url("ridik:///habits")
+  static let people = url("ridik:///people")
   static let lists = url("ridik:///notes?pane=lists")
 
   /**

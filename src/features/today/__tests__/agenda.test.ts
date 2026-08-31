@@ -1,4 +1,4 @@
-import { buildAgenda, isAgendaEmpty } from '../agenda';
+import { buildAgenda, clashingKeys, isAgendaEmpty } from '../agenda';
 import type { CalendarEvent } from '@/db/schema';
 import type { ClassOccurrence } from '@/repositories/curriculum';
 
@@ -151,5 +151,109 @@ describe('buildAgenda', () => {
 
     expect(agenda.timed[0]?.color).toBe('#3FC1FF');
     expect(agenda.timed[1]?.color).toBeNull();
+  });
+});
+
+/**
+ * A double-booking is the one thing a chronological list actively hides: two
+ * rows an hour apart on screen can be the same hour of the day. These tests
+ * pin the two judgement calls rather than the overlap arithmetic — what counts
+ * as touching, and what is exempt.
+ */
+describe('clashingKeys', () => {
+  it('marks both sides of an overlap, and only those', () => {
+    const agenda = build(
+      [
+        event({ id: 'e1', title: 'Physics', startsAt: hour(13), endsAt: hour(14) }),
+        event({ id: 'e2', title: 'Robotics', startsAt: hour(13, 30), endsAt: hour(15) }),
+        event({ id: 'e3', title: 'Frame print', startsAt: hour(18), endsAt: hour(19) }),
+      ],
+      [],
+      hour(9),
+    );
+
+    expect([...clashingKeys(agenda)].sort()).toEqual(['e1', 'e2']);
+  });
+
+  it('does not call back-to-back a clash', () => {
+    // Half-open on purpose: an event ending at 14:00 beside one starting at
+    // 14:00 is an ordinary timetable. Flagging it would badge most school days
+    // and teach the user to ignore the badge.
+    const agenda = build(
+      [
+        event({ id: 'e1', title: 'Physics', startsAt: hour(13), endsAt: hour(14) }),
+        event({ id: 'e2', title: 'Maths', startsAt: hour(14), endsAt: hour(15) }),
+      ],
+      [],
+      hour(9),
+    );
+
+    expect(clashingKeys(agenda).size).toBe(0);
+  });
+
+  it('exempts a travel block from clashing with what it precedes', () => {
+    // A buffer exists precisely to sit against its appointment, and the row
+    // already says so via `bufferFor`.
+    const agenda = build(
+      [
+        event({ id: 'e1', title: 'Dentist', startsAt: hour(16), endsAt: hour(17) }),
+        event({
+          id: 'b1',
+          title: 'Leave for dentist',
+          startsAt: hour(15, 30),
+          endsAt: hour(16, 10),
+          kind: 'buffer',
+          bufferForId: 'e1',
+        }),
+      ],
+      [],
+      hour(9),
+    );
+
+    expect(clashingKeys(agenda).size).toBe(0);
+  });
+
+  it('finds a clash between a class and an event, not just between events', () => {
+    const agenda = build(
+      [event({ id: 'e1', title: 'Standup', startsAt: hour(8, 15), endsAt: hour(9) })],
+      [occurrence('Physics', hour(8))],
+      hour(7),
+    );
+
+    // The class runs 08:00-08:45 (the helper's 45 minutes), so they overlap.
+    expect(clashingKeys(agenda).size).toBe(2);
+  });
+
+  it('leaves a zero-length reminder alone', () => {
+    // A reminder is a point in time, not a claim on the calendar, so it cannot
+    // be double-booked against the thing it sits inside.
+    const agenda = build(
+      [
+        event({ id: 'e1', title: 'Robotics', startsAt: hour(16), endsAt: hour(18) }),
+        event({ id: 'r1', title: 'Bring calipers', startsAt: hour(17), endsAt: hour(17) }),
+      ],
+      [],
+      hour(9),
+    );
+
+    expect(clashingKeys(agenda).size).toBe(0);
+  });
+
+  it('marks all three when three things overlap the same hour', () => {
+    const agenda = build(
+      [
+        event({ id: 'e1', title: 'A', startsAt: hour(13), endsAt: hour(15) }),
+        event({ id: 'e2', title: 'B', startsAt: hour(13, 30), endsAt: hour(14) }),
+        event({ id: 'e3', title: 'C', startsAt: hour(14, 30), endsAt: hour(16) }),
+      ],
+      [],
+      hour(9),
+    );
+
+    expect([...clashingKeys(agenda)].sort()).toEqual(['e1', 'e2', 'e3']);
+  });
+
+  it('says nothing about an empty day', () => {
+    expect(clashingKeys(build([], [], hour(9))).size).toBe(0);
   });
 });

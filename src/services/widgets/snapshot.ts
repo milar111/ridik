@@ -31,14 +31,39 @@ import { buildAgenda } from '@/features/today/agenda';
 import { nextUp } from '@/features/home/next';
 import { DEFAULT_EMBER, type EmberName } from '@/ui/theme';
 
-/** Bumped when the shape changes, so a stale widget can tell and say nothing. */
-export const WIDGET_SNAPSHOT_VERSION = 4;
+/**
+ * Bumped when the shape changes, so a stale widget can tell and say nothing.
+ *
+ * 5 adds `people`. An older extension reading it draws "Ridik was updated"
+ * rather than a half-decoded face — which is the whole point of the field, and
+ * why adding a *field* costs a bump even though nothing existing moved.
+ */
+export const WIDGET_SNAPSHOT_VERSION = 6;
 
 /**
  * Lists are capped hard. A widget draws four or five rows at most, and every
  * extra row is bytes crossing a process boundary on every publish for nothing.
  */
 const ROW_CAP = 6;
+
+/**
+ * The list face alone draws more, because it is the one face people *read*.
+ *
+ * Six is right for agenda, tasks and habits: those answer "what is next" and
+ * "how far behind am I", and a seventh row adds nothing to either. A shopping
+ * list is the opposite — it is the one thing on a home screen you want all of,
+ * and the large tile holds eleven rows at 20pt with its header.
+ *
+ * Kept as its own constant rather than raising `ROW_CAP`, which would grow every
+ * other face's payload for a size only this one offers. `open` and `total` are
+ * still counted *before* either cap, so the header says "4 of 12" about a list
+ * of twelve however many rows travel.
+ *
+ * Raising this does not change the payload's *shape*, so it needs no version
+ * bump: every face already slices this array down to the slots it has, and an
+ * older widget handed a longer one draws its own number of rows and no more.
+ */
+const LIST_ROW_CAP = 11;
 
 /** Task age cells. The count in the footer is the truth; this is the drawing. */
 const AGE_CAP = 24;
@@ -227,7 +252,116 @@ export type WidgetSnapshot = {
    * lie in the one place the tile is asked to be a tally.
    */
   list: { name: string; open: number; total: number; rows: WidgetListRow[] } | null;
+  /**
+   * Promises outstanding, oldest first — the People face.
+   *
+   * The one thing in this app that nothing else surfaces at a glance. A promise
+   * with no due date can never become overdue, so it never appears on Tasks and
+   * never appears in a briefing's "due today"; it simply ages quietly. `ages` is
+   * days since it was made rather than days past due, because for most of these
+   * rows there is no due date to be past.
+   */
+  /**
+   * The current week as seven heat characters, Monday first — the Chain face.
+   *
+   * Its own field rather than seven characters sliced out of `month.load`,
+   * because a week straddling the 1st is half in a month the plate does not
+   * cover. Slicing would draw those days `cold`, which is indistinguishable from
+   * "free" — the tile would confidently report an empty Monday it knows nothing
+   * about. `useWidgetSources` widens its range so this is always fully loaded.
+   */
+  week: {
+    /** 'YYYY-MM-DD' of the Monday this string starts on. */
+    startDate: LocalDate;
+    /** Seven characters of heat, Monday first. */
+    load: string;
+    /** 0-6 index of today within the week, or -1 if the payload is stale. */
+    todayIndex: number;
+  };
+  /**
+   * The running focus session, or null when there is none — the Focus face.
+   *
+   * The one thing in the app with a *natural end*, which is what makes a live
+   * clock honest over it: a day has no end to count towards and "leave in 34
+   * min" is only ever true of a booked journey, but a 40-minute session ends in
+   * 40 minutes by construction.
+   *
+   * Null is the common case and the face draws for it — `FOCUS_CELLS` cold cells
+   * and "No session." — because a timer tile showing a stale `00:00` is worse
+   * than one that says nothing is running.
+   */
+  focus: {
+    label: string;
+    /** What the phase now is: a break in a session is still a session. */
+    phase: 'focus' | 'break';
+    /** 'running' or 'paused'. Paused stops the clock; it does not end it. */
+    status: 'running' | 'paused';
+    /** Epoch ms this phase ends at, or null while paused. */
+    phaseEndsAt: number | null;
+    /** Epoch ms the whole session ends at, or null while paused. */
+    endsAt: number | null;
+    /** `FOCUS_CELLS` heat characters: `mid` for focus, `low` for a break. */
+    load: string;
+    /** '1' where a new phase begins — the same hairline the day strip draws. */
+    breaks: string;
+    /** Index of the cell now is inside, or -1 when nothing is running. */
+    nowCell: number;
+  } | null;
+  people: {
+    /** Open commitments, counted before `ages` and `rows` are capped. */
+    owed: number;
+    /** Distinct people owed something. The footer's "7 people". */
+    count: number;
+    /** Days since each promise was made, oldest first. */
+    ages: number[];
+    rows: WidgetPersonRow[];
+  };
 };
+
+export type WidgetPersonRow = {
+  /** Who it is owed to. */
+  name: string;
+  text: string;
+  /** Days since the promise was made. */
+  age: number;
+};
+
+/**
+ * The promises, oldest first.
+ *
+ * Sorted by *age* rather than by due date, because most of these rows have no
+ * due date — that is the whole reason this face exists. A promise made three
+ * weeks ago with no deadline never becomes overdue, never reaches Tasks and
+ * never reaches a briefing; it just gets older, and the only place that is
+ * visible is a strip where the oldest cell is the hot one.
+ *
+ * `owed` and `count` are both taken before the caps, so the footer can say
+ * "7 people" about a strip showing twelve cells of twenty.
+ */
+function buildPeople(
+  commitments: TodaySnapshot['commitments'],
+  now: number,
+): WidgetSnapshot['people'] {
+  const open = commitments.filter((row) => !row.commitment.isCompleted);
+  const aged = open
+    .map((row) => ({
+      name: row.entity.name,
+      text: row.commitment.commitmentText,
+      // Whole days, floored, and never negative: a promise created a moment ago
+      // is nought days old rather than minus one.
+      age: Math.max(0, Math.floor((now - row.commitment.createdAt) / DAY_MS)),
+    }))
+    .sort((a, b) => b.age - a.age);
+
+  return {
+    owed: open.length,
+    count: new Set(open.map((row) => row.entity.id)).size,
+    ages: aged.slice(0, AGE_CAP).map((row) => row.age),
+    rows: aged.slice(0, ROW_CAP),
+  };
+}
+
+const DAY_MS = 86_400_000;
 
 /** Anything that takes up part of a day. A `CalendarEvent` already is one. */
 export type MonthInterval = {
@@ -258,6 +392,34 @@ export type BuildWidgetSnapshotInput = {
   window?: { startMinute: number; endMinute: number };
   /** The chosen ember, from Settings. Defaults to the one a fresh install draws. */
   ember?: EmberName;
+  /**
+   * The running focus session, if there is one.
+   *
+   * Optional and defaulting to nothing, because "no session" is the honest
+   * answer both when there is none and when the caller did not ask — a widget
+   * that invented one would be a live clock over a session that is not running.
+   */
+  focus?: FocusInput | null;
+};
+
+/**
+ * What the builder needs of a session row, and no more.
+ *
+ * A `SessionSnapshot` from `repositories/focusSessions` satisfies it, but the
+ * type is stated here rather than imported so this module keeps its one job: it
+ * is a pure transform of numbers into a payload, and pulling a repository type
+ * in would make it depend on the shape of a table.
+ */
+export type FocusInput = {
+  label: string;
+  /** Phases in order, as `computeSessionState` reads them. */
+  phases: readonly { kind: 'focus' | 'break'; minutes: number }[];
+  phaseIndex: number;
+  /** Epoch ms the current phase started. */
+  phaseStartedAt: number;
+  /** Epoch ms it was paused at, or null. */
+  pausedAt: number | null;
+  status: 'running' | 'paused';
 };
 
 export function buildWidgetSnapshot({
@@ -269,6 +431,7 @@ export function buildWidgetSnapshot({
   counts,
   window = DEFAULT_DAY_WINDOW,
   ember = DEFAULT_EMBER,
+  focus = null,
 }: BuildWidgetSnapshotInput): WidgetSnapshot {
   const agenda = buildAgenda({
     events: snapshot.events,
@@ -349,6 +512,9 @@ export function buildWidgetSnapshot({
     // A calendar widget that silently omits all-day events is a bug, not a
     // design gap: "flying to Berlin" is exactly what you want a glance to say.
     allDay: agenda.allDay.slice(0, ALL_DAY_CAP).map((item) => item.title),
+    week: buildWeek({ snapshot, monthEvents, now }),
+    focus: buildFocus(focus, now),
+    people: buildPeople(snapshot.commitments, now),
     list: list
       ? {
           name: list.name,
@@ -358,7 +524,7 @@ export function buildWidgetSnapshot({
           // Open items first: a shopping list widget is for what is left.
           rows: [...list.rows]
             .sort((a, b) => Number(a.done) - Number(b.done))
-            .slice(0, ROW_CAP),
+            .slice(0, LIST_ROW_CAP),
         }
       : null,
   };
@@ -486,6 +652,160 @@ function buildMonth({
     weekStartsOn: 1,
     load,
     today: today.slice(0, 7) === month ? Number(today.slice(8, 10)) : 0,
+  };
+}
+
+/**
+ * The current week, Monday first, loaded exactly as the month plate is.
+ *
+ * The same overlap arithmetic and the same three levels, so a day is the same
+ * colour on the Chain as it is on the plate — two faces disagreeing about how
+ * busy Thursday is would be worse than either of them being slightly wrong.
+ *
+ * Stepped with Luxon rather than by adding 24 hours, for the reason the plate
+ * gives: a week containing a DST switch has a 23- or 25-hour day in it.
+ */
+/**
+ * How many cells the session strip is cut into, at every size.
+ *
+ * Sixteen rather than the day's 32: a session is minutes to an hour or two, so
+ * 32 cells of a 25-minute pomodoro would be 47 seconds each — below the
+ * resolution at which a boundary between two of them means anything. Sixteen
+ * gives a 25/5 pomodoro thirteen focus cells and three break cells, which is a
+ * shape you can read.
+ */
+export const FOCUS_CELLS = 16;
+
+/**
+ * The running session, cut into `FOCUS_CELLS` slices of its own length.
+ *
+ * The strip is **the session, not the day** — that is the whole point of the
+ * face, and it is why this does not reuse `buildDay`. A break is `low` and focus
+ * is `mid`, so the shape of a pomodoro plan is visible in the strip before any
+ * of it has been spent; the phase boundaries are marked with the same '1' the
+ * day strip uses, so the same hairline is drawn by the same code on both
+ * platforms.
+ *
+ * Nothing here counts down. `phaseEndsAt` and `endsAt` are *moments*, and each
+ * platform's own live clock counts to them with the extension not running —
+ * which is the only way a timer on a tile can be right between two publishes.
+ *
+ * **Paused sends both moments as null rather than as a frozen number.** A paused
+ * session has no end: the remaining minutes are known but *when* they will
+ * finish is not, and a countdown to a moment that keeps receding is a clock that
+ * is wrong every second it is on screen.
+ */
+function buildFocus(input: FocusInput | null, now: number): WidgetSnapshot['focus'] {
+  if (!input) return null;
+  const phases = input.phases.filter((phase) => phase.minutes > 0);
+  if (phases.length === 0) return null;
+
+  const total = phases.reduce((sum, phase) => sum + phase.minutes, 0);
+  const perCell = total / FOCUS_CELLS;
+
+  // Where each phase starts, in minutes from the session's own zero.
+  const offsets: number[] = [];
+  let running = 0;
+  for (const phase of phases) {
+    offsets.push(running);
+    running += phase.minutes;
+  }
+
+  const load: string[] = [];
+  const breaks: string[] = [];
+  for (let cell = 0; cell < FOCUS_CELLS; cell++) {
+    const at = cell * perCell;
+    // The phase this cell *starts* in. The busiest-overlap rule the day uses is
+    // wrong here: a cell straddling a boundary belongs to whichever phase it
+    // begins in, because the strip is a plan read left to right and not a
+    // measure of how full a slice is.
+    let index = 0;
+    for (let phase = 0; phase < phases.length; phase++) {
+      if (at >= offsets[phase]!) index = phase;
+    }
+    load.push(phases[index]!.kind === 'break' ? '1' : '2');
+    // The first cell of a phase, and never cell 0 — a hairline at the left edge
+    // of the strip is a gap in the tile's padding, not a boundary.
+    const previous = cell === 0 ? -1 : (() => {
+      let found = 0;
+      const before = (cell - 1) * perCell;
+      for (let phase = 0; phase < phases.length; phase++) {
+        if (before >= offsets[phase]!) found = phase;
+      }
+      return found;
+    })();
+    breaks.push(cell > 0 && index !== previous ? '1' : '0');
+  }
+
+  const paused = input.status === 'paused' || input.pausedAt !== null;
+  const phaseMinutes = phases[Math.min(input.phaseIndex, phases.length - 1)]!.minutes;
+  const phaseEndsAt = paused ? null : input.phaseStartedAt + phaseMinutes * 60_000;
+  // What is left of the plan after this phase, added to when this phase ends.
+  const after = phases
+    .slice(Math.min(input.phaseIndex, phases.length - 1) + 1)
+    .reduce((sum, phase) => sum + phase.minutes, 0);
+  const endsAt = phaseEndsAt === null ? null : phaseEndsAt + after * 60_000;
+
+  // Elapsed against the session's own zero, from the phase that is running and
+  // how far into it we are — never from `startedAt`, which includes the pauses.
+  const elapsed =
+    offsets[Math.min(input.phaseIndex, phases.length - 1)]! +
+    Math.max(0, ((paused ? (input.pausedAt ?? now) : now) - input.phaseStartedAt) / 60_000);
+  const nowCell = perCell <= 0 ? -1 : Math.min(FOCUS_CELLS - 1, Math.floor(elapsed / perCell));
+
+  return {
+    label: input.label,
+    phase: phases[Math.min(input.phaseIndex, phases.length - 1)]!.kind,
+    status: paused ? 'paused' : 'running',
+    phaseEndsAt,
+    endsAt,
+    load: load.join(''),
+    breaks: breaks.join(''),
+    nowCell,
+  };
+}
+
+function buildWeek({
+  snapshot,
+  monthEvents,
+  now,
+}: {
+  snapshot: TodaySnapshot;
+  monthEvents: readonly MonthInterval[];
+  now: number;
+}): WidgetSnapshot['week'] {
+  const zone = snapshot.zone;
+  const monday = DateTime.fromMillis(snapshot.dayStart, { zone }).startOf('week');
+  const edges = Array.from({ length: 8 }, (_, index) => monday.plus({ days: index }).toMillis());
+
+  const minutes = new Array<number>(7).fill(0);
+  for (const event of monthEvents) {
+    for (let index = 0; index < 7; index++) {
+      if (event.allDay) {
+        // Claims the day without saying how long it takes — busy, not full.
+        if (event.startsAt >= edges[index]! && event.startsAt < edges[index + 1]!) {
+          minutes[index] = Math.max(minutes[index]!, 1);
+        }
+        continue;
+      }
+      const overlap =
+        Math.min(event.endsAt, edges[index + 1]!) - Math.max(event.startsAt, edges[index]!);
+      if (overlap > 0) minutes[index]! += overlap / 60_000;
+    }
+  }
+
+  const today = localDateOf(now, zone);
+  const startDate = monday.toISODate() as LocalDate;
+  const todayIndex = Array.from({ length: 7 }, (_, index) =>
+    monday.plus({ days: index }).toISODate(),
+  ).indexOf(today);
+
+  return {
+    startDate,
+    load: minutes
+      .map((booked) => (booked === 0 ? HEAT.cold : booked < 120 ? HEAT.low : HEAT.mid))
+      .join(''),
+    todayIndex,
   };
 }
 

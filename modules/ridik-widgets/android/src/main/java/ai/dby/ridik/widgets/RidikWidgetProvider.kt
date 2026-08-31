@@ -76,20 +76,31 @@ internal object LeaveAlarm {
   /** Its own request code, or it would collide with the tap intents. */
   private const val REQUEST = 900
 
-  fun at(context: Context, leaveAt: Long) {
+  fun at(context: Context, leaveAt: Long) =
+    at(context, leaveAt, RidikWidgetProvider::class.java, REQUEST)
+
+  /**
+   * The same one-shot for any provider that draws a live countdown.
+   *
+   * `request` has to differ per provider: `PendingIntent` identity ignores the
+   * `Intent`'s component, so two providers sharing a request code would each
+   * overwrite the other's alarm with `FLAG_UPDATE_CURRENT` and only the last one
+   * scheduled would ever fire.
+   */
+  fun at(context: Context, leaveAt: Long, provider: Class<*>, request: Int) {
     val alarms = context.getSystemService(AlarmManager::class.java) ?: return
     val manager = AppWidgetManager.getInstance(context) ?: return
     // The broadcast has to name the ids: `AppWidgetProvider.onReceive` drops an
     // APPWIDGET_UPDATE that carries none, in silence.
-    val ids = manager.getAppWidgetIds(ComponentName(context, RidikWidgetProvider::class.java))
+    val ids = manager.getAppWidgetIds(ComponentName(context, provider))
     if (ids.isEmpty()) return
 
-    val intent = Intent(context, RidikWidgetProvider::class.java)
+    val intent = Intent(context, provider)
       .setAction(AppWidgetManager.ACTION_APPWIDGET_UPDATE)
       .putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
     val pending = PendingIntent.getBroadcast(
       context,
-      REQUEST,
+      request,
       intent,
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )

@@ -9,7 +9,7 @@ export { Toggle } from './Toggle';
 export type { ToggleProps } from './Toggle';
 export { Spinner } from './Spinner';
 export type { SpinnerProps } from './Spinner';
-export { Refresh } from './Refresh';
+export { useRefresh } from './Refresh';
 export { SheetCard } from './SheetCard';
 export { DialogCard } from './DialogCard';
 export { useConfirm } from './Confirm';
