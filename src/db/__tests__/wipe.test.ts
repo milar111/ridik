@@ -152,6 +152,27 @@ describe('wipeAllTables', () => {
 
       expect(database.client.getAllSync('SELECT id FROM llm_interactions', [])).toEqual([]);
     });
+
+    /**
+     * The same line, from the other side.
+     *
+     * `app_events` looks like `llm_usage` — counters, no content, nothing a
+     * person wrote — and that resemblance is exactly the trap. `llm_usage` is
+     * preserved because it is the *operator's* meter and erasing it hands out
+     * a free trial twice. `app_events` is the *user's* record of their own
+     * behaviour, and "Erase everything" that left a ninety-day behavioural log
+     * behind would be the button lying about what it did.
+     */
+    it('erases the usage ledger, which is the user\'s and not a meter', () => {
+      database.client.runSync(
+        `INSERT INTO app_events (id, name, props, local_date, created_at) VALUES (?, 'screen', '{"route":"notes"}', '2026-09-01', 1)`,
+        ['e1'],
+      );
+
+      wipeAllTables(database.client);
+
+      expect(database.client.getAllSync('SELECT id FROM app_events', [])).toEqual([]);
+    });
   });
 
   /* Migrations key on PRAGMA user_version; a wipe that reset it would re-run

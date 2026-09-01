@@ -114,9 +114,13 @@ describe('backup screen', () => {
     expect(screen.getByText(/skipped and counted/)).toBeTruthy();
   });
 
+  /* There is a server now — it carries assistant requests and, if the user
+     switches it on, usage counts. What it has never carried is any of this,
+     which is the half of the old "no account and no server" that the sentence
+     was actually for. */
   it('says where the only copy of this database lives', async () => {
     await wrap();
-    expect(await screen.findByText(/no account and no server/)).toBeTruthy();
+    expect(await screen.findByText(/the server it talks to never receives/)).toBeTruthy();
   });
 
   /* The question, and its counted consequence for *this* file. Nothing may be

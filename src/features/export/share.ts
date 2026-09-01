@@ -83,11 +83,20 @@ export async function copyToClipboard(markdown: string): Promise<Result<void>> {
   }
 }
 
-/** Writes the markdown into the cache directory and offers it to the share sheet. */
+/**
+ * Writes a text document into the cache directory and offers it to the share
+ * sheet.
+ *
+ * Markdown by default because that is what almost every caller has. The two
+ * type hints are options rather than a second function: a `.json` export handed
+ * out under `net.daringfireball.markdown` is offered to the wrong apps on iOS
+ * and refused by the right ones, and the fix is two strings, not a second
+ * file-writing path to keep in step with this one.
+ */
 export async function shareAsFile(
   markdown: string,
   filename: string,
-  options: { dialogTitle?: string } = {},
+  options: { dialogTitle?: string; mimeType?: string; uti?: string } = {},
 ): Promise<Result<ShareOutcome>> {
   let uri: string;
   try {
@@ -106,8 +115,8 @@ export async function shareAsFile(
 
   try {
     await Sharing.shareAsync(uri, {
-      mimeType: 'text/markdown',
-      UTI: 'net.daringfireball.markdown',
+      mimeType: options.mimeType ?? 'text/markdown',
+      UTI: options.uti ?? 'net.daringfireball.markdown',
       dialogTitle: options.dialogTitle ?? 'Share export',
     });
     return ok({ uri, shared: true });

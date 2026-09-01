@@ -39,8 +39,11 @@ import { useAssistantMode } from '@/hooks/useAssistant';
 import { mergeTrial, useEntitlement, useTrialLedger } from '@/hooks/useBilling';
 import { useSetSettings, useSettings } from '@/hooks/useSettings';
 import {
+  ANALYTICS_PROVIDER,
   ASSISTANT_PROVIDER,
+  CRASH_PROVIDER,
   PUSH_PROVIDER,
+  STORE_PROVIDER,
   WHISPER_PROVIDER,
   type AssistantConsent,
 } from '@/llm/consent';
@@ -97,9 +100,12 @@ const PANELS: Panel[] = [
     title: 'Stays on this phone',
     body:
       'Your calendar, tasks, notes, lists, spending and the people you keep track of live in one ' +
-      'file on this device. There is no account, nothing to sign in to, and no analytics. That ' +
-      "file is included in your phone's own backup, so if you have iCloud or Google backup " +
-      'switched on, a copy sits in your account — and comes back when you restore a new phone.',
+      'file on this device. There is no account and nothing to sign in to. Ridik keeps its own ' +
+      'count of how you use it — how many turns, which tools ran, what failed and how long it ' +
+      'took — in that same file, where you can read it under Usage and clear it whenever you ' +
+      'like. None of it is sent, and none of it is what you said. That file is included in your ' +
+      "phone's own backup, so if you have iCloud or Google backup switched on, a copy sits in " +
+      'your account — and comes back when you restore a new phone.',
   },
   {
     icon: 'paper-plane-outline',
@@ -126,8 +132,9 @@ const PANELS: Panel[] = [
     title: 'Never sent',
     body:
       'What is written inside a note. What anything cost. A phone number, an address, or where ' +
-      'you have been. Only the labels above ever leave, and only so the assistant can tell one ' +
-      'of your things from another.',
+      'you have been. Of the things you make, only the labels above ever leave, and only so the ' +
+      'assistant can tell one of your things from another. The counts below are not part of ' +
+      'this: they record that something happened, never what it was.',
   },
 ];
 
@@ -311,16 +318,34 @@ export function ConsentScreen({ onDone }: ConsentScreenProps) {
                assistant is limited; if you have already subscribed, nothing changes.
             </Txt>
           ) : null}
-          {/* Both of the other recipients, by name. "The optional Whisper
+          {/* Every other recipient, by name. "The optional Whisper
               transcription" named a model rather than a company, and the
               briefing push was not mentioned at all — while one grant quietly
               covered all three. A grant is only informed if everybody it
-              covers is on the screen it was given on. */}
+              covers is on the screen it was given on. The last two arrived
+              with the usage ledger and are the only ones the user has to
+              switch on rather than merely leave alone; the sentence says so,
+              because "optional" and "off right now" are different promises. */}
           <Txt variant="micro" tone="tertiary">
-            There is no account and no analytics. Two optional extras are the only other things that
-            can leave this phone, and both need this permission too: Whisper transcription, which
-            uploads the recording to {WHISPER_PROVIDER} with a key you paste in yourself; and the
-            daily briefing notification, whose one line is handed to {PUSH_PROVIDER} to deliver.
+            There is no account. Four optional extras also need this permission, and each is off
+            or unconfigured until you set it up: Whisper transcription, which uploads the recording
+            to {WHISPER_PROVIDER} with a key you paste in yourself; the daily briefing notification,
+            whose one line is handed to {PUSH_PROVIDER} to deliver; and — only if you switch on Help
+            improve Ridik in Settings, which is off — a count of what you did, never what you said,
+            to {ANALYTICS_PROVIDER}, along with crash reports to {CRASH_PROVIDER}.
+          </Txt>
+          {/* Two recipients nobody opts into, and the reason this paragraph
+              stopped claiming the optional four were "the only other things
+              that can leave this phone". They are not extras and not behind
+              this grant — a store build talks to the store, and saving a place
+              asks the phone's own maps service what is at those coordinates —
+              but the rule is that every recipient is named here, not every
+              optional one. */}
+          <Txt variant="micro" tone="tertiary">
+            Two more are not optional and are not covered by this decision: buying a subscription
+            sends the receipt and an anonymous installation id to {STORE_PROVIDER} and to your app
+            store, and saving a place sends those coordinates to your phone&apos;s own maps service
+            to get a street name back. Neither ever carries a note, a task or what you said.
           </Txt>
         </Animated.View>
 

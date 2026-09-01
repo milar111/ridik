@@ -82,6 +82,15 @@ const GROUPS: { title: string; entries: Entry[] }[] = [
         label: 'History',
         hint: 'What Ridik heard and what it did',
       },
+      // Beside History because they are the same promise twice: that record is
+      // what you said, this one is what the app counted about itself, and both
+      // are here so neither has to be taken on faith.
+      {
+        href: '/usage',
+        icon: 'bar-chart-outline',
+        label: 'Usage',
+        hint: 'What Ridik counts about itself',
+      },
       { href: '/settings', icon: 'person-circle-outline', label: 'Profile', hint: 'Your plan, your data' },
     ],
   },

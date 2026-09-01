@@ -109,6 +109,17 @@ export const SETTINGS = {
    */
   onboardingComplete: define(z.boolean(), () => false),
   /**
+   * When this install first ran, as UTC epoch ms, or null until it has.
+   *
+   * The only thing resembling retention that can be asked without an
+   * identifier: `app_open` records the *bucket* this resolves to ('0', '1',
+   * '2-6', '7-29', '30+'), never the date, so a population produces a crude
+   * curve and no row points at an install. Written once, by the analytics
+   * bootstrap step, and never rewritten — a value that moved would make the
+   * bucket a lie.
+   */
+  installedAt: define<number | null>(z.number().int().min(0).nullable(), () => null),
+  /**
    * Whether the words of a request may be sent to the assistant's provider.
    *
    * The gate in front of every billable call, and the reason `app/consent.tsx`
@@ -133,6 +144,25 @@ export const SETTINGS = {
    * decision made under this build's wording from one made under a future one.
    */
   assistantConsentAt: define<number | null>(z.number().int().min(0).nullable(), () => null),
+  /**
+   * Whether the usage counts and crash reports may be uploaded. Off, always,
+   * until the person turns it on.
+   *
+   * A second key rather than a fourth `assistantConsent` state, because they
+   * answer different questions and a state machine that mixes them can only
+   * express some of the four honest combinations. Somebody may want the
+   * assistant and not want to send counters; somebody who declined the
+   * assistant may still be happy to help fix a crash. `mayUploadAnalytics()` in
+   * `src/llm/consent.ts` is the only reader, and it requires this *and* that
+   * the disclosure has been answered.
+   *
+   * `false` as a default is not a formality — it is what makes the sentence on
+   * the consent screen ("only if you switch it on in Settings, which it is
+   * not") true at the moment it is read.
+   */
+  analyticsOptIn: define(z.boolean(), () => false),
+  /** When that switch was last changed, as UTC epoch ms, or null. */
+  analyticsOptInAt: define<number | null>(z.number().int().min(0).nullable(), () => null),
   weekStartsOn: define<0 | 1>(z.union([z.literal(0), z.literal(1)]), () => 1),
   whisperFallbackEnabled: define(z.boolean(), () => true),
 

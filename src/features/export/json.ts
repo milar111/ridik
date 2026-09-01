@@ -4,8 +4,8 @@
  * The markdown export next door is for reading — you can paste it anywhere and
  * still have your life if this app disappears. It cannot be re-imported, which
  * means "your data is yours" has so far meant *readable*, not *portable*. With
- * no account and no server, an export is the only backup that exists, and a
- * backup you cannot restore is a printout.
+ * no account, and a server that never receives any of this, an export is the
+ * only backup that exists, and a backup you cannot restore is a printout.
  *
  * So this is the machine-readable half: table dumps rather than prose, keyed on
  * the schema version they were taken at, and an importer that can put them back
@@ -73,8 +73,17 @@ export const BACKUP_VERSION = 1;
  *
  * `sync_queue` is an outbox of half-finished calls to Google. Restoring one
  * onto another phone replays writes against a calendar that has moved on.
+ *
+ * `app_events` is the local usage ledger, and it does not travel for the
+ * opposite reason to `llm_usage`: it *is* the user's, but it is a record of one
+ * phone being used, and somebody else's counts restored onto yours are not a
+ * possession, they are noise in your own Usage screen. A file that could write
+ * this table could also be edited to fake a funnel, which matters the moment
+ * layer 2 uploads it. `db/wipe.ts` does erase it — that distinction between
+ * "yours to delete" and "yours to carry" is the whole point of having both
+ * lists.
  */
-const NOT_YOURS = new Set(['llm_usage', 'sync_queue']);
+const NOT_YOURS = new Set(['llm_usage', 'sync_queue', 'app_events']);
 
 /** FTS5 keeps its index in shadow tables beside the virtual table. */
 const FTS_SHADOW = /_(data|idx|content|docsize|config)$/;

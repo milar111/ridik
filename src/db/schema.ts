@@ -470,6 +470,34 @@ export const llmUsage = sqliteTable('llm_usage', {
   updatedAt: epoch('updated_at').notNull(),
 });
 
+/**
+ * The local usage ledger. Mirrors `m006_app_events`.
+ *
+ * A ring buffer, not an archive: `appEvents.record()` prunes to the newer of
+ * 90 local days or 5,000 rows on every write. It is the user's own possession
+ * — `db/wipe.ts` erases it, unlike `llm_usage`, which is the operator's meter.
+ */
+export const appEvents = sqliteTable(
+  'app_events',
+  {
+    id: text('id').primaryKey(),
+    /** A member of the closed union in `services/analytics/events.ts`. */
+    name: text('name').notNull(),
+    /** That event's own props, JSON-encoded. No free-text field exists. */
+    props: text('props').notNull(),
+    /** The finest time this table records. Never a clock time. */
+    localDate: text('local_date').notNull(),
+    /** Insertion order for the ring buffer. Local only; never uploaded. */
+    createdAt: epoch('created_at').notNull(),
+    /** NULL until layer 2 sends it, and NULL for ever if it is off. */
+    uploadedAt: epoch('uploaded_at'),
+  },
+  (t) => [
+    index('idx_app_events_date').on(t.localDate),
+    index('idx_app_events_unsent').on(t.uploadedAt),
+  ],
+);
+
 export const llmInteractions = sqliteTable(
   'llm_interactions',
   {
@@ -512,6 +540,7 @@ export const schema = {
   appSettings,
   llmInteractions,
   llmUsage,
+  appEvents,
 };
 
 export type Schema = typeof schema;
@@ -543,3 +572,5 @@ export type FocusSession = typeof focusSessions.$inferSelect;
 export type CurriculumEntry = typeof curriculumSchedule.$inferSelect;
 export type LlmInteraction = typeof llmInteractions.$inferSelect;
 export type LlmUsageRow = typeof llmUsage.$inferSelect;
+export type AppEventRow = typeof appEvents.$inferSelect;
+export type NewAppEvent = typeof appEvents.$inferInsert;

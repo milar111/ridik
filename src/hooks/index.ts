@@ -32,3 +32,6 @@ export * from './useEmber';
 export * from './useFocus';
 export * from './useAssistant';
 export * from './useHistory';
+/* The reading half of the usage ledger only. `useUsageExport` stays out of the
+   barrel because it loads the filesystem and the share sheet — see its file. */
+export * from './useUsage';

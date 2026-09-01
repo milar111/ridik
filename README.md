@@ -130,7 +130,7 @@ app at all.
 -->
 
 Everything lives in **one file on your phone**. No account, nothing to sign in
-to, no tracking.
+to, no advertising identifiers, no profile of you and no tracking across apps.
 
 Understanding a sentence needs help from a computer that is not your phone, so
 the words you said — and a short list of your own labels, like the names of your
@@ -138,8 +138,17 @@ lists and the people you know — go to Google. **What is written inside a note
 never does.** Neither does what anything cost, a phone number, an address, or
 where you have been.
 
-Ridik shows you that screen before it sends anything, ever, and names every
-service that receives something. Saying no leaves a working app.
+Ridik shows you that screen before it sends anything, ever, and it names the
+companies your words reach. The [privacy policy](docs/privacy.md) names every
+recipient there is and says what each one gets. Saying no leaves a working app.
+
+**It counts how it is used, and shows you the ledger.** A fixed list of things
+like "a request was made, it took a second or two, it worked" — never a
+transcript, a title, a name or an amount, because there is no free-text field
+anywhere in the shape (`src/services/analytics/events.ts` is the whole
+vocabulary). It stays on the phone: Menu → Usage is all of it, with an export and
+a Clear. Sending it, and crash reports with it, is one switch in Settings that is
+off until you turn it on.
 
 **A backup that can actually come back.** Your whole app, as one file you can
 keep anywhere. Putting it back *adds* what is missing and never deletes or

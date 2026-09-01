@@ -827,17 +827,19 @@ const WIDGETS = [
     sizes: ['medium'],
     previewSize: 'medium',
     clocked: [],
-    // **One row.** The face is a line, and a line cannot be made taller without
-    // becoming a band — so unlike its four neighbours it cannot fill a two-row
-    // tile, and a two-row tile under it was half a tile of ground.
+    // **Two rows, like every other medium face**, and it took a placed tile to
+    // see why. The line cannot be made taller without becoming a band, so one
+    // row looked like the honest size for it — but a tile is not just its
+    // graphic. Frame, header and caption are 77dp before the line is drawn at
+    // all, and a one-row tile is 97: the caption was sliced in half across its
+    // x-height on the home screen, and the picker preview showed the same cut.
+    // Nothing logged it, exactly as §2 warns.
     //
-    // `minWidth` has to be raised with it. The launcher derives a preview's
-    // column span from `minWidth` when the tile is short, and 240dp over an
-    // 89dp column is three — so a 4 × 1 Route was drawn three columns wide while
-    // its `ImageView` still asked for a four-column raster, and `fitXY` squashed
-    // the puck to seven tenths of its width. It came out an egg.
-    cells: { width: 4, height: 1 },
-    minWidthDp: 300,
+    // The ground that made one row tempting is answered by centring instead of
+    // shrinking — see `CENTRED_PLOTS` in `plot()`. This also matches iOS, where
+    // Route is a plain `.systemMedium` and always was; the two platforms had
+    // silently disagreed about this face's size.
+    cells: { width: 4, height: 2 },
   },
   {
     kind: 'term',
@@ -2613,27 +2615,46 @@ function plot(depth, { ember, kind, size, preview, note }) {
   // a fixed aspect and must not grow into the tile — everything on it is sized
   // from its own box — so the height a two-row Android tile has spare goes under
   // it, and the caption sits on the floor where the eye lands last.
-  return `${indent(depth)}<ImageView
+  //
+  // **Except when the graphic is a line.** Route's stroke is 27% of its own box
+  // (`RidikPlots.route`), so unlike its three neighbours its box cannot be grown
+  // to fill the tile — grow it and the line becomes a band. That leaves ~74dp
+  // spare on a two-row tile, and putting all of it in one hole between the line
+  // and its caption is what the 44dp change was made to stop. So this face is
+  // *centred* in its slack instead, which is what `PlotScaffold` does on iOS and
+  // why Route looks composed there and did not here.
+  const centred = CENTRED_PLOTS.has(kind);
+  const image = `${indent(depth)}<ImageView
 ${pad}android:id="@+id/${IDS.plot}"
 ${pad}android:layout_width="match_parent"
 ${pad}android:layout_height="${height}dp"
 ${pad}android:layout_marginTop="10dp"
 ${pad}android:importantForAccessibility="no"
 ${pad}android:scaleType="fitXY"${preview ? `\n${pad}android:src="@drawable/ridik_preview_${kind}"` : ''}
-${pad}android:tint="@color/${accentColour(ember)}" />
+${pad}android:tint="@color/${accentColour(ember)}" />`;
 
-${slack(depth)}
-
-${indent(depth)}<TextView
+  const caption = `${indent(depth)}<TextView
 ${pad}android:id="@+id/${IDS.plotNote}"
 ${pad}android:layout_width="match_parent"
 ${pad}android:layout_height="wrap_content"
 ${pad}android:ellipsize="end"
 ${pad}android:includeFontPadding="false"
+${pad}android:layout_marginTop="${centred ? 8 : 0}dp"
 ${pad}android:maxLines="1"${text(depth + 4, note)}
 ${pad}android:textColor="@color/ridik_widget_ink_soft"
 ${pad}android:textSize="11sp" />`;
+
+  return centred
+    ? [slack(depth), image, caption, slack(depth)].join('\n\n')
+    : [image, slack(depth), caption].join('\n\n');
 }
+
+/**
+ * Faces whose graphic is sized by its own mechanic rather than by the tile, so
+ * the spare height is shared above and below them rather than dumped into one
+ * hole. Only Route today; see `plot()`.
+ */
+const CENTRED_PLOTS = new Set(['route']);
 
 function plotFace({ ember, kind, size, preview, eyebrow, count, note }) {
   const body = [

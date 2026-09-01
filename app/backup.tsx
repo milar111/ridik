@@ -58,8 +58,8 @@ function SaveGroup() {
         <View style={{ gap: spacing.sm }}>
           <Txt variant="body" tone="secondary">
             One file with every note, task, list, event, habit, transaction and person on this
-            phone. Ridik has no account and no server, so this file is the only backup that
-            exists — keep it somewhere that is not this phone.
+            phone. Ridik has no account, and the server it talks to never receives any of it, so
+            this file is the only backup that exists — keep it somewhere that is not this phone.
           </Txt>
           <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
             <Button

@@ -33,7 +33,13 @@ import {
 } from '@/features/settings';
 import { useEmber, useSetting } from '@/hooks';
 import { mergeTrial, useEntitlement, useTrialLedger } from '@/hooks/useBilling';
-import { ASSISTANT_PROVIDER, type AssistantConsent } from '@/llm/consent';
+import {
+  ANALYTICS_PROVIDER,
+  ASSISTANT_PROVIDER,
+  CRASH_PROVIDER,
+  type AssistantConsent,
+} from '@/llm/consent';
+import { initialiseCrashReporting, stopCrashReporting } from '@/services/analytics/crash';
 import { describeTrial, trialSpent } from '@/services/billing/allowance';
 import {
   describePlan,
@@ -78,6 +84,7 @@ export default function SettingsScreen() {
         <ColourGroup />
       </ErrorBoundary>
       <ErrorBoundary label="profile: data">
+        <ImproveGroup />
         <DataGroup />
       </ErrorBoundary>
       <ErrorBoundary label="profile: about">
@@ -303,7 +310,9 @@ function AttentionGroup() {
  */
 const CONSENT_COPY: Record<AssistantConsent, { value: string; action: string }> = {
   granted: {
-    value: `The words of a request go to ${ASSISTANT_PROVIDER}. The audio never leaves this phone.`,
+    value:
+      `The words of a request go to ${ASSISTANT_PROVIDER}. Your phone turns speech into text ` +
+      `itself when it can; when it cannot, the audio goes to the dictation service instead.`,
     action: 'Change',
   },
   declined: {
@@ -432,6 +441,78 @@ function EmberRow({
 }
 
 /* -------------------------------------------------------------------- data */
+
+/* ------------------------------------------------------ help improve ridik */
+
+/**
+ * The one switch that turns an outbound path on, and the only row on this
+ * screen that does.
+ *
+ * It passes the test the rest of the screen is held to — set it to its worst
+ * value and the app still works; the only casualty is that the operator learns
+ * nothing — which is why it is here and not behind the developer gate.
+ *
+ * Three things the copy has to do, and all three are load-bearing:
+ *
+ * - **Say what is sent by pointing at it.** "See exactly what" opens `/usage`,
+ *   which lists the actual rows. A description of a payload is a claim; the
+ *   payload is evidence, and `upload.ts` sends those rows unreshaped so the two
+ *   cannot drift.
+ * - **Name both recipients.** The counts go to the operator's own server; the
+ *   crash reports go to Sentry, which is somebody else. One switch covering two
+ *   recipients is only honest if both are named on it.
+ * - **Admit what off cannot undo.** Turning it off stops the next batch. It
+ *   does not recall what has already been sent, and saying so in one line is
+ *   better than a promise that would need a server to keep.
+ *
+ * Writing the timestamp beside the flag is the same reasoning as
+ * `assistantConsentAt`: "when did they choose this" is the record a privacy
+ * review asks for, and it is the only way to tell a decision made under this
+ * build's wording from one made under a future one.
+ */
+function ImproveGroup() {
+  const router = useRouter();
+  const optIn = useSetting('analyticsOptIn');
+  const optInAt = useSetting('analyticsOptInAt');
+
+  const onChange = (next: boolean) => {
+    optIn.set(next);
+    optInAt.set(now());
+    // Sentry cannot be started or stopped by a settings row alone — it is a
+    // native SDK with a process-wide handler — so the switch drives it here
+    // rather than making the person relaunch to be taken at their word.
+    if (next) void initialiseCrashReporting();
+    else void stopCrashReporting();
+  };
+
+  return (
+    <Group title="Help improve Ridik">
+      <SwitchRow
+        label="Send usage and crash reports"
+        hint={
+          `Sends the counts on the Usage screen — how many turns, which tools ran, what failed ` +
+          `and how long it took — to ${ANALYTICS_PROVIDER}, and crash reports to ` +
+          `${CRASH_PROVIDER}. Never what you said, never what you wrote, never a name or an ` +
+          `amount. No account and no identifier: there is nothing in it that points back at ` +
+          `this phone.`
+        }
+        value={optIn.value}
+        onChange={onChange}
+      />
+      <Row
+        icon="list-outline"
+        label="See exactly what"
+        hint={
+          optIn.value
+            ? 'Every row that would be sent, and a button to clear them. Turning this off stops the next batch; anything already sent cannot be recalled.'
+            : 'Every row Ridik keeps about itself, on this phone. None of it leaves while this is off.'
+        }
+        right={<Chevron />}
+        onPress={() => router.push('/usage')}
+      />
+    </Group>
+  );
+}
 
 function DataGroup() {
   const exportAll = useExportEverything();

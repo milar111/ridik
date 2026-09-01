@@ -255,6 +255,41 @@ EXPO_PUBLIC_ONESIGNAL_APP_ID=00000000-0000-0000-0000-000000000000
 Unset, the app initialises nothing and behaves exactly as it did before push
 existed.
 
+## Crash reporting (Sentry) — optional, and off unless you configure it
+
+```bash
+EXPO_PUBLIC_SENTRY_DSN=https://xxxxxxxx@o000000.ingest.sentry.io/0000000
+# Only needed for readable stack traces — they upload source maps at build time.
+SENTRY_ORG=your-org
+SENTRY_PROJECT=ridik
+SENTRY_AUTH_TOKEN=sntrys_xxxxxxxx
+```
+
+**The DSN is what switches the whole path on, including the native plugin.**
+`app.config.ts` adds `@sentry/react-native` to `plugins` only when
+`EXPO_PUBLIC_SENTRY_DSN` is set, and that is not a tidiness decision — the
+plugin installs a build phase that runs `sentry-cli` to upload source maps, and
+with no organisation configured that phase fails the **entire iOS build** with
+`An organization ID or slug is required`, thousands of lines into a log, long
+after the JavaScript has bundled cleanly. Unset, there is no plugin, no upload
+phase, and `services/analytics/crash.ts` finds no native module and reports
+nothing — which is exactly how this app behaved before Sentry existed.
+
+Set the DSN without the other three and the build works; you get crash reports
+with minified stack traces. Run `npx expo prebuild --clean` after changing any
+of them: these are read at build time.
+
+Two things to know before you turn it on:
+
+- **Nothing is sent until the user opts in.** The DSN only decides whether the
+  switch in Settings → Help improve Ridik has anywhere to point. It is off by
+  default, and Sentry is named on the consent screen because of it.
+- **The earliest crashes are not reported, deliberately.** Sentry is normally
+  started as early as possible; here it starts *after* settings are readable,
+  because registering a third party's global error handler before the person
+  has been asked is the thing the consent screen exists to prevent. See the
+  docblock in `crash.ts` before "fixing" it.
+
 One thing *is* compiled in and cannot be changed from a dashboard: `mode` in the
 `onesignal-expo-plugin` entry writes the `aps-environment` entitlement. Store
 and TestFlight builds must be built with `ONESIGNAL_MODE=production`; anything
@@ -303,9 +338,46 @@ Then check `app.config.ts`:
    The identifier has to contain the tier word. That is how the app knows what
    the subscription allows.
 3. Set prices per territory. You set one and Apple proposes the rest.
-4. Fill in the **App Privacy** questionnaire. Ridik stores everything on-device;
-   the only data leaving the phone is the sentence you speak, sent to the
-   assistant. Say so.
+4. Fill in the **App Privacy** questionnaire. "Ridik stores everything
+   on-device" is the shape of the app, not an answer to this form — nine
+   separate paths send something to somebody, and every one of them has to be
+   declared. Work from this table; `docs/privacy.md` says the same thing in
+   prose and the two must not drift.
+
+   | Data type | What actually goes, and where | Purpose |
+   | --- | --- | --- |
+   | Contact Info → Name | up to 25 of the names in your CRM ride in the assistant's context (`src/llm/context.ts`), and the briefing sentence handed to OneSignal can carry one | App Functionality |
+   | User Content → Audio Data | the recording, to Apple's or Google's speech service when the phone has no offline voice, and to OpenAI when a Whisper key is set | App Functionality |
+   | User Content → Other User Content | list, project, note, habit and place names, task titles and due dates, spending categories, event titles and times — the assistant's context on every turn | App Functionality |
+   | Location → Precise and Coarse | coordinates to the platform geocoder for a place's address (`useSystem.ts`). Geofencing itself never leaves the phone and is not collection | App Functionality |
+   | Purchases | the fact of a subscription, through Apple/Google and RevenueCat | App Functionality |
+   | Identifiers → Device ID | RevenueCat's anonymous app user id, which is also what the hosted assistant endpoint counts an allowance against; OneSignal's subscription id | App Functionality |
+   | Usage Data → Product Interaction | the opt-in upload: event names and their enum properties, nothing else | Analytics |
+   | Diagnostics → Performance Data | the same upload: which of five latency bands a turn fell in | Analytics |
+   | Diagnostics → Crash Data | Sentry, behind the same opt-in switch | App Functionality |
+
+   **Used for tracking: No** and **Linked to the user: No** on all nine, which
+   is what `privacyManifests` in `app.config.ts` declares — the questionnaire
+   and the manifest are read side by side and must not disagree. Nothing is
+   shared with a data broker, nothing is joined to another app's data, and
+   there is no advertising SDK. The one row where *not linked* is a judgement
+   rather than a fact is Device ID: the assistant request and the purchase
+   travel with RevenueCat's anonymous installation id, which identifies an
+   install and nothing about a person. If a reviewer pushes back, that is the
+   row, and the answer to give is what the id is for — counting an allowance —
+   not a claim that no identifier exists.
+
+   **The on-device usage ledger needs no entry at all.** Both forms define
+   collection as data leaving the device, and Layer 1 never does — it is one
+   SQLite table the user can read, export and clear. Only the opt-in upload is
+   declarable, which is what the last three rows are.
+
+   Do **not** declare Contacts (there is no `expo-contacts` in the tree and no
+   Contacts permission). Do **not** declare Android Auto Backup — it lands in
+   the user's own Google account under device-credential encryption and we
+   never receive it. Say in the review notes that the last three rows are
+   optional and off by default, behind one Settings switch; Apple's form has no
+   field for that and Play's does.
 5. Add a **Privacy Policy URL** and **Terms of Use (EULA) URL**. Apple requires
    both for auto-renewable subscriptions, and both are linked from the app's
    Profile screen — make sure those point somewhere real before submitting.
@@ -317,7 +389,31 @@ Then check `app.config.ts`:
 1. Create the app with package `ai.dby.ridik`.
 2. **Subscriptions**: create one subscription with a base plan per tier, each
    auto-renewing. Same naming rule — the product id carries the tier.
-3. Complete the **Data safety** form. Same answers as Apple's.
+3. Complete the **Data safety** form. Same *facts* as Apple's table above, but
+   not the same fields — Play asks four things Apple does not, and the answers
+   are not all the same across the rows:
+
+   - **Collected: yes. Shared: no.** Play's "shared" means transfer to a third
+     party for their own purposes. Google Calendar is not sharing — it is the
+     user moving their own data into their own account — and neither is a
+     processor doing a job we asked it to.
+   - **Encrypted in transit: yes**, everywhere. Every request in the app is
+     HTTPS.
+   - **Optional or required.** Audio, the assistant context, location and the
+     identifiers are *required* for the features that use them. The three
+     analytics and diagnostics rows are **optional** — "users can choose" —
+     because one Settings switch, off by default, is the only thing that sends
+     them.
+   - **Deletion.** Answer that users can request deletion of what the app holds
+     (Erase everything, in Settings), and that the uploaded analytics
+     specifically **cannot** be deleted, because the rows carry no identifier
+     and cannot be found. Play accepts that answer only if the privacy policy
+     explains it, and `docs/privacy.md` does, under *Your rights*.
+
+   Play's own categories, for the three new rows: *App activity → App
+   interactions*, and *App info and performance → Crash logs* and
+   *Diagnostics*. As on Apple's form, the on-device ledger is not collection
+   and needs no entry.
 4. Upload to **internal testing** first. Play Billing does not work at all in a
    build that has not been through the Play servers, so a local build cannot
    test purchases.

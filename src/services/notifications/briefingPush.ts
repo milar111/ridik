@@ -217,6 +217,10 @@ export const PUSH_ROUTE_SEGMENTS: readonly string[] = [
   'settings',
   'tasks',
   'today',
+  // The usage ledger. Read-only, it holds counters rather than content, and a
+  // sender who opens it learns nothing they did not already send — the same
+  // test 'history' passes above.
+  'usage',
 ];
 
 /**

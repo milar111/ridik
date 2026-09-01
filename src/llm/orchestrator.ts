@@ -42,6 +42,7 @@ import {
 } from '@/llm/executor';
 import type { LlmMessage } from '@/llm/provider';
 import type { Repositories } from '@/repositories';
+import { latencyBucket, parseEvent } from '@/services/analytics/events';
 
 /* --------------------------------------------------------------- contract -- */
 
@@ -318,6 +319,75 @@ export function createOrchestrator(options: OrchestratorOptions) {
       });
     } catch (error) {
       logger?.warn('could not record the interaction', error);
+    }
+
+    await count(row);
+  }
+
+  /**
+   * The same turn, counted — and this is the *only* instrumentation point.
+   *
+   * `audit()` is where every path through `runTurn` converges, so counting here
+   * rather than at the five return sites is what makes the ledger complete by
+   * construction instead of by remembering. Everything below is derived from
+   * the audit row that was just written; nothing new is computed and nothing is
+   * read from the user's data.
+   *
+   * Three deliberate choices:
+   *
+   * - **Through `repos`, not `services/analytics`.** That facade resolves the
+   *   database itself, which would break the injection this whole module is
+   *   built on and take the orchestrator tests with it. `parseEvent` is pure,
+   *   so the vocabulary is still enforced.
+   * - **`await`ed, not fired.** Recording is one insert against a table the
+   *   audit row above already touched; the turn is over by the time this runs,
+   *   and the alternative is a floating promise that outlives the test.
+   * - **Its own try/catch, outside the audit one.** For exactly the reason
+   *   stated above this function: a counter that is momentarily unhappy must
+   *   not turn a turn the user watched succeed into an error.
+   */
+  async function count(row: AuditRow): Promise<void> {
+    try {
+      const events: unknown[] = [
+        {
+          name: 'turn',
+          props: {
+            mode: row.model ? 'model' : 'offline',
+            // The orchestrator is not told how the words arrived, and the
+            // vocabulary has no 'unknown'. Voice is what this app is; a typed
+            // turn is the exception and is counted from the dock instead.
+            input: 'voice',
+            actions: Math.min(row.results.length, 9),
+            status: row.status,
+            latency: latencyBucket(row.latencyMs),
+            repaired: 0,
+          },
+        },
+        ...row.results.map(({ result }) => ({
+          name: 'tool',
+          props: {
+            name: result.toolName,
+            ok: result.ok ? 1 : 0,
+            confirmed: result.needsConfirmation ? 1 : 0,
+            undone: 0,
+          },
+        })),
+      ];
+
+      if (row.status === 'error') {
+        const code = row.results.find(({ result }) => result.error)?.result.error?.code;
+        events.push({ name: 'turn_error', props: { code: code ?? 'unknown' } });
+      }
+
+      for (const candidate of events) {
+        const event = parseEvent(candidate);
+        // A tool the vocabulary does not know is a tool added without adding it
+        // to `TOOL_NAMES`, which cannot happen while `ToolName` is that array's
+        // element type — but losing the count is still the right failure.
+        if (event) await repos.appEvents.record(event.name, event.props);
+      }
+    } catch (error) {
+      logger?.warn('could not count the interaction', error);
     }
   }
 

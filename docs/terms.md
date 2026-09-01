@@ -6,7 +6,7 @@ description: Ridik — Terms of Use
 
 # Ridik — Terms of Use
 
-**Last updated: 17 August 2026**
+**Last updated: 1 September 2026**
 
 By using Ridik you agree to these terms. If you do not, please do not use the app.
 
@@ -64,8 +64,10 @@ behaviour, which we do not control. A notification may be delayed or suppressed 
 your phone.
 
 **Your data is your responsibility to back up.** The app can export everything as
-a file. If you lose your device without a backup, we cannot recover anything —
-we never had it.
+a file. If you lose your device without a backup, we cannot recover anything:
+nothing we run holds a copy of your notes, tasks, events or any of the rest. The
+server that carries assistant requests passes them to the model and keeps no copy
+of your database.
 
 The app is provided "as is", without warranties of any kind, to the fullest extent
 permitted by law. We are not liable for indirect or consequential loss, or for
@@ -83,9 +85,13 @@ We may withdraw access to the paid assistant for a user who does these things.
 
 ## Third parties
 
-Using Ridik involves services described in the [Privacy Policy](privacy.html):
-Google (Gemini, and Calendar if you connect it), your phone's speech recognition,
-and optionally OpenAI and OneSignal. Their terms apply to their part.
+Using Ridik involves services described in the [Privacy Policy](privacy.html),
+which names each one and says what reaches it: our own server, Google (Gemini,
+and Calendar if you connect it), your phone's speech recognition and its
+geocoder, and Apple, Google and RevenueCat for a purchase. Optionally, and only
+when you turn the setting on: OpenAI for transcription, OneSignal for the daily
+briefing, and Sentry for crash reports — the last behind the same single switch
+as the usage counts. Their terms apply to their part.
 
 ## The source
 

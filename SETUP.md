@@ -339,9 +339,12 @@ exists to satisfy a guideline.
 
 **Still to do before submission:**
 
-- **App Privacy answers in App Store Connect.** Be accurate: notes and calendar
-  data leave the device only when Google Calendar is connected, and transcripts
-  go to the model provider. That is a disclosure, not a problem.
+- **App Privacy answers in App Store Connect.** Do not write these from memory —
+  the sentence that used to be here listed two outbound paths and there are
+  nine. `DEPLOY.md` has the per-type table to copy, `notes/STORE-CHECKLIST.md`
+  has the same answers beside Play's, and `app.config.ts` → `ios.privacyManifests`
+  is the shipped declaration all three must agree with. Every one of them is a
+  disclosure, not a problem; a declaration that omits one is the problem.
 - **Screenshots, icon and description.** The icon is still the Expo default.
 - **A real privacy policy and EULA** at the URLs above.
 
@@ -426,8 +429,11 @@ Meaning: does it have the engineering properties something shipped needs?
   events. Those are fixed with regression tests.
 
 **Not yet:**
-- **No crash reporting.** Add Sentry before real users. This is the biggest gap
-  and it is an afternoon of work.
+- ~~**No crash reporting.**~~ Sentry is wired — `src/services/analytics/crash.ts`,
+  behind the same off-by-default switch as the usage counts, with breadcrumbs,
+  screenshots, view hierarchy and Sentry's own `user` all disabled. What is
+  *not* done: no DSN has ever been set, so it has never sent a report. Put one
+  in `EXPO_PUBLIC_SENTRY_DSN`, turn the switch on and crash it once.
 - **No release build has ever been made.** Debug only. A release build enables
   Hermes bytecode and ProGuard/R8 — things break there that never break in debug.
 - **No app icons or store assets** beyond the Expo defaults.
@@ -465,8 +471,9 @@ find a dozen things — that is the missing step, and no amount of tests replace
 
 ## 7. Suggested order of work
 
-1. Use it yourself for a week. Nothing else is as informative.
-2. Add Sentry.
+1. Use it yourself for a week. Nothing else is as informative — and the Usage
+   screen now tells you what that week actually consisted of.
+2. Set `EXPO_PUBLIC_SENTRY_DSN` and prove a crash arrives.
 3. Make a release build on both platforms and fix whatever breaks.
 4. Set the Google spend cap (5 minutes).
 5. Tune the prompt against whatever Gemini actually gets wrong for you.

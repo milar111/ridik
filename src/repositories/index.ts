@@ -9,6 +9,7 @@ import type { RidikDatabase } from '@/db/migrator';
 import { createLogger } from '@/core/logger';
 
 import { createActivityRepository } from './activity';
+import { createAppEventsRepository } from './appEvents';
 import { createCalendarEventsRepository } from './calendarEvents';
 import { createChecklistsRepository } from './checklists';
 import { createCrmRepository } from './crm';
@@ -28,6 +29,8 @@ import { createUsageRepository } from './usage';
 
 export type Repositories = {
   activity: ReturnType<typeof createActivityRepository>;
+  /** The local usage ledger — see `appEvents.ts`. The user's, not the operator's. */
+  appEvents: ReturnType<typeof createAppEventsRepository>;
   calendar: ReturnType<typeof createCalendarEventsRepository>;
   checklists: ReturnType<typeof createChecklistsRepository>;
   crm: ReturnType<typeof createCrmRepository>;
@@ -52,6 +55,7 @@ export type Repositories = {
 export function createRepositories(db: RidikDatabase): Repositories {
   return {
     activity: createActivityRepository(db),
+    appEvents: createAppEventsRepository(db),
     calendar: createCalendarEventsRepository(db),
     checklists: createChecklistsRepository(db),
     crm: createCrmRepository(db),

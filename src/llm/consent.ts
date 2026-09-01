@@ -2,9 +2,10 @@
  * Whether the words of a request may be sent to the model, and what to say
  * when they may not.
  *
- * Ridik's promise is local-first: no account, no analytics, everything in one
- * SQLite file on the phone. All of that is true, and all of it is true of the
- * *storage*. The assistant is the one thing that is not — turning "remind me to
+ * Ridik's promise is local-first: no account, and everything in one SQLite
+ * file on the phone. All of that is true, and all of it is true of the
+ * *storage* — including the usage ledger, which is counted into that same file
+ * and stays there unless the user switches the upload on. The assistant is the one thing that is not — turning "remind me to
  * call Ivo at 4, and note that the lab needs 10k resistors" into three writes
  * takes a language model, and the only language model in this build runs on
  * Google's machines. The transcript leaves the device. Nothing in the app used
@@ -78,6 +79,49 @@ export const WHISPER_PROVIDER = 'OpenAI';
  */
 export const PUSH_PROVIDER = 'OneSignal';
 
+/**
+ * The fourth recipient, and the only one that is us.
+ *
+ * When — and only when — the user switches "Help improve Ridik" on, the counts
+ * they can read on the Usage screen are posted to the operator's own backend:
+ * the same server a hosted build already sends every turn to, so this widens a
+ * disclosure that exists rather than opening a new one. It is named anyway,
+ * because "our own server" is still somewhere the data goes, and a reader
+ * deciding whether to trust this app should not have to infer that from the
+ * absence of a company name.
+ *
+ * A third-party analytics SDK was considered and rejected for exactly this
+ * reason — see `notes/ONBOARDING-SPEC.md` §15.1. Nothing in the payload
+ * identifies a device, an install or a person.
+ */
+export const ANALYTICS_PROVIDER = "Ridik's own server";
+
+/**
+ * The fifth, which exists so a crash on somebody's phone is not invisible.
+ *
+ * Behind the same single switch as the counts and off with it. A crash report
+ * is a stack trace and the app's own state, not a note or a transcript — but it
+ * is a third party receiving data from this device, which is the only test that
+ * decides whether a name belongs on the consent screen.
+ */
+export const CRASH_PROVIDER = 'Sentry';
+
+/**
+ * The sixth, and the one that is not optional.
+ *
+ * A purchase reaches RevenueCat, and through it Apple or Google: the receipt,
+ * the product, the price, and an anonymous identifier RevenueCat mints for the
+ * install. Nobody switches this on and nobody can switch it off while the app
+ * sells anything, which is exactly why it was missing from the screen for so
+ * long — the disclosure grew by asking "what did the user opt into?", and the
+ * right question is "what leaves?".
+ *
+ * It is not behind `mayReachProvider`; a store build talks to the store. It is
+ * named anyway, because the rule is that every recipient is on the screen, not
+ * that every *optional* recipient is.
+ */
+export const STORE_PROVIDER = 'RevenueCat';
+
 /** The one route that explains what is sent and takes the decision. */
 export const CONSENT_ACTION = { label: 'What gets sent', href: '/consent' } as const;
 
@@ -106,6 +150,33 @@ export function mayReachProvider(consent: AssistantConsent): boolean {
  */
 export function hasAnsweredConsent(consent: AssistantConsent): boolean {
   return consent !== 'unset';
+}
+
+/**
+ * Whether the counts and crash reports may be uploaded.
+ *
+ * **A deliberate, documented departure from "every outbound path is behind
+ * `mayReachProvider`".** Requiring `granted` would mean that declining to send
+ * *your words to Google* also refuses an anonymous counter with no identity in
+ * it — which is a different decision from the one the person took, and refusing
+ * it on their behalf is not more privacy-preserving, it is just less accurate
+ * about what they asked for.
+ *
+ * What the invariant actually protects is kept in full, and that is the part to
+ * check when reading this: no recipient escapes the disclosure. The disclosure
+ * must have been *read and answered* (`hasAnsweredConsent`), both recipients
+ * are named on it (`ANALYTICS_PROVIDER`, `CRASH_PROVIDER`), and the switch is
+ * off until the person turns it on — so this path is strictly harder to open
+ * than the three that use `mayReachProvider`, not easier.
+ *
+ * If the strict reading is ever preferred, change `hasAnsweredConsent` to
+ * `mayReachProvider` in this one function; nothing else moves.
+ */
+export function mayUploadAnalytics(input: {
+  consent: AssistantConsent;
+  optIn: boolean;
+}): boolean {
+  return input.optIn === true && hasAnsweredConsent(input.consent);
 }
 
 /**

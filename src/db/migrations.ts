@@ -482,12 +482,42 @@ const m005_llm_usage_calls = /* sql */ `
 ALTER TABLE llm_usage ADD COLUMN calls INTEGER NOT NULL DEFAULT 0;
 `;
 
+/**
+ * What the user does with the app, counted — and only counted.
+ *
+ * The app measured its own latency for months and threw the measurement away;
+ * this is the same mistake one level up. Nothing here is content: `name` comes
+ * from a closed union in `services/analytics/events.ts`, `props` is that
+ * event's own schema and has no free-text field anywhere in it, and
+ * `local_date` is deliberately the finest time this table records — a
+ * millisecond timestamp on a behavioural row is a session reconstruction
+ * waiting to happen.
+ *
+ * `created_at` exists so the ring buffer can prune in insertion order and is
+ * **never uploaded**; `uploaded_at` stays NULL for ever unless the user turns
+ * layer 2 on. The partial index is what makes "the unsent ones" cheap without
+ * paying for an index over a table that is mostly sent.
+ */
+const m006_app_events = /* sql */ `
+CREATE TABLE IF NOT EXISTS app_events (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  props       TEXT NOT NULL,
+  local_date  TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  uploaded_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_app_events_date ON app_events(local_date);
+CREATE INDEX IF NOT EXISTS idx_app_events_unsent ON app_events(uploaded_at) WHERE uploaded_at IS NULL;
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'initial_schema', sql: m001_initial },
   { version: 2, name: 'notes_fts5', sql: m002_notes_fts },
   { version: 3, name: 'llm_usage', sql: m003_llm_usage },
   { version: 4, name: 'llm_usage_cached_tokens', sql: m004_llm_usage_cached },
   { version: 5, name: 'llm_usage_calls', sql: m005_llm_usage_calls },
+  { version: 6, name: 'app_events', sql: m006_app_events },
 ];
 
 /** Migrations that must be skipped (not failed) when FTS5 is unavailable. */

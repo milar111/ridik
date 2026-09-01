@@ -70,6 +70,9 @@ describe('settings repository', () => {
         // then have to tell "declined" from "never asked" by looking at
         // `onboardingComplete`, which is exactly the collapse this avoids.
         assistantConsent: 'unset',
+        analyticsOptIn: false,
+        installedAt: null,
+        analyticsOptInAt: null,
         assistantConsentAt: null,
         weekStartsOn: 1,
         whisperFallbackEnabled: true,

@@ -57,19 +57,36 @@ you if you do not know them.
   that anyone agreed to anything. Refusing degrades to the offline matcher with a `notice` and
   a way back, exactly as a spent trial does; `src/llm/consent.ts` owns the words and names the
   provider, and it is named because naming it is the requirement.
-- **Every outbound path is behind the same gate, and every recipient is on the same screen.**
-  There are four ways personal data can leave this phone and only one of them looks like it:
-  the model (`clientForTurn`), the *recogniser* (`onDeviceOnly` in `src/voice/types.ts` —
-  on-device is preferred and is simply unavailable on most Android devices, and the session
-  then streams the audio to Apple's or Google's speech servers), Whisper
-  (`src/voice/whisper.ts`, which posts to OpenAI), and the briefing push
+- **Every outbound path is behind a gate, and every recipient is on the same screen.**
+  The second half of that sentence is the invariant; the first half has one documented
+  exception and is stated loosely for that reason. Six ways data can leave this phone, and
+  only one of them looks like it: the model (`clientForTurn`), the *recogniser*
+  (`onDeviceOnly` in `src/voice/types.ts` — on-device is preferred and is simply unavailable
+  on most Android devices, and the session then streams the audio to Apple's or Google's
+  speech servers), Whisper (`src/voice/whisper.ts`, which posts to OpenAI), the briefing push
   (`services/notifications/push.ts`, whose `briefing_line` tag is `composeVisual`'s own
-  sentence, complete with event titles and people's names). Adding a fifth means adding
-  `mayReachProvider` to it **and** a sentence to `ConsentScreen`: a grant obtained with a
-  disclosure that understates is worse than no disclosure, because it is the thing the grant
-  was obtained with. `ASSISTANT_PROVIDER`, `WHISPER_PROVIDER` and `PUSH_PROVIDER` in
-  `src/llm/consent.ts` are the names, and `consent-screen.test.tsx` asserts all three reach
-  the screen.
+  sentence, complete with event titles and people's names), the usage upload
+  (`services/analytics/upload.ts`) and crash reports (`services/analytics/crash.ts`).
+  A purchase reaches RevenueCat and the geocoder reaches the platform's maps service; neither
+  is gated — a store build talks to the store — and both are named on the screen anyway,
+  because the rule is *every recipient*, not every optional one.
+  Adding another means adding a gate **and** a sentence to `ConsentScreen`: a grant obtained
+  with a disclosure that understates is worse than no disclosure, because it is the thing the
+  grant was obtained with. `ASSISTANT_PROVIDER`, `WHISPER_PROVIDER`, `PUSH_PROVIDER`,
+  `ANALYTICS_PROVIDER`, `CRASH_PROVIDER` and `STORE_PROVIDER` in `src/llm/consent.ts` are the
+  names — and `consent-screen.test.tsx` no longer takes a list on trust: it *enumerates every
+  `*_PROVIDER` the module exports* and fails if one of them is not on the screen. It used to
+  assert two names as literals, which made it an allow-list a fifth recipient walked straight
+  past. Adding a seventh constant without a sentence is now a red test with that name in the
+  diff.
+- **The one gate that is not `mayReachProvider`, and why.** `mayUploadAnalytics()` requires
+  the switch to be on **and** the disclosure to have been *answered* — `hasAnsweredConsent`,
+  not `mayReachProvider`. Requiring `granted` would mean that refusing to send your words to
+  Google also refuses an anonymous counter with no identity in it, which is a different
+  decision from the one the person took. What the invariant protects is kept in full: the
+  disclosure was read, both recipients are named on it, and the switch is off by default — so
+  this path is strictly harder to open than the four that use `mayReachProvider`, not easier.
+  If the strict reading is ever preferred, change one identifier in that one function.
 - **A yes answers the question it was asked and no other.** Two questions ride the same yes/no
   envelope: the review gate's "is this what you said?" (built before any handler has looked at
   the data, so it can never mention a clash) and a handler's own "is this what you meant?".
@@ -297,6 +314,49 @@ it is pure; everything else feeds it.
   alone: it is indistinguishable from time passing, and the server owns the
   authoritative quota on the build where that matters.
 
+## What the app counts about itself
+
+Added 1 September 2026, reversing a decision recorded in `notes/HANDOFF.md` — the full
+two-layer design was already written at `notes/ONBOARDING-SPEC.md` §13–15 and this is
+that spec executed. Two layers, and the distinction between them is the whole thing.
+
+- **Layer 1 is local and always on.** `app_events` (migration 6) through
+  `src/repositories/appEvents.ts`, a ring pruned on every write to the newer of 90 local
+  days or 5,000 rows. It is the user's: `db/wipe.ts` erases it — unlike `llm_usage`, which
+  is the *operator's* meter and is preserved — and it does not travel in a backup, because
+  somebody else's counts restored onto your phone are noise, and a file that could write
+  this table could be edited to fake a funnel. Both distinctions are asserted.
+- **Layer 2 is off.** `analyticsOptIn` defaults false. `upload.ts` posts to the operator's
+  own backend and is inert without `EXPO_PUBLIC_RIDIK_API_URL`, the same capability-detected
+  shape as `liveActivity.ts`. **Layer 1 is complete without it** — that is what makes
+  "Export usage" a real answer for beta testers with nothing on a network.
+
+Three things that will bite:
+
+- **The vocabulary is the privacy boundary, not the storage layer.**
+  `src/services/analytics/events.ts` is a zod discriminated union with **no free-text
+  property anywhere in it** — every field is an enum, a bucket or a small integer, every
+  `props` is `strictObject` so an unknown key is a refusal rather than a silent trim, and
+  `vocabulary.test.ts` reads the file *as source* and fails on a property name that looks
+  like content or on any `z.string()` at all. `tool.name` is allow-listed by exact line
+  because it is the app's own `ToolName`, never a word anybody said.
+- **There is exactly one instrumentation point for a turn.** `audit()` in
+  `src/llm/orchestrator.ts` is where all five return paths converge, so `count()` sits
+  beside it and the ledger is complete by construction rather than by every call site
+  remembering. It goes through the injected `repos`, never through the `services/analytics`
+  facade, or the orchestrator's own dependency injection breaks and its tests with it.
+- **What the Usage screen shows is what would be uploaded, byte for byte.**
+  `appEvents.unsent()` returns the payload shape — no row id, no `created_at`, the local
+  date is the finest time that travels — and `upload.ts` does not reshape it. Reshaping it
+  anywhere would make that screen a decoration instead of a disclosure, which is the only
+  reason it is defensible to upload at all.
+
+Crash reporting is `services/analytics/crash.ts`: Sentry, behind the same single switch,
+with breadcrumbs, screenshots, view hierarchy, tracing and Sentry's own `user` all off. It
+initialises **late**, after the person has been asked — so the earliest crashes go
+unreported, and that is the correct side of the trade rather than an oversight. No DSN has
+ever been set, so it has never sent anything.
+
 ## Backups, and not losing what was said
 
 Two features, one idea: nothing the user produced may be thrown away by the app
@@ -425,6 +485,19 @@ this app with their calendar.
   `PlanGroup` lost this way and nobody noticed for weeks: the one row that tells a free user their
   trial is finite was replaced by a failure card on every single launch. Put every hook above every
   return, and when mocking a hook, mock it *as* a hook.
+- **`pod install` needs a UTF-8 locale on this machine.** CocoaPods 1.17 on Ruby 4.0 throws
+  `Unicode Normalization not appropriate for ASCII-8BIT (Encoding::CompatibilityError)` and a
+  twenty-line Ruby backtrace naming `Pod::Config#installation_root`, which looks like a broken
+  CocoaPods install. It is the locale: `export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8`. The
+  failure then cascades — no `Podfile.lock`, no `ios/Ridik.xcworkspace`, and `xcodebuild`
+  reports only that the workspace "does not exist", which is the error you will actually see.
+- **A native dependency's build phase can fail the whole iOS build long after the JS is fine.**
+  `@sentry/react-native`'s plugin adds a source-map upload phase that runs `sentry-cli`; with
+  no organisation configured it fails with `An organization ID or slug is required` around line
+  9,158 of the log, after `Bundle React Native code and images` has already succeeded. The
+  answer is the same capability detection everything else here uses: `app.config.ts` adds the
+  plugin only when `EXPO_PUBLIC_SENTRY_DSN` is set, so a build with no Sentry account has no
+  upload phase at all.
 - **`expo prebuild --clean` deletes `android/local.properties`.** Gradle then fails with
   "SDK location not found", which reads like a broken toolchain rather than a missing generated
   file. Rewrite it after any clean prebuild:

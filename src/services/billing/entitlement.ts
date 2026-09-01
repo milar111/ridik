@@ -578,6 +578,21 @@ export function describeRenewal(entitlement: Entitlement, format: (at: number) =
   if (entitlement.inGracePeriod) {
     return 'Your last payment did not go through. Update your card at the store to keep the assistant.';
   }
+  /*
+   * A sandbox plan is not a purchase and must not be described as one.
+   *
+   * `development.ts` says in its own docblock that every screen showing a plan
+   * says where the plan came from, and this sentence was the one that did not:
+   * a local row granted by tapping a card rendered as "your card is charged
+   * again then", on a device with no card, no receipt and no money moved. The
+   * paywall was careful — em-dash prices, a Sandbox badge on every row — and
+   * then the Settings row undid all of it one screen later.
+   */
+  if (entitlement.store === 'sandbox') {
+    return entitlement.renewsAt === null
+      ? 'A local test plan. Nothing was bought and no money moved.'
+      : `A local test plan until ${format(entitlement.renewsAt)}. Nothing was bought and no money moved.`;
+  }
   if (entitlement.renewsAt === null) {
     return entitlement.willRenew ? 'Renews automatically.' : 'Cancelled.';
   }

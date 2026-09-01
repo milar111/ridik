@@ -167,6 +167,34 @@ describe('describeRenewal', () => {
     expect(describeRenewal(FREE, when)).toMatch(/stays yours/i);
   });
 
+  /**
+   * The sandbox is not a purchase, and the row that says otherwise is worse
+   * than no row.
+   *
+   * `development.ts` promises in its own docblock that every screen showing a
+   * plan says where the plan came from. The paywall kept that promise — em-dash
+   * prices, a Sandbox badge on every card — and then this sentence broke it one
+   * screen later by telling somebody with no card that their card would be
+   * charged. Seen on a real emulator; pinned here so it cannot come back.
+   */
+  it('never claims a card is charged for a plan nobody bought', () => {
+    const sandbox = paid({ store: 'sandbox' as const });
+    const line = describeRenewal(sandbox, when);
+
+    expect(line).not.toMatch(/card/i);
+    expect(line).toMatch(/no money moved/i);
+    expect(line).toMatch(/test plan/i);
+    // And it still says until when, because "is this still on" is the question
+    // the row exists to answer.
+    expect(line).toContain('12d');
+  });
+
+  it('says nothing was bought even when the sandbox has no date', () => {
+    const line = describeRenewal(paid({ store: 'sandbox' as const, renewsAt: null }), when);
+    expect(line).toMatch(/no money moved/i);
+    expect(line).not.toMatch(/card/i);
+  });
+
   /* A store that returned no date is not an expired subscription. Formatting
      `null` would print "Renews Invalid Date". */
   it('does not invent a date the store did not give', () => {

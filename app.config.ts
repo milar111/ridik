@@ -36,6 +36,115 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
      */
     supportsTablet: false,
     bundleIdentifier: 'ai.dby.ridik',
+    /**
+     * The privacy manifest, declared here because `ios/` is generated.
+     *
+     * `ios/Ridik/PrivacyInfo.xcprivacy` is written by prebuild and `ios/` is
+     * gitignored, so a hand-edit there survives exactly until the next
+     * `expo prebuild` and then silently reverts to declaring that this app
+     * collects nothing. It shipped saying `NSPrivacyCollectedDataTypes: []`,
+     * which stopped being true the day the first turn was sent to a model and
+     * is now also wrong about the usage counts and crash reports.
+     *
+     * `NSPrivacyTracking` stays **false** and must: "tracking" in Apple's sense
+     * is linking this data to other apps' data or a data broker's, and nothing
+     * here does that or can — there is no identifier in the payload to link on.
+     *
+     * These entries must stay in step with the App Store Connect questionnaire
+     * and with Play's Data safety form; `notes/STORE-CHECKLIST.md` holds all
+     * three side by side.
+     */
+    privacyManifests: {
+      NSPrivacyTracking: false,
+      NSPrivacyTrackingDomains: [],
+      NSPrivacyCollectedDataTypes: [
+        /*
+         * `Linked` is the question this list gets wrong most easily, so it is
+         * answered per row rather than uniformly.
+         *
+         * A hosted turn carries RevenueCat's anonymous app user id alongside
+         * the request, so on that path the content and an identifier arrive at
+         * the same server together — which is Apple's definition of linked,
+         * whether or not the operator ever joins them. Saying "no" there
+         * because the id is anonymous is the answer that gets a build rejected.
+         *
+         * The three analytics and crash rows are the opposite and genuinely
+         * unlinked: `services/analytics/upload.ts` sends counters with no id,
+         * no header that could become one, and no account, and `crash.ts`
+         * deletes Sentry's `user` before send. That is what `Linked: false`
+         * is supposed to mean, and it is only true here because the
+         * vocabulary test keeps it true.
+         */
+        {
+          // The counts on the Usage screen, and only if the switch is on.
+          NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypeProductInteraction',
+          NSPrivacyCollectedDataTypeLinked: false,
+          NSPrivacyCollectedDataTypeTracking: false,
+          NSPrivacyCollectedDataTypePurposes: ['NSPrivacyCollectedDataTypePurposeAnalytics'],
+        },
+        {
+          // Latency buckets and error codes — the same switch.
+          NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypePerformanceData',
+          NSPrivacyCollectedDataTypeLinked: false,
+          NSPrivacyCollectedDataTypeTracking: false,
+          NSPrivacyCollectedDataTypePurposes: ['NSPrivacyCollectedDataTypePurposeAnalytics'],
+        },
+        {
+          // Sentry, same switch, off by default.
+          NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypeCrashData',
+          NSPrivacyCollectedDataTypeLinked: false,
+          NSPrivacyCollectedDataTypeTracking: false,
+          NSPrivacyCollectedDataTypePurposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality'],
+        },
+        {
+          // What the assistant is told: the sentence, plus the index of labels
+          // `buildLlmContext` assembles. Not new, and never declared before.
+          NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypeOtherUserContent',
+          NSPrivacyCollectedDataTypeLinked: true,
+          NSPrivacyCollectedDataTypeTracking: false,
+          NSPrivacyCollectedDataTypePurposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality'],
+        },
+        {
+          // People in the CRM reach the model inside that same index, and
+          // reach OneSignal inside the briefing line.
+          NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypeName',
+          NSPrivacyCollectedDataTypeLinked: true,
+          NSPrivacyCollectedDataTypeTracking: false,
+          NSPrivacyCollectedDataTypePurposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality'],
+        },
+        {
+          // The recording itself, on two paths: Whisper, and the platform
+          // dictation service when the phone has no offline voice.
+          NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypeAudioData',
+          NSPrivacyCollectedDataTypeLinked: false,
+          NSPrivacyCollectedDataTypeTracking: false,
+          NSPrivacyCollectedDataTypePurposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality'],
+        },
+        {
+          // Reverse geocoding a saved place sends coordinates to the platform
+          // geocoder. Geofences are evaluated on the device.
+          NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypePreciseLocation',
+          NSPrivacyCollectedDataTypeLinked: false,
+          NSPrivacyCollectedDataTypeTracking: false,
+          NSPrivacyCollectedDataTypePurposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality'],
+        },
+        {
+          // RevenueCat, and through it Apple.
+          NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypePurchaseHistory',
+          NSPrivacyCollectedDataTypeLinked: true,
+          NSPrivacyCollectedDataTypeTracking: false,
+          NSPrivacyCollectedDataTypePurposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality'],
+        },
+        {
+          // The RevenueCat anonymous app user id and the OneSignal
+          // subscription id. Also not new, and also never declared.
+          NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypeDeviceID',
+          NSPrivacyCollectedDataTypeLinked: true,
+          NSPrivacyCollectedDataTypeTracking: false,
+          NSPrivacyCollectedDataTypePurposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality'],
+        },
+      ],
+    },
     // Every upload needs a build number higher than the last one App Store
     // Connect accepted, even when `version` has not moved. `npm run release
     // bump` advances this and `android.versionCode` together, so the two
@@ -148,6 +257,36 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     bundler: 'metro',
   },
   plugins: [
+    /*
+     * Crash reporting, and **only when there is a Sentry account behind it**.
+     *
+     * The plugin wires the native SDK in and adds a build phase that uploads
+     * source maps through `sentry-cli`. That phase is not optional and not
+     * skippable: with no organisation configured it fails the whole iOS build
+     * with `An organization ID or slug is required`, several thousand lines
+     * into a log, long after the JavaScript has bundled cleanly. Adding the
+     * plugin unconditionally therefore breaks every build made by anybody who
+     * has not signed up for Sentry — including the release script.
+     *
+     * So it is capability-detected like everything else here: no DSN, no
+     * plugin, no upload phase, and `services/analytics/crash.ts` finds no
+     * native module and reports nothing. That is exactly the state this repo
+     * was in before, which is the right default. Set `EXPO_PUBLIC_SENTRY_DSN`
+     * (and `SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN` for readable
+     * stack traces) and the whole path switches on at the next prebuild.
+     */
+    ...(process.env.EXPO_PUBLIC_SENTRY_DSN
+      ? ([
+          [
+            '@sentry/react-native',
+            {
+              organization: process.env.SENTRY_ORG,
+              project: process.env.SENTRY_PROJECT,
+              authToken: process.env.SENTRY_AUTH_TOKEN,
+            },
+          ],
+        ] as NonNullable<ExpoConfig['plugins']>)
+      : []),
     'expo-router',
     'expo-status-bar',
     [
@@ -361,6 +500,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
      * codebase serves both "my free-tier key" and "paying customers".
      */
     assistantApiUrl: process.env.EXPO_PUBLIC_RIDIK_API_URL ?? '',
+    /**
+     * Sentry, for crashes only, and read by `services/analytics/crash.ts`.
+     *
+     * Empty is the normal state and means the build reports nothing — the same
+     * capability-detected posture as `assistantApiUrl` above. Even with a DSN
+     * set, nothing is sent until the person turns "Help improve Ridik" on;
+     * this only decides whether the switch has anywhere to point.
+     */
+    sentryDsn: process.env.EXPO_PUBLIC_SENTRY_DSN ?? '',
     /**
      * Both are required before an App Store submission that sells a
      * subscription, and the Settings screen links to them. Left empty here on

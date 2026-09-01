@@ -14,11 +14,30 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 
+import * as consentModule from '@/llm/consent';
 import { defaultSettings, type SettingsValues } from '@/repositories/settings';
 import { FREE, registerBillingProvider, type BillingProvider } from '@/services/billing/entitlement';
 
 import { ThemeProvider } from '../ThemeProvider';
 import { ToastProvider } from '../components/Toast';
+
+/**
+ * Every company or server a single "Allow" covers. Held here rather than
+ * imported wholesale so that adding a recipient is a two-file change with a
+ * visible diff in both — see the test below, which proves this list is
+ * complete against `consent.ts`.
+ */
+const ALL_PROVIDERS = [
+  consentModule.ASSISTANT_PROVIDER,
+  consentModule.WHISPER_PROVIDER,
+  consentModule.PUSH_PROVIDER,
+  consentModule.ANALYTICS_PROVIDER,
+  consentModule.CRASH_PROVIDER,
+  consentModule.STORE_PROVIDER,
+] as const;
+
+/** `Ridik's own server` has an apostrophe; nothing here should be a pattern. */
+const escapeForRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -131,8 +150,40 @@ describe('what the screen says', () => {
     await wrap(<ConsentScreen />);
     await screen.findByText('Goes to Google');
 
-    expect(screen.getByText(/OpenAI/)).toBeTruthy();
-    expect(screen.getByText(/OneSignal/)).toBeTruthy();
+    /*
+     * Enumerated from the module, not listed by hand.
+     *
+     * This assertion used to name OpenAI and OneSignal as literals, which made
+     * it an allow-list: a *fifth* recipient could be added to `consent.ts`,
+     * wired to a real network call, and this test would still pass — the exact
+     * failure it exists to prevent, one provider later. Reading the constants
+     * means the day somebody exports a sixth `*_PROVIDER` without putting a
+     * sentence on this screen, this line goes red with that provider's name in
+     * the diff.
+     */
+    for (const provider of ALL_PROVIDERS) {
+      // `getAllBy`, not `getBy`: the assistant's name legitimately appears in
+      // the panel heading, the panel body and the route line, and a provider
+      // being on the screen *more than once* is not the failure this guards.
+      expect(screen.getAllByText(new RegExp(escapeForRegExp(provider))).length).toBeGreaterThan(0);
+    }
+  });
+
+  /**
+   * And the enumeration has to be complete, or reading it proves nothing.
+   *
+   * `ALL_PROVIDERS` is written by hand in this file; `consent.ts` is where a
+   * new recipient actually appears. This reads the module's own exports and
+   * fails if one of them never made it into the list above — so the guard
+   * cannot be defeated by forgetting to extend the guard.
+   */
+  it('has a provider list that covers every recipient consent.ts exports', () => {
+    const exported = Object.entries(consentModule)
+      .filter(([key, value]) => key.endsWith('_PROVIDER') && typeof value === 'string')
+      .map(([, value]) => value as string);
+
+    expect(exported.length).toBeGreaterThan(0);
+    expect([...exported].sort()).toEqual([...ALL_PROVIDERS].sort());
   });
 
   /**

@@ -27,6 +27,8 @@ import { createLlmInteractionsRepository } from '@/repositories/llmInteractions'
 import { createNotesRepository } from '@/repositories/notes';
 import { createPlacesRepository } from '@/repositories/places';
 import { createProjectsRepository } from '@/repositories/projects';
+import { createAppEventsRepository } from '@/repositories/appEvents';
+import { LATENCY_BUCKETS } from '@/services/analytics/events';
 import { createSettingsRepository } from '@/repositories/settings';
 import { createSyncQueueRepository } from '@/repositories/syncQueue';
 import { createTasksRepository } from '@/repositories/tasks';
@@ -45,6 +47,7 @@ const NOW = at(`${MONDAY}T08:00`);
 function buildRepositories(db: RidikDatabase): Repositories {
   return {
     activity: createActivityRepository(db),
+    appEvents: createAppEventsRepository(db),
     calendar: createCalendarEventsRepository(db),
     checklists: createChecklistsRepository(db),
     crm: createCrmRepository(db),
@@ -191,6 +194,17 @@ describe('orchestrator', () => {
 
   const auditRows = () => t.db.select().from(llmInteractions);
 
+  /**
+   * The ledger's side of the same convergence point.
+   *
+   * `audit()` is where every path through a turn meets, and counting there is
+   * what makes the Usage screen complete without any call site remembering to
+   * report. This asserts that — one turn produces one `turn` row and one `tool`
+   * row per action — and, just as importantly, that nothing the user said got
+   * into either of them.
+   */
+  const countedEvents = async () => (await repos.appEvents.recent()).map((row) => row);
+
   it('turns one three-intent utterance into three applied actions and one audit row', async () => {
     await repos.calendar.createEvent({
       title: 'Math homework',
@@ -240,6 +254,42 @@ describe('orchestrator', () => {
       expect.objectContaining({ tool_name: 'calendar_delete', ok: true }),
       expect.objectContaining({ tool_name: 'note_create', ok: true }),
     ]);
+  });
+
+  it('counts the turn and its tools, and puts nothing that was said into them', async () => {
+    // The same fixture the sibling test above needs: one of the three intents
+    // resolves against an existing event, and without it the turn errors.
+    await repos.calendar.createEvent({
+      title: 'Math homework',
+      startsAt: at(`${TUESDAY}T18:00`),
+      endsAt: at(`${TUESDAY}T19:00`),
+    });
+
+    const { orchestrator } = harness({ responses: [THREE_INTENT_REPLY] });
+    await orchestrator.interpretAndExecute({ transcript: THREE_INTENTS, confidence: 0.93 });
+
+    const events = await countedEvents();
+    const turns = events.filter((e) => e.name === 'turn');
+    const tools = events.filter((e) => e.name === 'tool');
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.props).toMatchObject({ mode: 'model', status: 'ok', actions: 3 });
+    // A bucket, never a number of milliseconds.
+    expect(LATENCY_BUCKETS).toContain(turns[0]?.props.latency);
+    expect(tools).toHaveLength(3);
+
+    /*
+     * The property the whole vocabulary exists for. The utterance that produced
+     * these rows mentions a person, a subject and a quantity; if any of it can
+     * be reconstructed from the ledger then the closed union has a hole in it,
+     * and this is the test that would find it.
+     */
+    const serialised = JSON.stringify(events);
+    for (const fragment of THREE_INTENTS.split(/\s+/).filter((w) => w.length > 4)) {
+      expect(serialised.toLowerCase()).not.toContain(fragment.toLowerCase());
+    }
+    // And the local date is the finest time any of it records.
+    for (const event of events) expect(event.localDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it('parks a clash as one clarification and applies it on "yes" without asking the model again', async () => {

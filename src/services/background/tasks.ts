@@ -49,6 +49,30 @@ export async function runBackgroundSync(): Promise<BackgroundSyncOutcome> {
   if (briefing.ok) outcome.briefingAt = briefing.value.at;
   else log.warn('briefing reschedule failed', briefing.error.message);
 
+  /*
+   * The third step, and the least important of the three: drain whatever the
+   * usage ledger has waiting, if the person switched the upload on at all.
+   *
+   * Here rather than only on AppState because a phone that is never opened for
+   * long enough to background cleanly — killed from the app switcher, or the
+   * OS reclaiming it in a pocket — would otherwise accumulate a queue that only
+   * grows. `flush()` is a no-op without an opt-in and without a backend, so on
+   * most installs this line costs one settings read.
+   *
+   * Resolved through `require` for the same reason the calendar is above: this
+   * file must stay evaluable even if the module below throws while loading, or
+   * the whole background task stops being definable.
+   */
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const analytics = require('@/services/analytics/upload') as {
+      flush: (options?: { reason?: 'background' | 'foreground' | 'task' }) => Promise<void>;
+    };
+    await analytics.flush({ reason: 'task' });
+  } catch (error) {
+    log.warn('usage flush failed', error);
+  }
+
   return outcome;
 }
 

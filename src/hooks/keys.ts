@@ -203,6 +203,22 @@ export const qk = {
       [ROOT, 'usage', 'snapshot', daily, monthly] as const,
   },
 
+  /**
+   * The local usage ledger — the app's count of how it is used, which
+   * `app/usage.tsx` discloses in full.
+   *
+   * Not the same thing as `usage` above and deliberately not nested under it:
+   * that one is the *operator's* spend meter, in requests and money, and this
+   * one is the *user's* own copy of what would be sent if they ever switched
+   * sending on. One `overview` key rather than a dozen, because the screen asks
+   * every question at once and a dozen keys would be a dozen chances for one of
+   * them to be missed by an invalidation after Clear.
+   */
+  appEvents: {
+    all: [ROOT, 'app-events'] as const,
+    overview: () => [ROOT, 'app-events', 'overview'] as const,
+  },
+
   settings: {
     all: [ROOT, 'settings'] as const,
     values: () => [ROOT, 'settings', 'values'] as const,
