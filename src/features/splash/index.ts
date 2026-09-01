@@ -1,0 +1,1 @@
+export { SplashCurtain } from './SplashCurtain';

@@ -13,6 +13,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { ConsentGate, useConsentGateOpen } from '@/features/consent';
+import { SplashCurtain } from '@/features/splash';
 import { VoiceDock } from '@/features/voice/VoiceDock';
 import { useEmberChoice } from '@/hooks/useEmber';
 import { useWidgetPublisher } from '@/hooks/useWidgetPublisher';
@@ -75,6 +76,10 @@ const SHEET: React.ComponentProps<typeof Stack.Screen>['options'] = Platform.sel
 export default function RootLayout() {
   const scheme = useColorScheme() === 'light' ? 'light' : 'dark';
   const [boot, setBoot] = useState<BootstrapResult | null>(null);
+  // Drawn once per launch, and only after the native splash has let go —
+  // see `SplashCurtain`. Held in state rather than derived so that
+  // finishing is a fact rather than a second guess at the same timings.
+  const [curtain, setCurtain] = useState(true);
   const fontsReady = useAppFonts();
 
   useEffect(() => {
@@ -183,6 +188,13 @@ export default function RootLayout() {
                   <View style={[styles.overlay, { backgroundColor: theme.colors.bg }]}>
                     <StartupFailure result={boot} />
                   </View>
+                ) : null}
+                {/* Last, so it is on top of everything including the consent
+                    lid — it is the handover from the native splash, and the
+                    native splash was on top of everything too. It draws over a
+                    live app and claims no touches; see `SplashCurtain`. */}
+                {boot && fontsReady && curtain ? (
+                  <SplashCurtain onDone={() => setCurtain(false)} />
                 ) : null}
               </ErrorBoundary>
             </ToastProvider>

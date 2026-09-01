@@ -415,6 +415,70 @@ const WELL_PAD = 3;
 const RAIL_WELL_PAD = 2;
 
 /**
+ * The plate numeral shrinks to its cell instead of overflowing it.
+ *
+ * Every row in the plate is `0dp` on a `layout_weight`, which is right — it is
+ * what lets six weeks divide whatever height the tile has, rather than a fixed
+ * cell overflowing a weighted parent, which is the bug this file already
+ * carries a long comment about. But a weight has no floor, and a 14sp numeral
+ * in a row shorter than 14sp does not shrink and does not clip: it is drawn
+ * centred, past the cell, into the week above and below. On a compact 360dp
+ * grid, where a 4 x 3 tile is a good 90dp shorter than the same tile on a
+ * Pixel, that made the month **five rows of digits sitting on top of each
+ * other** — not blank, not cut, overlapped, which is the one failure that reads
+ * as a broken app rather than a small one.
+ *
+ * `minHeight` is the obvious answer and does nothing at all here:
+ * `LinearLayout` measures a weighted child with an `EXACTLY` spec, and
+ * `minHeight` only ever applies to `AT_MOST` or `UNSPECIFIED`. It was tried,
+ * generated into all six rows, and changed not one pixel.
+ *
+ * Autosizing is the answer that works, and it is the one the request was
+ * actually for: the numeral is *scaled* to the cell it was given rather than
+ * drawn at a size that assumed a bigger one. 14 is the size a roomy tile still
+ * gets; 8 is the floor, below which a date is not worth drawing and the plate
+ * is better read as pure colour — which is exactly what the medium plate is,
+ * and it is why this only applies where there are numerals at all.
+ */
+const PLATE_NUMERAL_MIN_SP = 7;
+const PLATE_NUMERAL_MAX_SP = 14;
+
+/**
+ * The height the plate starts from, so a short tile cannot starve it to nothing.
+ *
+ * The plate is `0dp` on a weight and `slack` is the only other weighted child on
+ * the face. Everything else — the header, the all-day line, the element, its
+ * ruler, the copy and both agenda rows — is a fixed height and keeps it. So on
+ * any tile shorter than the one the face was drawn for, **the entire shortfall
+ * lands on the plate**, from a base of zero, while nothing else gives up a dp.
+ *
+ * That is not a preview bug, it is the face. It is what made the placed Agenda
+ * tile on a Galaxy S23 draw its month as one empty band under the weekday
+ * letters, and it is what left One UI's picker card with about 40dp of plate
+ * for six weeks — 5dp a row, under a numeral that will not go below 7sp however
+ * hard `autoSizeTextType` is asked. Autosizing scales the digit into the cell;
+ * it cannot conjure a cell to scale it into.
+ *
+ * A base height makes the shortfall *shared* instead of dumped. `LinearLayout`
+ * hands out bases first and only then distributes the delta by weight, so the
+ * plate now falls from 130 rather than climbing from 0, and `slack` — base 0,
+ * and the thing that genuinely has nothing to lose — clamps at zero on the way
+ * down. On the same One UI card that gave the plate 40dp it now keeps about 85.
+ *
+ * **The base is a floor, not a demand, and it has a ceiling of its own.** It has
+ * to leave room for every *fixed* thing under it — the all-day line, the
+ * element, its ruler and the agenda rows — inside the smallest box a launcher
+ * will inflate the face at. 130 did not: One UI's 4 x 3 picker card is about
+ * 275dp, the fixed content below the plate takes most of it, and the plate
+ * stopped giving way about 13dp too late. The plate came back perfect and the
+ * *last agenda row was sliced through the middle* instead, which is the same
+ * failure wearing a different hat. 100 clears it with room, and the numerals
+ * autosize into whatever the row ends up being, so the plate stays legible at
+ * the bottom of the range rather than needing the height reserved for it.
+ */
+const PLATE_BASE_DP = { small: 70, medium: 70, large: 100 };
+
+/**
  * Cells per graphic, per size. Every one of these has a twin in Kotlin
  * (`RidikCells.kt` → `Geometry`) because the Kotlin has to know how many slots
  * the layout it just inflated actually has, and asking the resource system is
@@ -484,7 +548,29 @@ const PLATE_CELLS = 42;
  *
  * 25 and 3 on large are §3.2's own numbers, and the ones iOS draws.
  */
-const PLATE_CELL = { small: 16, medium: 16, large: 25 };
+/**
+ * **A plate cell has no height of its own, and that is the fix rather than the
+ * omission it looks like.**
+ *
+ * It used to be `{ small: 16, medium: 16, large: 25 }`, and the chain above it
+ * is three levels of flexible: the plate area is `weight=3`, the well inside it
+ * is `weight=1`, and each of the six week rows is `weight=1` of the well. A
+ * fixed-height leaf at the bottom of that is a cell that cannot shrink when the
+ * rows do — so the moment the plate is given less height than
+ * 6 × 25dp + gaps, every cell overflows its row and draws **on top of the row
+ * below**. The month came out as three bands of overlapping half-numerals.
+ *
+ * It never showed on the Pixel Launcher, whose picker gives a 4×3 preview a
+ * generous box, and it was never seen anywhere else because the picker had only
+ * ever been opened on a Pixel. Samsung's One UI launcher lays the same preview
+ * out shorter and the grid collapsed instantly. Reported from a real S23.
+ *
+ * The rule this encodes, which is worth applying to any face added later:
+ * **nothing inside a weighted container may have a fixed height.** The cell
+ * fills the row it is given, the row divides the well, and the whole plate
+ * scales to whatever box a launcher hands it. `PLATE_GAP` survives because a
+ * margin is slack, not a demand.
+ */
 const PLATE_GAP = { small: 3, medium: 3, large: 4 };
 
 /**
@@ -658,6 +744,10 @@ const WIDGETS = [
     title: 'Ridik — Habits',
     blurb: 'Six rails, three weeks, and whether today is lit.',
     layout: 'ridik_habits',
+    // The one face classified by `railsSizeOf`, which promotes on *width* where
+    // `sizeOf` promotes on height — so its ceiling is a width. See
+    // `resizeCeiling`.
+    rails: true,
     // No large. Six rows cannot grow to meet 300dp of height, so the extra buys
     // ground rather than cells — §2 rule 1 exactly. Removed by request after
     // the placed tile was looked at.
@@ -749,7 +839,13 @@ const WIDGETS = [
     // No small, and deliberately: three columns in 131dp is 40dp each and
     // truncates every title. A one-slot small face is Today's readout already.
     sizes: ['medium', 'large'],
-    previewSize: 'medium',
+    // `large`, not `medium`, and the picker is why. A preview is inflated at
+    // the tile's *declared* size, and a 4 x 2 tile clears `LARGE_MIN_DP` on
+    // every phone this ships to — so a medium composition was being drawn into
+    // a large box and the weighted spacer took the whole difference as one dead
+    // band across the middle of the card. A preview built at a size the tile is
+    // never rendered at advertises a face nobody is shown.
+    previewSize: 'large',
     // The times are drawn from the payload, not counted down, so no clock
     // variant — the face is re-published like every other one.
     clocked: [],
@@ -1039,19 +1135,37 @@ const SAMPLE = {
   },
   list: {
     eyebrow: 'HARDWARE',
-    // Four open of twelve, with six delivered: the header does the one thing
+    // Seven open of twelve, with nine published: the header does the one thing
     // `total` exists for, which is to be about the list and not about the rows.
-    count: '4 OF 12',
+    count: '7 OF 12',
+    // Nine, and the number is a compromise between two failures that pull in
+    // opposite directions.
+    //
+    // Six left five of the eleven `Slots.listRows(LARGE)` slots empty, so the
+    // card advertised a list widget with half a list on it — the one face whose
+    // promise is *how much it holds* was the one showing the least. Eleven
+    // filled a Pixel and then **sliced the last row in half on a 360dp phone**,
+    // because a preview is one static layout inflated into whatever box that
+    // device's grid gives a 3 x 3 tile, and a compact grid's is shorter.
+    //
+    // The live face has no such problem — `drawRows` reads the launcher's own
+    // options per widget id and cuts the list to fit. Only the preview is
+    // frozen, so the preview has to be built for the *smallest* box it will be
+    // inflated at, not the largest. Air on a big phone is a worse-looking
+    // widget; a row cut through the middle is a broken one, and the second is
+    // what a stranger in the picker decides on.
     rows: [
       { text: 'M4 bolts ×20', done: false },
       { text: 'Threadlock', done: false },
       { text: 'Sanding discs', done: false },
       { text: 'Cable ties', done: false },
+      { text: 'Heat-shrink, assorted', done: false },
+      { text: 'Solder, 0.7mm', done: false },
+      { text: 'Hinges for the door', done: false },
       { text: 'Masking tape', done: true },
       { text: 'Wet-and-dry paper', done: true },
     ],
-    // Five of the six fit a medium tile, which is what iOS shows in the picker.
-    drawnRows: 5,
+    drawnRows: 9,
   },
   // A plausible August: a quiet start, a busy middle week, today on the 13th.
   month: {
@@ -1064,6 +1178,104 @@ const SAMPLE = {
 };
 
 // ------------------------------------------------------------- xml fragments
+
+/**
+ * The smallest box a face may be resized into — **per face, from what it can
+ * actually draw**, rather than the two constants this used to be.
+ *
+ * Every provider declared `minResizeWidth="140dp"` and `minResizeHeight="110dp"`.
+ * Those numbers were not wrong so much as unrelated to anything: the Kotlin
+ * reports `SMALL` below `MEDIUM_MIN_DP` (250dp) and the five faces with no
+ * small layout are *floored* back to medium, so a launcher was free to hand a
+ * 4-wide Sundial a 140dp box and the medium layout was drawn into it. On a
+ * Galaxy S23 that is what the user got by dragging one corner: an arc squeezed
+ * into a third of its width with its caption truncated to "Nothing else".
+ *
+ * Two rules, and both are about the axis where the face has nowhere to go:
+ *
+ * - **Width.** A face with a `small` layout may shrink to it. A face without
+ *   one may not go below `MEDIUM_MIN_DP`, because below that the Kotlin has no
+ *   narrower file to reach for and draws the wide one anyway.
+ * - **Height.** No face has a *short* variant — `sizeOf` only ever promotes on
+ *   height, never demotes — so height may not go below the rows the face was
+ *   designed at. A three-row face squeezed into two does not switch to
+ *   something simpler, it just collapses; that is the calendar whose month grid
+ *   rendered as one empty band.
+ *
+ * `MEDIUM_MIN_DP` must equal the constant of the same name in `RidikCells.kt`.
+ * `widget-resize.test.ts` reads both and fails when they drift.
+ *
+ * It also raises `minWidth` to meet this floor where the two disagreed. A
+ * medium-only face asked to be *placed* at `4 × 60 = 240dp` while refusing to
+ * be *resized* below 250 is incoherent — the tile arrives already smaller than
+ * it is allowed to be — and the conflicting pair is the kind of thing a
+ * launcher resolves however it likes. The test caught that the moment the
+ * floors stopped being constants.
+ */
+const MEDIUM_MIN_DP = 250;
+
+/** Two grid columns. What a small layout is drawn at, and it has one. */
+const SMALL_MIN_W_DP = 140;
+
+function resizeFloor(widget) {
+  const hasSmall = widget.sizes.includes('small');
+  return {
+    width: hasSmall ? SMALL_MIN_W_DP : MEDIUM_MIN_DP,
+    // The rows it declares, never fewer. `cells.height * 55` is the same
+    // arithmetic `minHeight` above uses, so a tile cannot be resized below the
+    // size the launcher was told to place it at.
+    height: widget.cells.height * 55,
+  };
+}
+
+/**
+ * The other end of the same argument, and the half that was missing.
+ *
+ * `minResize*` stopped a face being squeezed below the layout it has. Nothing
+ * stopped the opposite: every provider declared `maxResize* = 800dp`, which on
+ * any phone is "no ceiling at all". The user dragged a Sundial to 249 x 359 and
+ * got what that permits — `plotHeightDp` pins the arc at 128dp *whatever* the
+ * tile measures, deliberately, because these plots size every ornament from
+ * their own box and a taller box draws a different picture rather than a bigger
+ * one. So the extra 200dp bought bare ground under a caption, which is §2 rule
+ * 1 broken by the launcher rather than by the layout.
+ *
+ * The ceiling is therefore stated the way the floor is: **a face may be resized
+ * up to the grid it declares, and no further.** `cells` is that declaration.
+ *
+ * - **110dp a cell, against the floor's 55.** Both are deliberately wrong in
+ *   the safe direction. A grid row is 55dp on the most compact launchers and
+ *   about 107 on a Galaxy S23, so 55 can never floor a face above its own
+ *   placement and 110 can never cap one below it. Anything a real launcher
+ *   would hand a correctly-placed tile sits between them.
+ * - **Two cells of headroom for a face that declares `large`.** Agenda, List
+ *   and Now/Next have a layout that genuinely gains from height — List draws
+ *   eleven rows against six — so the ceiling has to clear the size they are
+ *   for. The other twelve gain nothing: their composition is fixed and the
+ *   extra is ground.
+ * - **Habits promotes on width, not height.** `railsSizeOf` is the one
+ *   classifier that does, at `RAILS_LARGE_DP`, and Habits declares no large
+ *   layout — six rails cannot grow to meet it, which is why the size was
+ *   removed in the first place. So its width is held below that threshold
+ *   rather than at four cells.
+ *
+ * `RAILS_LARGE_DP` must equal the constant of the same name in `RidikCells.kt`;
+ * `widget-resize.test.ts` reads both and fails when they drift, and asserts
+ * every ceiling clears its own floor and its own `minWidth`/`minHeight`.
+ */
+const CEIL_DP_PER_CELL = 110;
+
+/** `RAILS_LARGE_DP` in `RidikCells.kt` — where `railsSizeOf` promotes on width. */
+const RAILS_LARGE_DP = 360;
+
+function resizeCeiling(widget) {
+  const headroom = widget.sizes.includes('large') ? 2 : 0;
+  const width = (widget.cells.width + headroom) * CEIL_DP_PER_CELL;
+  return {
+    width: widget.rails && !headroom ? Math.min(width, RAILS_LARGE_DP - 1) : width,
+    height: (widget.cells.height + headroom) * CEIL_DP_PER_CELL,
+  };
+}
 
 /** `'` ends a string resource unless it is escaped, and `&` is XML on top of that. */
 function xml(value) {
@@ -1421,7 +1633,6 @@ ${indent(depth)}</LinearLayout>`;
  * the picker shows.
  */
 function plate(depth, { ember, size, numerals, sample, todayIsHot = true }) {
-  const cellHeight = PLATE_CELL[size];
   const gap = PLATE_GAP[size];
 
   const heads = WEEKDAYS.map((day, index) => {
@@ -1463,7 +1674,7 @@ ${pad}android:textSize="10sp" />`;
       days.push(`${indent(depth + 4)}<TextView
 ${pad}android:id="@+id/${IDS.plate(index)}"
 ${pad}android:layout_width="0dp"
-${pad}android:layout_height="${cellHeight}dp"
+${pad}android:layout_height="match_parent"
 ${pad}android:layout_weight="1"${column === 6 ? '' : `\n${pad}android:layout_marginEnd="${gap}dp"`}
 ${pad}android:background="@drawable/${plateDrawable(ember, level, today)}"
 ${pad}android:fontFamily="monospace"
@@ -1472,8 +1683,15 @@ ${pad}android:includeFontPadding="false"
 ${pad}android:maxLines="1"${text(depth + 6, day)}
 ${pad}android:textColor="@color/${
         today && todayIsHot ? 'ridik_widget_on_heat' : 'ridik_widget_ink'
-      }"
-${pad}android:textSize="${numerals ? '14sp' : '1sp'}"${attr(
+      }"${
+        numerals
+          ? `\n${pad}android:autoSizeTextType="uniform"` +
+            `\n${pad}android:autoSizeMinTextSize="${PLATE_NUMERAL_MIN_SP}sp"` +
+            `\n${pad}android:autoSizeMaxTextSize="${PLATE_NUMERAL_MAX_SP}sp"` +
+            `\n${pad}android:autoSizeStepGranularity="1sp"`
+          : ''
+      }
+${pad}android:textSize="${numerals ? `${PLATE_NUMERAL_MAX_SP}sp` : '1sp'}"${attr(
         depth + 6,
         'visibility',
         hidden ? 'invisible' : null,
@@ -1497,7 +1715,7 @@ ${indent(depth + 4)}</LinearLayout>`);
   return `${indent(depth)}<LinearLayout
 ${indent(depth + 4)}android:id="@+id/${IDS.plateArea}"
 ${indent(depth + 4)}android:layout_width="match_parent"
-${indent(depth + 4)}android:layout_height="0dp"
+${indent(depth + 4)}android:layout_height="${PLATE_BASE_DP[size]}dp"
 ${indent(depth + 4)}android:layout_marginTop="8dp"
 ${indent(depth + 4)}android:layout_weight="${size === 'large' ? PLATE_WEIGHT : 1}"
 ${indent(depth + 4)}android:orientation="vertical">
@@ -2610,27 +2828,40 @@ const PLOT_HEIGHT = {
  */
 function plot(depth, { ember, kind, size, preview, note }) {
   const pad = indent(depth + 4);
-  const height = PLOT_HEIGHT[kind][size];
-  // The slack is *between* the graphic and its caption. The graphic is drawn at
-  // a fixed aspect and must not grow into the tile — everything on it is sized
-  // from its own box — so the height a two-row Android tile has spare goes under
-  // it, and the caption sits on the floor where the eye lands last.
+  // **The graphic is a weight, and the `scaleType` decides what it does with
+  // the room — not a number in dp.**
   //
-  // **Except when the graphic is a line.** Route's stroke is 27% of its own box
-  // (`RidikPlots.route`), so unlike its three neighbours its box cannot be grown
-  // to fill the tile — grow it and the line becomes a band. That leaves ~74dp
-  // spare on a two-row tile, and putting all of it in one hole between the line
-  // and its caption is what the 44dp change was made to stop. So this face is
-  // *centred* in its slack instead, which is what `PlotScaffold` does on iOS and
-  // why Route looks composed there and did not here.
-  const centred = CENTRED_PLOTS.has(kind);
+  // It used to be `PLOT_HEIGHT[kind][size]`, a fixed height with the spare
+  // parked under it in a `slack`, reasoned entirely about the graphic *growing*
+  // into a tile taller than it. Nobody asked what happens when the box is
+  // shorter, and on Samsung's One UI it is: a 4 x 2 picker card gives about
+  // 174dp of content and this face wanted 192 — header, a rigid 128dp plot, the
+  // caption and the padding. `LinearLayout` pays the fixed child first, so what
+  // fell off the bottom was **the caption**, on Sundial and on Skyline both. The
+  // tile did not look short, it looked like a face missing its answer.
+  //
+  // A weight cannot overflow and cannot leave a hole: the header and the caption
+  // take what they need and the graphic takes exactly what is left, on any grid
+  // any launcher hands it. The old worry — "grow the box and Route's line
+  // becomes a band", because its stroke is 27% of its own box — is real and is
+  // now answered by the *scale type* rather than by freezing the height, which
+  // is the property that was actually being asked for. Fields fill (`fitXY`);
+  // shapes keep their aspect and centre in whatever they are given
+  // (`fitCenter`), which is the composed look `PlotScaffold` gets on iOS and the
+  // reason Route needed hand-centring here before.
+  //
+  // `PLOT_HEIGHT` is still the truth about the graphic — it is the height the
+  // Kotlin rasterises the bitmap at and the viewport the preview vector is
+  // drawn in, so it still has to agree across the three files. It is simply no
+  // longer a claim about how tall the tile will be.
   const image = `${indent(depth)}<ImageView
 ${pad}android:id="@+id/${IDS.plot}"
 ${pad}android:layout_width="match_parent"
-${pad}android:layout_height="${height}dp"
+${pad}android:layout_height="0dp"
+${pad}android:layout_weight="1"
 ${pad}android:layout_marginTop="10dp"
 ${pad}android:importantForAccessibility="no"
-${pad}android:scaleType="fitXY"${preview ? `\n${pad}android:src="@drawable/ridik_preview_${kind}"` : ''}
+${pad}android:scaleType="${ASPECT_PLOTS.has(kind) ? 'fitCenter' : 'fitXY'}"${preview ? `\n${pad}android:src="@drawable/ridik_preview_${kind}"` : ''}
 ${pad}android:tint="@color/${accentColour(ember)}" />`;
 
   const caption = `${indent(depth)}<TextView
@@ -2639,22 +2870,42 @@ ${pad}android:layout_width="match_parent"
 ${pad}android:layout_height="wrap_content"
 ${pad}android:ellipsize="end"
 ${pad}android:includeFontPadding="false"
-${pad}android:layout_marginTop="${centred ? 8 : 0}dp"
+${pad}android:layout_marginTop="8dp"
 ${pad}android:maxLines="1"${text(depth + 4, note)}
 ${pad}android:textColor="@color/ridik_widget_ink_soft"
 ${pad}android:textSize="11sp" />`;
 
-  return centred
-    ? [slack(depth), image, caption, slack(depth)].join('\n\n')
-    : [image, slack(depth), caption].join('\n\n');
+  // No `slack`: the graphic is the weighted child now, so there is nothing left
+  // over to park anywhere.
+  return [image, caption].join('\n\n');
 }
 
 /**
- * Faces whose graphic is sized by its own mechanic rather than by the tile, so
- * the spare height is shared above and below them rather than dumped into one
- * hole. Only Route today; see `plot()`.
+ * Graphics that keep their aspect inside whatever box they are given, instead of
+ * stretching to fill it.
+ *
+ * **A circle is the tell.** `fitXY` scales the two axes independently, so the
+ * moment the box is off the graphic's own aspect every round thing in it becomes
+ * an ellipse — and three of these four faces are built out of round things:
+ * Term is a field of dots, Sundial is a disc riding a line of them, and Route's
+ * puck is a disc on a stroke. Term is where it was impossible to miss, a whole
+ * grid of eggs where the dots should be, but Route's puck had been quietly
+ * drawing as an ellipse for exactly the same reason and nobody had named it.
+ *
+ * Route has a second reason on top: its stroke is 27% of its own box
+ * (`RidikPlots.route`), so a box twice as tall does not draw a longer journey,
+ * it draws a band.
+ *
+ * Skyline is the only true field here — rectangles whose heights are the datum
+ * and whose widths come from the cell, so scaling the axes apart draws the same
+ * reading larger and it fills.
+ *
+ * `fitCenter` still *scales*: the graphic grows to the room it is given and what
+ * is left over sits symmetrically around it, which reads as composition rather
+ * than as the one-sided hole a fixed height used to leave. It is what iOS's
+ * `PlotScaffold` does.
  */
-const CENTRED_PLOTS = new Set(['route']);
+const ASPECT_PLOTS = new Set(['route', 'sundial', 'term']);
 
 function plotFace({ ember, kind, size, preview, eyebrow, count, note }) {
   const body = [
@@ -3052,25 +3303,33 @@ const CHAIN_DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
  * face on this page was making. A day is a *column* here, not a chip.
  */
 /**
- * The bar's own height, and the reason medium is 68 rather than 96.
+ * The bar is a *weight*, not a height, and that is the whole face.
  *
- * A column is a 9sp letter, three of gap, the bar, three more and a 10sp date.
- * At 96 that is a 125dp cell under a 17dp header with ten of padding — 152 of
- * the 130-odd a two-row tile has — so it clipped, and what it clipped was the
- * date row. `RidikChainView` is the other end of these, and it takes less again
- * on a clear week, where the sentence underneath needs the room.
+ * It was 68dp fixed, chosen so a column — a 9sp letter, three of gap, the bar,
+ * three more and a 10sp date — would fit the 130-odd dp a two-row tile has on
+ * iOS. An Android two-row tile is not 130dp: it is 215 on a Galaxy S23 and
+ * about 240 on a Pixel, and the extra went into the `slack` under the chain as
+ * one dead band across the bottom third of the tile. In the picker, where the
+ * card is all a person has to judge the widget by, that is what they judged.
+ *
+ * A fixed height cannot be right on both, because there is no number that is.
+ * A weight is right on all of them: the letter and the date take what they
+ * need, the bar takes the rest, and the face fills whatever box it is handed —
+ * which is also what `RidikChainView` does on iOS, so the two platforms now
+ * draw the same picture instead of one of them drawing it in a corner.
+ *
+ * It degrades the right way at the bottom too. Squeezed, the bar gives up its
+ * own height and the letter and date survive; the fixed version clipped the
+ * date row instead, and the date row is the half that says *which* week.
  */
-const CHAIN_HEIGHT = { small: 44, medium: 68 };
-
 function chainRow(depth, { ember, size, sample }) {
-  const height = CHAIN_HEIGHT[size];
   const columns = CHAIN_DAYS.map((letter, index) => {
     const pad = indent(depth + 6);
     const level = sample ? Number(sample.load[index]) : 0;
     const today = sample ? index === sample.todayIndex : false;
     return `${indent(depth + 2)}<LinearLayout
 ${pad}android:layout_width="0dp"
-${pad}android:layout_height="wrap_content"
+${pad}android:layout_height="match_parent"
 ${pad}android:layout_weight="1"${index === 0 ? '' : `\n${pad}android:layout_marginStart="4dp"`}
 ${pad}android:gravity="center_horizontal"
 ${pad}android:orientation="vertical">
@@ -3088,7 +3347,8 @@ ${indent(depth + 8)}android:textSize="9sp" />
 ${indent(depth + 4)}<ImageView
 ${indent(depth + 8)}android:id="@+id/${IDS.chain(index)}"
 ${indent(depth + 8)}android:layout_width="match_parent"
-${indent(depth + 8)}android:layout_height="${height}dp"
+${indent(depth + 8)}android:layout_height="0dp"
+${indent(depth + 8)}android:layout_weight="1"
 ${indent(depth + 8)}android:layout_marginTop="3dp"
 ${indent(depth + 8)}android:background="@drawable/${heatDrawable(ember, level, today)}"
 ${indent(depth + 8)}android:importantForAccessibility="no" />
@@ -3110,7 +3370,8 @@ ${indent(depth + 2)}</LinearLayout>`;
   return `${indent(depth)}<LinearLayout
 ${indent(depth + 4)}android:id="@+id/${IDS.chainArea}"
 ${indent(depth + 4)}android:layout_width="match_parent"
-${indent(depth + 4)}android:layout_height="wrap_content"
+${indent(depth + 4)}android:layout_height="0dp"
+${indent(depth + 4)}android:layout_weight="1"
 ${indent(depth + 4)}android:layout_marginTop="10dp"
 ${indent(depth + 4)}android:baselineAligned="false"
 ${indent(depth + 4)}android:orientation="horizontal">
@@ -3129,8 +3390,9 @@ function chainFace({ ember, size, preview }) {
   const eyebrow = size === 'small' ? 'WEEK' : sample && sample.eyebrow;
   const body = [
     header(4, sample ? { ember, size, eyebrow, count: sample.count } : { ember, size }),
+    // No `slack` under it any more: the chain is the weighted child now, so the
+    // spare height goes into the bars instead of under them.
     chainRow(4, { ember, size, sample }),
-    slack(4),
     copy(4),
   ].join('\n\n');
   return face({ ember, body, preview });
@@ -3200,7 +3462,7 @@ ${indent(depth + 10)}android:layout_weight="1"
 ${indent(depth + 10)}android:layout_marginStart="6dp"
 ${indent(depth + 10)}android:ellipsize="end"
 ${indent(depth + 10)}android:includeFontPadding="false"
-${indent(depth + 10)}android:maxLines="2"${text(depth + 10, row ? row.name : null)}
+${indent(depth + 10)}android:maxLines="1"${text(depth + 10, row ? row.name : null)}
 ${indent(depth + 10)}android:textColor="@color/ridik_widget_ink_soft"
 ${indent(depth + 10)}android:textSize="10sp" />
 ${indent(depth + 4)}</LinearLayout>`);
@@ -3445,12 +3707,12 @@ function info(widget) {
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/${widget.description}"
     android:initialLayout="@layout/${widget.layout}_medium_${DEFAULT_EMBER}"
-    android:maxResizeHeight="800dp"
-    android:maxResizeWidth="800dp"
+    android:maxResizeHeight="${resizeCeiling(widget).height}dp"
+    android:maxResizeWidth="${resizeCeiling(widget).width}dp"
     android:minHeight="${widget.cells.height * 55}dp"
-    android:minResizeHeight="110dp"
-    android:minResizeWidth="140dp"
-    android:minWidth="${widget.minWidthDp ?? widget.cells.width * 60}dp"
+    android:minResizeHeight="${resizeFloor(widget).height}dp"
+    android:minResizeWidth="${resizeFloor(widget).width}dp"
+    android:minWidth="${widget.minWidthDp ?? Math.max(widget.cells.width * 60, resizeFloor(widget).width)}dp"
     android:previewLayout="@layout/${widget.layout}_preview"
     android:resizeMode="horizontal|vertical"
     android:targetCellHeight="${widget.cells.height}"

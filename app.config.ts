@@ -220,7 +220,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     versionCode: 1,
     predictiveBackGestureEnabled: false,
     adaptiveIcon: {
-      backgroundColor: '#0B0B0F',
+      backgroundColor: '#FFF7F1',
       foregroundImage: './assets/android-icon-foreground.png',
       backgroundImage: './assets/android-icon-background.png',
       monochromeImage: './assets/android-icon-monochrome.png',
@@ -294,8 +294,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         image: './assets/splash-icon.png',
         resizeMode: 'contain',
-        backgroundColor: '#FBFBFD',
-        dark: { backgroundColor: '#0B0B0F' },
+        backgroundColor: '#FFF7F1',
+        // Its own image, not just its own ground. The mark is drawn in the
+        // *cold* cell of whichever ramp is showing, and a static PNG cannot
+        // follow the system — hand a dark launch the light-mode pink and it
+        // pops to brown the instant `SplashCurtain` takes over.
+        dark: { image: './assets/splash-icon-dark.png', backgroundColor: '#17100C' },
         imageWidth: 180,
       },
     ],
@@ -340,7 +344,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'expo-notifications',
       {
         icon: './assets/android-icon-monochrome.png',
-        color: '#7C5CFF',
+        color: '#C7360F',
         defaultChannel: 'default',
       },
     ],
@@ -382,7 +386,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         androidIcons: {
           mic: {
             foregroundImage: './assets/android-icon-foreground.png',
-            backgroundColor: '#7C5CFF',
+            backgroundColor: '#C7360F',
           },
         },
         iosActions: [

@@ -142,6 +142,19 @@ Rules that are easy to break without noticing:
   label sized to its own content gets ellipsised early ("TAP TO S…"). Give
   tracked text an explicit width and centre it with `textAlign`.
 
+**The app mark is the day strip, and `scripts/icons.py` is the only place it
+exists.** Five heat cells with the fourth burning — the same primitive every
+widget face is built from, at the same four levels the payload travels in — so
+the icon and a placed tile are visibly one object. One file owns the geometry
+and cuts all six PNGs plus the SVG masters from it; editing `assets/*.png` by
+hand puts them back out of step, which is the state they were inherited in (a
+blue chevron on pale blue with its construction guides still showing, the one
+thing in the product that disagreed with its own palette). The Android
+foreground is scaled to clear the adaptive icon's *66dp guaranteed* circle
+rather than its 72dp visible one, and the monochrome layer survives being
+flattened by the themed-icon engine because the fourth cell is taller, not only
+hotter.
+
 `HeatField` carries all of it. Two lessons are baked into that file: Reanimated
 cannot animate `Stop` or `RadialGradient` (they live in `<Defs>` and render no
 host view), and *scaling* the glow to "flood" the screen drags its falloff over
@@ -638,6 +651,7 @@ Four numbers have to agree across four files, and nothing fails loudly when they
 | `FOCUS_CELLS` = 16 | `snapshot.ts`, `WidgetSnapshot.FOCUS_CELLS` (Kotlin), `FOCUS_SLOTS` in the Android plugin, `SessionStrip.slots` (Swift) |
 | `ROW_CAP` = 6 | `snapshot.ts`, `RidikRowsFace.ROW_SLOTS`, `ROW_SLOTS` in the Android plugin |
 | `LIST_ROW_CAP` = 11 | `snapshot.ts`, `Slots.listRows` (Kotlin), `LIST_ROW_SLOTS_BY_SIZE` in the Android plugin |
+| `MEDIUM_MIN_DP` = 250, `RAILS_LARGE_DP` = 360 | `RidikCells.kt`, the Android plugin's `resizeFloor` / `resizeCeiling` |
 
 **`ios/` is generated, so editing `targets/` and building compiles the old
 file.** `targets/RidikWidget/` is the source of truth and what is committed;
@@ -667,6 +681,54 @@ one by hand: `simctl` has no tap, touch or input subcommand at all, the simulate
 app exposes no accessibility tree, and driving the widget gallery by desktop
 coordinates was tried and abandoned — the window has a title bar the obvious
 arithmetic misses, and a mis-aimed tap silently launches Calendar instead.
+
+**The picker inflates a preview at the tile's declared size, on a grid that is
+not yours.** Three separate defects came out of forgetting that, and all three
+were invisible on the machine they were written on:
+
+- **`previewSize` must be the largest size the face declares.** Now/Next
+  declared `['medium', 'large']` and previewed at `medium`; a 4 x 2 tile clears
+  `LARGE_MIN_DP` on every phone, so the card carried a medium composition in a
+  large box and the weighted spacer took the difference as one dead band across
+  the middle of it. `widget-resize.test.ts` now asserts the rule for all
+  fifteen.
+- **A preview is one frozen layout, so it has to be built for the *smallest*
+  box it will ever be inflated at.** The live faces do not have this problem —
+  `drawRows` reads the launcher's own options per widget id — but the preview
+  cannot adapt, so filling it to the *large* row cap sliced the last row in half
+  on a 360dp grid. Air on a big phone is a worse-looking widget; a row cut
+  through the middle is a broken one, and the second is what a stranger decides
+  on.
+- **`minHeight` does nothing to a weighted child.** `LinearLayout` measures
+  those with an `EXACTLY` spec and `minHeight` only ever applies to `AT_MOST`
+  or `UNSPECIFIED`. A 14sp plate numeral in a row compressed below 14sp is not
+  shrunk and not clipped — it is drawn centred, past its own cell, into the
+  weeks above and below, so a compact grid rendered August as five rows of
+  digits on top of each other. `autoSizeTextType="uniform"` is what actually
+  scales it; `minHeight` was tried, generated into all six rows, and changed not
+  one pixel.
+
+The compact profile that found all three is one command, and it is worth running
+before believing any widget change:
+
+```bash
+adb shell wm size 720x1600 && adb shell wm density 320   # a 360dp phone
+adb shell wm size reset && adb shell wm density reset
+```
+
+**A launcher will stretch a tile as far as you let it, and `maxResize*` is how
+far.** Every provider shipped `800dp`, which is no ceiling on any phone. The
+plots pin their own height on purpose — `plotHeightDp` draws Sundial's arc at
+128dp whatever the tile measures, because these faces size every ornament from
+their own box and a taller box draws a *different* picture rather than a bigger
+one — so a Sundial dragged to 359dp tall was a 128dp arc with 200dp of bare
+ground under it. `resizeCeiling` in the plugin now derives the ceiling from
+`cells` the way `resizeFloor` derives the floor: 110dp a cell against the
+floor's 55, both wrong in the safe direction, with two cells of headroom only
+where a `large` layout exists to use it. Habits is the exception and is marked
+`rails: true` — `railsSizeOf` promotes on *width*, so its ceiling is a width
+held below `RAILS_LARGE_DP`. Note that Android never resizes a tile already on
+a home screen: a ceiling only binds new placements and the next drag.
 
 **A tile clips in silence, so a face's height has to be added up rather than
 eyeballed.** Four faces shipped overflowing their own box — Rings, Route, Week
@@ -797,8 +859,12 @@ Honest list. Everything else in the brief is built, tested and has been run on b
   so nothing has spoken to Google.
 - ~~The LLM path has only run against the mock provider~~ — no longer true, and the entry stayed
   after it stopped being true, which is the worst state for an honest-gaps list. Real requests were
-  made against the live API on 16–17 August 2026: that is where the pinned model came from (the
-  first real call reported `modelVersion: gemini-3.7-flash`, not the Flash-Lite the pricing assumed)
+  made against the live API on 16–17 August 2026: that is where the *decision to pin* came from —
+  the shipped alias `gemini-flash-latest` resolved, on the first real call, to
+  `modelVersion: gemini-3.7-flash` rather than the Flash-Lite every figure in the plan assumed, so
+  `DEFAULT_GEMINI_MODEL` is now the explicit `gemini-3.1-flash-lite` and `gemini.ts` carries the
+  arithmetic. Read the short version as "3.7 Flash is what we were accidentally buying", never as
+  what is pinned today
   and where the schema-ladder table in `settings.ts` was measured — eight representative utterances
   per rung, which is what proved rung 0 gets HTTP 400 on every request and rung 1 answered 7 of 8
   turns with an empty `parameters: {}`.

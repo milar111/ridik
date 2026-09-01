@@ -467,8 +467,18 @@ face is in a position to tell, and the empty copy exists so it does not have to.
 
 **Both sizes draw the day element underneath**, and §1.1 allows exactly one hot
 object — so the slots step down to mid / low / cold and the element keeps the
-ember, the same trade §3.2 makes between the strip and the plate. Large adds the
-agenda rows and the ruler on top of that.
+ember, the same trade §3.2 makes between the strip and the plate.
+
+**Large adds the rest of today between the slots and the element**, under an
+`AFTER THAT` eyebrow, capped at six rows. It had not: the face was the medium
+layout with the same 40pt element under it and a `Spacer` in between, and on a
+321pt tile that spacer stretched to 182 — more than half the face, empty. It read
+as a tile that had failed to draw rather than as a quiet day, which is the
+impression §2 rule 1 exists to prevent. The rows start past the two *future*
+rows the slots already spoke for, so nothing is ever printed twice; whatever is
+running holds `NOW` without coming out of that queue. When there is nothing
+after them the face says so in one line rather than leaving the space blank —
+air with no explanation under it is indistinguishable from a rendering fault.
 
 Medium used to stop at the three slots and give `hot` to NOW, which left two
 thirds of the tile as ground under three words. The strip is the one thing that
@@ -517,6 +527,18 @@ height, because seven of them in a band across the top with nothing underneath i
 the same cheap drawing every other face on this page was making. The only face that answers a question about *tomorrow*: §3.1 draws
 the day you are standing in and §3.2 draws a month you have to find the row in,
 and neither says "Thursday is the bad one" at a glance.
+
+**The two platforms reach that differently, and have to.** An iOS medium content
+box is 312 x 130, so a measured 68pt bar is exactly right and `RidikChainView`
+states it. An Android two-row tile is 215dp on a Galaxy S23 and about 240 on a
+Pixel — the same face, nearly twice the height — and the same 68 left a dead band
+across the bottom third, which in the picker is the whole of what a stranger
+judges the widget by. There is no number correct on both, so the Android bar is
+a `layout_weight` and takes whatever is left after the letter and the date. It
+degrades better at the other end too: squeezed, the bar gives up its own height
+and the date survives, where the fixed version clipped off the date row — and
+the date row is the half that says *which* week. `widget-geometry.test.ts` pins
+each side to its own approach rather than to a shared number.
 
 **The week is its own payload field and never seven characters of the month
 plate.** A week straddling the 1st is half in a month the plate has no cells for,

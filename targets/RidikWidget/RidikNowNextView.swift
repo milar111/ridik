@@ -104,6 +104,43 @@ struct RidikNowNextView: View {
       }
       .padding(.top, 6)
 
+      // §2 rule 1 again, and the large tile is where it was still being broken.
+      // Three slots and an element come to 139 of the 321 points a large tile
+      // has, so the `Spacer` below was stretching to 182 — more than half the
+      // face, empty. It rendered as an unfinished tile rather than as a quiet
+      // day, which is the impression the whole family is built to avoid.
+      //
+      // What fills it is the only thing that can without changing the subject:
+      // the rest of today, past the two rows the slots already answered with.
+      // The face's question is "what am I supposed to be doing?"; a large tile
+      // simply gets more of the answer.
+      if large {
+        let rest = Self.rest(in: snapshot, at: now, fresh: fresh)
+        VStack(alignment: .leading, spacing: 7) {
+          if rest.isEmpty {
+            // One line rather than nothing. A tile with air under three slots
+            // and no explanation reads as a face that failed to draw; a tile
+            // that says the day is done reads as an answer.
+            Text(slots.contains(where: { $0 != nil })
+              ? "Nothing after that."
+              : "Nothing left today.")
+              .font(.system(size: 12, weight: .medium, design: .rounded))
+              .foregroundStyle(palette.tertiaryText)
+              .lineLimit(1)
+          } else {
+            Eyebrow(text: "AFTER THAT", palette: palette)
+            ForEach(rest) { row in
+              RowLine(
+                row: row,
+                palette: palette,
+                leadWidth: ridikLeadWidth(for: rest, wide: true)
+              )
+            }
+          }
+        }
+        .padding(.top, 14)
+      }
+
       Spacer(minLength: 4)
 
       // §2 rule 1 — extra height buys more cells before it buys air, and three
@@ -167,6 +204,45 @@ struct RidikNowNextView: View {
     let running = snapshot.agenda.first { $0.startsAt <= millis && $0.endsAt > millis }
     let ahead = snapshot.agenda.filter { $0.startsAt > millis }
     return [running, ahead.first, ahead.dropFirst().first]
+  }
+
+  /**
+   Today's remaining rows, past the two the slots already spoke for.
+
+   Large only. `slots` consumes at most two *future* rows — whatever is running
+   does not come out of that queue — so the remainder starts at the third one
+   ahead, whether or not NOW was filled.
+
+   Capped at six: 321 points less a header, three slots, an eyebrow and a 40pt
+   element leaves about 150, and a row and its spacing is 24. Seven would clip
+   the element, and this family clips in silence.
+   */
+  static func rest(
+    in snapshot: WidgetSnapshot,
+    at now: Date,
+    fresh: Bool
+  ) -> [RidikRow] {
+    guard fresh else { return [] }
+    let millis = now.timeIntervalSince1970 * 1000
+    return snapshot.agenda
+      .filter { $0.startsAt > millis }
+      .dropFirst(2)
+      .prefix(6)
+      .map { item in
+        RidikRow(
+          id: item.id,
+          lead: .time(item.startDate, snapshot.timeZone),
+          text: item.title,
+          trail: item.location?.nilIfEmpty ?? (item.kind == "class" ? "class" : nil),
+          spoken: [
+            item.title,
+            "at \(RidikFormat.spokenTime(item.startDate, snapshot.timeZone))",
+            item.location?.nilIfEmpty,
+          ]
+          .compactMap { $0 }
+          .joined(separator: ", ")
+        )
+      }
   }
 }
 

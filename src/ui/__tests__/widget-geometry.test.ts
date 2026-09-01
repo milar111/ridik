@@ -170,14 +170,25 @@ describe('the ring slot count agrees', () => {
   });
 });
 
-describe('the week column height agrees, and leaves room for the date row', () => {
-  /**
-   * 96 was never drawable: a column is a 9-point letter, three of gap, the bar,
-   * three more and a 10-point date — 125 at 96 — under a 17-point header with ten
-   * of padding, which is 152 of the 130 a medium tile has. It clipped the date
-   * row off the bottom and said nothing.
-   */
-  it('is 68 on medium in Swift and in the Android plugin', () => {
+/**
+ * Week is the one face where the two platforms deliberately take *different*
+ * approaches to reach the same result, and this used to assert they took the
+ * same one.
+ *
+ * A medium content box is 312 x 130 on iOS. An Android two-row tile is 215dp on
+ * a Galaxy S23 and about 240 on a Pixel — the same face, nearly twice the
+ * height. A fixed 68 is exactly right in the first box and leaves a dead band
+ * across the bottom third of the second, which is what the picker card was
+ * showing. There is no number that is right on both, so Swift keeps its
+ * measured 68 and the Android bar became a `layout_weight`.
+ *
+ * This is the same trade `SHEET` makes in `app/_layout.tsx`: matching the
+ * *option* is what produced two different screens, and matching the *result*
+ * needed two options. So what is pinned here is no longer a shared number —
+ * it is that neither side has quietly reverted to the other's approach.
+ */
+describe('the week column fills its box on Android and fits its box on iOS', () => {
+  it('keeps the measured 68 on iOS, where the box really is 130', () => {
     const swift = grab(
       SWIFT_CHAIN,
       'Chain day height (medium)',
@@ -185,18 +196,20 @@ describe('the week column height agrees, and leaves room for the date row', () =
       /height: small \? \([^)]*\) : \(clear == 7 \? \d+ : (\d+)\)/,
     );
     expect(Number(swift)).toBe(68);
-    const plugin = grab(PLUGIN, 'CHAIN_HEIGHT.medium', /CHAIN_HEIGHT = \{ small: \d+, medium: (\d+) \}/);
-    expect(Number(plugin)).toBe(68);
   });
 
-  it('agrees on the small bar too', () => {
-    const swift = grab(
-      SWIFT_CHAIN,
-      'Chain small height',
-      /height: small \? \(clear == 7 \? \d+ : (\d+)\)/,
-    );
-    const pluginSmall = grab(PLUGIN, 'CHAIN_HEIGHT.small', /CHAIN_HEIGHT = \{ small: (\d+),/);
-    expect(Number(pluginSmall)).toBe(Number(swift));
+  it('weights the Android bar rather than fixing it', () => {
+    // The bar, its column and the chain that holds them must all be weighted:
+    // a weighted child inside a `wrap_content` parent resolves to nothing, so
+    // any one of the three reverting to a fixed height brings the band back.
+    const chain = /function chainRow\([\s\S]*?\n}/.exec(PLUGIN)?.[0];
+    expect(chain).toBeDefined();
+    expect(chain).not.toMatch(/CHAIN_HEIGHT/);
+    expect(chain!.match(/android:layout_weight="1"/g)?.length).toBeGreaterThanOrEqual(3);
+    // And nothing may be parked under it again — `slack` there is the band.
+    const face = /function chainFace\([\s\S]*?\n}/.exec(PLUGIN)?.[0];
+    expect(face).toBeDefined();
+    expect(face).not.toMatch(/slack\(/);
   });
 
   /**
