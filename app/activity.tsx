@@ -176,7 +176,10 @@ function ActivityBody({ period }: { period: Period }) {
           <Stat value={String(data.entries.length)} label="entries" />
           <Stat value={data.totalMinutes > 0 ? formatDuration(data.totalMinutes) : '—'} label="tracked" />
           <Stat
-            value={topProject?.name ? truncate(topProject.name, 14) : '—'}
+            flex={1.6}
+            // 18 rather than 14: the wider column holds "Robotics build" whole
+            // at 114pt of its 143, and 14 cut it to "Robotics b…" for nothing.
+            value={topProject?.name ? truncate(topProject.name, 18) : '—'}
             label="top project"
             detail={topProject ? formatDuration(topProject.minutes) : undefined}
           />
@@ -249,13 +252,34 @@ function dayEpoch(date: LocalDate, zone: string): number {
   return localToEpoch(`${date}T12:00`, zone);
 }
 
-function Stat({ value, label, detail }: { value: string; label: string; detail?: string }) {
+/**
+ * `flex` because equal thirds is the wrong split for these three.
+ *
+ * "ENTRIES" is 50pt of tracked micro and "TRACKED" 56, while
+ * "TOP PROJECT · 3H 15M" is 131 — so a third of the card, 107pt, wrapped the
+ * last caption onto a second line and truncated the project name above it, and
+ * the card grew a line to hold the overflow. All three fit comfortably in the
+ * 321pt available; they just do not want the same share of it.
+ */
+function Stat({
+  value,
+  label,
+  detail,
+  flex = 1,
+}: {
+  value: string;
+  label: string;
+  detail?: string;
+  flex?: number;
+}) {
   return (
-    <View style={{ flex: 1, gap: 2 }}>
+    <View style={{ flex, gap: 2 }}>
       <Txt variant="heading" numberOfLines={1}>
         {value}
       </Txt>
-      <Txt variant="micro" tone="tertiary" style={styles.tracked}>
+      {/* One line, always: this row's height is the card's height, and a
+          caption that wraps takes the other two stats with it. */}
+      <Txt variant="micro" tone="tertiary" numberOfLines={1} style={styles.tracked}>
         {label.toUpperCase()}
         {detail ? ` · ${detail}` : ''}
       </Txt>

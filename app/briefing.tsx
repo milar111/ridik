@@ -233,9 +233,15 @@ function Detail({ data, onOpen }: { data: BriefingData; onOpen: (href: string) =
                 entering={arrive(rank++)}
                 first={index === 0}
                 icon="school-outline"
-                lead={`${formatTime(entry.startsAt, data.zone)}–${formatTime(entry.endsAt, data.zone)}`}
+                lead={formatTime(entry.startsAt, data.zone)}
                 title={entry.subject}
-                meta={[entry.location, entry.teacher].filter(Boolean).join(' · ') || null}
+                // The end time joins the meta rather than doubling the column:
+                // "14:00–17:00" is 97pt of Martian against a 52pt slot.
+                meta={
+                  [`until ${formatTime(entry.endsAt, data.zone)}`, entry.location, entry.teacher]
+                    .filter(Boolean)
+                    .join(' · ') || null
+                }
                 onPress={() => onOpen('/curriculum')}
               />
             ))}
@@ -252,7 +258,8 @@ function Detail({ data, onOpen }: { data: BriefingData; onOpen: (href: string) =
                 entering={arrive(rank++)}
                 first={index === 0}
                 icon="calendar-outline"
-                lead={event.allDay ? 'All day' : formatTime(event.startsAt, data.zone)}
+                lead={event.allDay ? null : formatTime(event.startsAt, data.zone)}
+                flag={event.allDay ? 'All day' : undefined}
                 title={event.title}
                 meta={event.location}
                 onPress={() => onOpen('/calendar')}
@@ -284,7 +291,8 @@ function Detail({ data, onOpen }: { data: BriefingData; onOpen: (href: string) =
                 first={index === 0}
                 icon={overdue.has(task.id) ? 'alert-circle-outline' : 'ellipse-outline'}
                 tone={overdue.has(task.id) ? 'danger' : 'default'}
-                lead={dueLead(task, data)}
+                lead={dueLead(task, data).time}
+                flag={dueLead(task, data).flag}
                 title={task.title}
                 meta={task.estimatedMinutes ? formatDuration(task.estimatedMinutes) : null}
                 onPress={() => onOpen('/tasks')}
@@ -303,7 +311,8 @@ function Detail({ data, onOpen }: { data: BriefingData; onOpen: (href: string) =
                 entering={arrive(rank++)}
                 first={index === 0}
                 icon="lock-open-outline"
-                lead="Ready"
+                lead={null}
+                flag="Ready"
                 title={task.title}
                 meta={null}
                 onPress={() => onOpen('/tasks')}
@@ -323,7 +332,8 @@ function Detail({ data, onOpen }: { data: BriefingData; onOpen: (href: string) =
                 first={index === 0}
                 icon={commitment.direction === 'i_owe' ? 'arrow-up-circle-outline' : 'arrow-down-circle-outline'}
                 tone={commitment.isOverdue ? 'danger' : 'default'}
-                lead={commitment.direction === 'i_owe' ? 'You owe' : 'Owes you'}
+                lead={null}
+                flag={commitment.direction === 'i_owe' ? 'You owe' : 'Owes you'}
                 title={`${commitment.personName}: ${commitment.text}`}
                 meta={commitmentMeta(commitment, data)}
                 onPress={() => onOpen('/people')}
@@ -381,6 +391,7 @@ function Row({
   icon,
   tone = 'default',
   lead,
+  flag,
   title,
   meta,
   onPress,
@@ -396,7 +407,20 @@ function Row({
   entering?: EntryOrExitLayoutType;
   icon: keyof typeof Ionicons.glyphMap;
   tone?: RowTone;
-  lead: string;
+  /**
+   * A clock reading, and only ever that — `14:00`, `01:23`, `3d`.
+   *
+   * The column is 52pt because `mono` is 13pt Martian and 52 is what "14:00"
+   * measures plus a little. It used to take whatever each section felt like
+   * putting in it, so the briefing showed `14:0…` over its classes and `Over…`
+   * over its overdue tasks, and would have shown `You o…`, `Owes …`, `Somed…`
+   * and `All d…` on the sections the seed does not fill. Martian is for times
+   * here and on the rest of the app; a word in this column is both the wrong
+   * face and 10pt too wide for it.
+   */
+  lead: string | null;
+  /** A word that is not a time. It rides the meta line, in the row's tone. */
+  flag?: string;
   title: string;
   meta: string | null;
   onPress: () => void;
@@ -420,20 +444,25 @@ function Row({
         padded={false}
         onPress={onPress}
         style={{ borderWidth: 0, backgroundColor: 'transparent' }}
-        accessibilityLabel={`${title}, ${lead}`}
+        // A row with no time must not be read out as "…, null".
+        accessibilityLabel={[title, lead, flag].filter(Boolean).join(', ')}
       >
         <View style={styles.row}>
           <Ionicons name={icon} size={17} color={tint[tone]} />
+          {/* Drawn even when empty: a row with no time keeps the column, so
+              every title down the card starts at the same place. */}
           <Txt variant="mono" tone="tertiary" style={styles.lead} numberOfLines={1}>
-            {lead}
+            {lead ?? ''}
           </Txt>
           <View style={{ flex: 1, gap: 1 }}>
             <Txt variant="body" numberOfLines={1}>
               {title}
             </Txt>
-            {meta ? (
+            {flag || meta ? (
               <Txt variant="caption" tone="tertiary" numberOfLines={1}>
-                {meta}
+                {flag ? <Txt style={{ color: tint[tone] }}>{flag}</Txt> : null}
+                {flag && meta ? ' · ' : ''}
+                {meta ?? ''}
               </Txt>
             ) : null}
           </View>
@@ -509,10 +538,15 @@ function bulletColor(colors: ReturnType<typeof useTheme>['colors'], icon: Briefi
   }
 }
 
-function dueLead(task: BriefingTask, data: BriefingData): string {
-  if (task.dueDate == null) return 'Someday';
-  if (task.dueDate < data.now) return 'Overdue';
-  return formatTime(task.dueDate, data.zone);
+/** A time for the mono column, or a word for the meta line — never both, and
+ *  never a word in the column. */
+function dueLead(
+  task: BriefingTask,
+  data: BriefingData,
+): { time: string | null; flag: string | undefined } {
+  if (task.dueDate == null) return { time: null, flag: 'Someday' };
+  if (task.dueDate < data.now) return { time: null, flag: 'Overdue' };
+  return { time: formatTime(task.dueDate, data.zone), flag: undefined };
 }
 
 function commitmentMeta(commitment: BriefingCommitment, data: BriefingData): string | null {
@@ -535,5 +569,5 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     minHeight: 44,
   },
-  lead: { width: 52 },
+  lead: { width: 52, textAlign: 'right' },
 });

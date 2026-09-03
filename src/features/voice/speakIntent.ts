@@ -177,9 +177,11 @@ export function useSpeakIntent(options: SpeakIntentOptions = {}): void {
    * widget mic, Quick Settings tile and Control Center tap then resolved to
    * identical params, changed nothing and silently did nothing, with nothing
    * logged. Reachable on a plain cold launch from the tile: the pipeline is a
-   * bootstrap step behind migrations, and OneSignal replays a cached launch tap
-   * in that window, so /tasks can be on top when the intent finally becomes
-   * ready.
+   * bootstrap step behind migrations, and a notification tap is replayed in that
+   * window, so /tasks can be on top when the intent finally becomes ready. (The
+   * example used to be OneSignal replaying a cached launch tap. That SDK is
+   * gone; `services/notifications/responses.ts` does the same replay for local
+   * notifications, so the race it describes is unchanged.)
    */
   const navigation = useNavigation();
   const start = useVoiceStore((s) => s.startListening);

@@ -380,6 +380,48 @@ function handleError(current: Session, event: ExpoSpeechRecognitionErrorEvent): 
     return;
   }
 
+  /*
+    `client` is Android's `SpeechRecognizer.ERROR_CLIENT`, and on this hardware
+    it is what the recogniser says **as it is stopped** — after the final result
+    has already been delivered. A farewell, not a failure.
+
+    Observed on a Galaxy S23: a perfectly transcribed sentence
+    ("Book two hours for the robotics report on Thursday afternoon and remind me
+    to email the tutor the day before") followed by `code: 'client'`,
+    `message: 'Other client side errors.'` — so the screen reported "Speech
+    recognition failed." over a transcript that was completely correct, and the
+    turn was never run. Every dictation ended that way.
+
+    This is the same fact AGENTS.md already records — *the recogniser talks
+    after it is stopped* — one step further on. The session ticket in `store.ts`
+    guards a *superseded* session's late callbacks; this one arrives for the
+    session that is still current, straight after a good result, so nothing was
+    catching it.
+
+    Settled, not swallowed: only when there are words to settle with. With
+    nothing heard it stays an error, because "client error" over a microphone
+    that genuinely failed to start is not something to report as silence.
+  */
+  if (event.error === 'client' && (current.finalParts.length > 0 || current.lastPartial.trim())) {
+    log.info('recogniser reported `client` after a result; that is the stop, not a failure', {
+      native: event.code,
+      parts: current.finalParts.length,
+    });
+    settle(current);
+    return;
+  }
+
+  // The code is the only thing that says *which* failure this was, and the
+  // message the user sees deliberately does not: "Speech recognition failed."
+  // is the `default` arm of `toSttError`, so every unmapped code arrives
+  // looking identical. The details went into the `AppError` and nowhere else,
+  // which made a real failure on a real phone undiagnosable — logcat had
+  // nothing at all about it. One line, before the mapping throws the code away.
+  log.warn('recogniser failed', {
+    code: event.error,
+    native: event.code,
+    message: event.message,
+  });
   const error = toSttError(event);
   current.settled = true;
   finish(current, 'error');

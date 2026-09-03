@@ -4,6 +4,7 @@ import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
+import { now } from '@/core/clock';
 import { countLabel, formatMoney, joinNatural, pluralise, truncate } from '@/core/format';
 import { epochToLocal, formatDayHeading, formatRelative } from '@/core/time';
 import type { CrmCommitment, CrmInteraction, Transaction } from '@/db/schema';
@@ -22,6 +23,7 @@ import {
 } from '@/hooks';
 import type { CommitmentDirection, CrmEntityProfile } from '@/repositories/crm';
 import {
+  BackControl,
   Badge,
   Button,
   Card,
@@ -434,7 +436,8 @@ function CommitmentRow({
   const linkPress = usePressScale();
 
   const mine = commitment.direction === 'i_owe';
-  const overdue = !checked && commitment.dueDate !== null && commitment.dueDate < Date.now();
+  // `now()`, never `Date.now()` — see `src/core/clock.ts`.
+  const overdue = !checked && commitment.dueDate !== null && commitment.dueDate < now();
 
   return (
     <View style={{ paddingHorizontal: spacing.md }}>
@@ -1103,23 +1106,13 @@ function DeletePerson({ profile }: { profile: CrmEntityProfile }) {
 /* ------------------------------------------------------------------ pieces -- */
 
 function ScreenHeader({ profile }: { profile: CrmEntityProfile | undefined }) {
-  const router = useRouter();
-  const { colors, spacing } = useTheme();
-  // Matches `Screen`'s own back button: a bare chevron takes deeper travel.
-  const press = usePressScale({ scale: 0.9 });
+  const { spacing } = useTheme();
   return (
     <View style={[styles.header, { gap: spacing.sm }]}>
-      <AnimatedPressable
-        accessibilityRole="button"
-        accessibilityLabel="Back to people"
-        hitSlop={8}
-        // Deep links and notifications can land here with nothing to pop back to.
-        onPress={() => (router.canGoBack() ? router.back() : router.replace('/people'))}
-        {...press.handlers}
-        style={[styles.back, press.style]}
-      >
-        <Ionicons name="chevron-back" size={24} color={colors.text} />
-      </AnimatedPressable>
+      {/* The app's one back control rather than a fourth copy of it: this was a
+          24pt chevron with an 8pt slop beside `Screen`'s 26 and 10, which is
+          two chevrons of different sizes on two screens of the same app. */}
+      <BackControl label="Back to people" fallback="/people" />
       <Txt variant="micro" tone="tertiary" numberOfLines={1} style={{ flex: 1 }}>
         {profile ? countLabel(profile.interactions.length, 'interaction') : 'People'}
       </Txt>

@@ -17,7 +17,18 @@ import {
 import { noteFilename, noteMarkdown } from '@/features/notes/markdown';
 import { useAppendNoteBullets, useNote, useUpdateNote } from '@/hooks';
 import type { BulletKind, NoteWithBullets } from '@/repositories/notes';
-import { Button, Chip, Divider, EmptyState, Input, Screen, Txt, useToast } from '@/ui/components';
+import {
+  BackControl,
+  Button,
+  Chip,
+  Divider,
+  EmptyState,
+  Input,
+  Screen,
+  Txt,
+  useToast,
+} from '@/ui/components';
+import { MIC_KEEPOUT } from '@/ui/layout';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
 import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
@@ -33,24 +44,15 @@ export default function NoteDetailScreen() {
   const data = note.data ?? null;
   const extras = useNoteMenuExtras(data);
 
-  // Two bare glyphs at the top of the screen: deeper travel, because there is
-  // no fill behind either of them to watch move.
-  const backPress = usePressScale({ scale: 0.88 });
+  // A bare glyph at the top of the screen: deeper travel, because there is no
+  // fill behind it to watch move. The back beside it is `BackControl`, which
+  // carries its own.
   const menuPress = usePressScale({ scale: 0.88, disabled: !data });
 
   return (
     <Screen scroll={false} contentStyle={{ flex: 1, gap: spacing.sm }}>
       <View style={[styles.bar, { paddingTop: spacing.sm }]}>
-        <AnimatedPressable
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          hitSlop={12}
-          onPress={() => router.back()}
-          {...backPress.handlers}
-          style={backPress.style}
-        >
-          <Ionicons name="chevron-back" size={24} color={colors.text} />
-        </AnimatedPressable>
+        <BackControl label="Back" fallback="/notes" />
 
         <View style={{ flex: 1 }} />
 
@@ -252,7 +254,15 @@ function NoteBody({ note }: { note: NoteWithBullets }) {
       <View
         style={[
           styles.composer,
-          { borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.sm },
+          {
+            borderTopColor: colors.border,
+            paddingTop: spacing.sm,
+            gap: spacing.sm,
+            // The one control in this app that is docked rather than scrolled,
+            // so it is the one that cannot pass under the mic. Its send button
+            // sat directly beneath it.
+            paddingRight: MIC_KEEPOUT - spacing.lg,
+          },
         ]}
       >
         <Button

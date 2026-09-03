@@ -14,9 +14,6 @@ import '@/services/billing';
 // The usage ledger. A non-critical step: it stamps the install date, records
 // one `app_open`, and starts crash reporting only if the person switched it on.
 import '@/services/analytics/bootstrap';
-// Remote push. Registers a bootstrap step that no-ops without an App ID, the
-// same way billing falls back without a store key.
-import '@/services/notifications/push';
 import '@/services/notifications/responses';
 import '@/features/voice/pipeline';
 // The unsent-transcript slot, restored from disk. In-memory it survived every

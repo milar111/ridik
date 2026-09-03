@@ -40,15 +40,15 @@ describe('the unsent card', () => {
     expect(screen.getByText('ring the landlord about the boiler')).toBeTruthy();
   });
 
-  /* "Put it back" has to *hand the text over*, not merely stop showing it.
+  /* "Edit" has to *hand the text over*, not merely stop showing it.
      `draftSeed` is what the dock picks up into its text box. */
   it('puts the text in the composer and opens the sheet', async () => {
     useVoiceStore.getState().keepDraft('add oat milk to the shopping list');
     await wrap();
 
-    await fireEvent.press(screen.getByRole('button', { name: 'Put it back' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Edit and send what was kept' }));
 
-    expect(useVoiceStore.getState().draftSeed).toBe('add oat milk to the shopping list');
+    expect(useVoiceStore.getState().draftSeed).toEqual({ text: 'add oat milk to the shopping list', reason: 'recovered' });
     expect(useVoiceStore.getState().expanded).toBe(true);
   });
 

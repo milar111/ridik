@@ -4,6 +4,7 @@ import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
+import { now } from '@/core/clock';
 import { countLabel, joinNatural } from '@/core/format';
 import { normalise } from '@/core/match';
 import { formatRelative } from '@/core/time';
@@ -20,8 +21,16 @@ import { colorForTag } from '@/ui/theme';
 const VOICE_HINT = "Try: 'met with Ivo, promised to send him the CAD files by tomorrow evening'";
 
 export default function PeopleScreen() {
+  // Read here as well as in the list so the count can be the screen's subtitle.
+  // Same query key, so react-query serves both from one fetch.
+  const entities = useCrmEntities();
+  const people = entities.data?.length ?? 0;
   return (
-    <Screen>
+    <Screen
+      back
+      title="People"
+      subtitle={people > 0 ? countLabel(people, 'person', 'people') : undefined}
+    >
       <ErrorBoundary
         label="people"
         fallback={(error, reset) => <InlineError message={error.message} onRetry={reset} />}
@@ -44,7 +53,9 @@ function PeopleList() {
   // Recomputed only when the commitment list changes. "Overdue" drifting by a
   // minute is invisible, whereas a live clock would re-render every row.
   const overdueEntityIds = useMemo(() => {
-    const at = Date.now();
+    // `now()`, never `Date.now()` — a frozen clock is what makes this testable
+    // and its bugs reproducible.
+    const at = now();
     const ids = new Set<string>();
     for (const row of commitments.data ?? []) {
       if (row.commitment.dueDate !== null && row.commitment.dueDate < at) ids.add(row.entity.id);
@@ -65,11 +76,6 @@ function PeopleList() {
 
   return (
     <>
-      <ScreenHeader
-        title="People"
-        subtitle={all.length > 0 ? countLabel(all.length, 'person', 'people') : undefined}
-      />
-
       {all.length > 0 ? (
         <Input
           value={query}
@@ -186,40 +192,6 @@ function PersonRow({
 
 /* ------------------------------------------------------------------ pieces -- */
 
-function ScreenHeader({ title, subtitle }: { title: string; subtitle?: string }) {
-  const router = useRouter();
-  const { colors, spacing } = useTheme();
-  // A bare chevron: the glyph is the whole cue, so it takes deeper travel than
-  // a surface would. Matches `Screen`'s own back button.
-  const press = usePressScale({ scale: 0.9 });
-  return (
-    <View style={[styles.header, { gap: spacing.sm }]}>
-      <AnimatedPressable
-        accessibilityRole="button"
-        accessibilityLabel="Go back"
-        hitSlop={8}
-        // Deep links and notifications can land here with nothing to pop back
-        // to. Home, not the menu: the menu is a junction you pass through, and
-        // sending someone back to it would leave them one more tap from where
-        // every route eventually leads anyway.
-        onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-        {...press.handlers}
-        style={[styles.back, press.style]}
-      >
-        <Ionicons name="chevron-back" size={24} color={colors.text} />
-      </AnimatedPressable>
-      <View style={{ flex: 1, gap: 1 }}>
-        <Txt variant="title">{title}</Txt>
-        {subtitle ? (
-          <Txt variant="caption" tone="tertiary">
-            {subtitle}
-          </Txt>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
 function Monogram({ name }: { name: string }) {
   const tint = colorForTag(name);
   return (
@@ -287,8 +259,6 @@ function withAlpha(hex: string, alpha: number): string {
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'center', paddingTop: 4 },
-  back: { width: 32, height: 40, marginLeft: -8, alignItems: 'center', justifyContent: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', minHeight: 56 },
   rowText: { flex: 1, gap: 1 },
   rowRight: { alignItems: 'flex-end', gap: 3 },

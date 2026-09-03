@@ -14,8 +14,8 @@
  * Same store and the same gestures as the floating dock, so there is one voice
  * session in the app rather than two that can disagree about whether it is on.
  */
-import { useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -31,15 +31,26 @@ import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/ui/ThemeProvider';
 import { useAnnounceOnIOS } from '@/ui/a11y';
 import { Txt } from '@/ui/components/Text';
+import { ThinkingDots } from '@/ui/components/ThinkingDots';
 import { fade } from '@/ui/motion';
 // The shared `AnimatedPressable`, not a second one made here: two
 // `createAnimatedComponent` calls produce two component *types*, and the app
 // only needs one.
 import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
-import { elevate } from '@/ui/shadow';
+import { elevate, withAlpha } from '@/ui/shadow';
 import { useVoiceStore } from '@/features/voice/store';
 
 const DIAMETER = 138;
+
+/**
+ * The caption's box, reserved whatever is in it.
+ *
+ * Three lines of `caption` (17pt line height) plus a little air. Three because
+ * two is not enough to be worth scrolling and four starts to crowd the receipt
+ * below; past that the words scroll, which is the honest answer for a
+ * dictation of any length.
+ */
+const CAPTION_HEIGHT = 58;
 
 /**
  * How long the disc has to be held before it turns into a keyboard.
@@ -171,8 +182,16 @@ export function HomeMic() {
     hold.value = fade(0);
   };
 
-  const icon: keyof typeof Ionicons.glyphMap =
-    status === 'thinking' ? 'ellipsis-horizontal' : status === 'speaking' ? 'volume-high' : 'mic';
+  /*
+    Working is the one state that is not a glyph.
+
+    It was `ellipsis-horizontal` — three dots that never moved, on the one
+    screen whose job is saying what is happening, at the only moment the user
+    has nothing to do but wait. A still indicator is indistinguishable from a
+    hung app, which is exactly the doubt it was there to answer.
+  */
+  const working = status === 'thinking';
+  const icon: keyof typeof Ionicons.glyphMap = status === 'speaking' ? 'volume-high' : 'mic';
 
   /**
    * The caption is the state, and while you are speaking it is the transcript.
@@ -183,6 +202,8 @@ export function HomeMic() {
    * announcement is worth. The words arriving are still there to be read by
    * touch; what is announced is the state that changed.
    */
+  const captionScroll = useRef<ScrollView>(null);
+
   const spoken = SPOKEN[status] ?? null;
   const showingPartial = listening && Boolean(partial);
   const announce = spoken && !showingPartial;
@@ -225,32 +246,105 @@ export function HomeMic() {
           }}
           style={[styles.disc, elevate('source'), { backgroundColor: colors.text }, press.style]}
         >
-          <Ionicons name={icon} size={54} color={colors.surface} />
+          {working ? (
+            <ThinkingDots color={colors.surface} size={13} gap={9} />
+          ) : (
+            <Ionicons name={icon} size={54} color={colors.surface} />
+          )}
         </AnimatedPressable>
       </View>
 
-      {/* One line, and it never grows into a transcript: the sheet is where a
-          conversation happens. A home screen that reflowed while you spoke
-          would move the button out from under your thumb. */}
-      <Txt
-        testID="home-mic-caption"
-        variant="eyebrow"
-        tone="secondary"
-        numberOfLines={1}
-        style={styles.caption}
-        // Android's half of "the state changed" — and off while the partial
-        // transcript is what this line is showing.
-        accessibilityLiveRegion={announce ? 'polite' : 'none'}
-        // The drawn line is upper-cased and elided to one line; neither is
-        // something to read out. What is spoken is the sentence, or the words
-        // heard so far in full.
-        accessibilityLabel={showingPartial ? partial : (spoken ?? SPOKEN_IDLE)}
-      >
-        {(listening && partial ? partial : (CAPTION[status] ?? IDLE_CAPTION)).toUpperCase()}
-      </Txt>
+      {/*
+        A fixed box, and the words move inside it.
+
+        This was one elided line, on the reasoning that a caption which grew
+        would push the button out from under your thumb. The reasoning was
+        right and the conclusion was wrong: a long sentence became "BOOK TWO
+        HOURS FOR THE ROBOT…", so the one moment you most want to see what was
+        heard is the one moment it is hidden. The fix is not to let it grow —
+        it is to reserve the space up front. `CAPTION_HEIGHT` is the same
+        whatever is in it, so nothing on this screen ever moves, and a sentence
+        longer than three lines scrolls with its top going under the fade.
+
+        A live transcript also stops being an `eyebrow`. That variant is a
+        tracked, upper-cased *label*, which is right for "TAP TO SPEAK" and
+        actively hostile to a paragraph: shouting is slower to read, and
+        `letterSpacing` costs a character or two per line on Android, which
+        cannot even measure it correctly. Your own words come back in the voice
+        they were said in.
+      */}
+      <View testID="home-mic-caption-box" style={styles.captionBox}>
+        <ScrollView
+          ref={captionScroll}
+          scrollEnabled={showingPartial}
+          showsVerticalScrollIndicator={false}
+          onContentSizeChange={() => {
+            // The newest words are the ones worth seeing, so the box tracks the
+            // bottom rather than the top. `animated` because the jump between
+            // two partials is small and a hard cut reads as a flicker.
+            if (showingPartial) captionScroll.current?.scrollToEnd({ animated: true });
+          }}
+          contentContainerStyle={styles.captionContent}
+        >
+          <Txt
+            testID="home-mic-caption"
+            variant={showingPartial ? 'caption' : 'eyebrow'}
+            tone={showingPartial ? 'primary' : 'secondary'}
+            style={styles.caption}
+            // Android's half of "the state changed" — and off while the partial
+            // transcript is what this line is showing.
+            accessibilityLiveRegion={announce ? 'polite' : 'none'}
+            // What is drawn is upper-cased at rest; that is not something to
+            // read out. What is spoken is the sentence, or the words heard so
+            // far in full.
+            accessibilityLabel={showingPartial ? partial : (spoken ?? SPOKEN_IDLE)}
+          >
+            {showingPartial ? partial : (CAPTION[status] ?? IDLE_CAPTION).toUpperCase()}
+          </Txt>
+        </ScrollView>
+        {/*
+          The top edge, softened. Without it a sentence scrolled halfway is a
+          line of text sliced through its own x-height, which reads as a
+          rendering fault rather than as more words above. It is only painted
+          while there is something to scroll, so the resting caption is not
+          sitting under a gradient for no reason.
+        */}
+        {showingPartial ? <CaptionFade /> : null}
+      </View>
     </View>
   );
 }
+
+/**
+ * A soft top edge, built from bands rather than a gradient.
+ *
+ * `expo-linear-gradient` is not a dependency of this app and eighteen points of
+ * fade is not a reason to make it one — a native module has to be prebuilt into
+ * both platforms, and this is decoration. Six bands over 18pt, each 3pt tall,
+ * is under the threshold where banding is visible at this size; the alternative
+ * was an `react-native-svg` overlay, which is a whole rendering surface for the
+ * same result.
+ *
+ * The colour is the ground, not black: this sits over a warm field and a grey
+ * or black fade would read as a smudge. See "Nothing is neutral grey".
+ */
+function CaptionFade() {
+  const { colors } = useTheme();
+  return (
+    <View pointerEvents="none" style={styles.captionFade}>
+      {FADE_STEPS.map((alpha, index) => (
+        <View
+          key={index}
+          style={{ height: FADE_BAND, backgroundColor: withAlpha(colors.bg, alpha) }}
+        />
+      ))}
+    </View>
+  );
+}
+
+/** Six 3pt bands. Opaque at the cut edge, gone by the time text is readable. */
+const FADE_BAND = 3;
+const FADE_STEPS = [1, 0.86, 0.66, 0.44, 0.24, 0.1];
 
 const styles = StyleSheet.create({
   wrap: { alignItems: 'center', width: 300 },
@@ -269,8 +363,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  /*
+    Reserved, not earned. The height is the same at rest and mid-sentence, so
+    the disc above it cannot move while somebody is talking — which was the
+    whole reason the caption was pinned to one line in the first place.
+  */
+  captionBox: { height: CAPTION_HEIGHT, width: '100%', overflow: 'hidden' },
+  // Centred *within* the box while short, so the resting hint sits on the same
+  // line it always did rather than clinging to the top of a taller container.
+  captionContent: { flexGrow: 1, justifyContent: 'center' },
   // Full width and centred by `textAlign`, never shrink-wrapped: Android does
   // not count `letterSpacing` when it measures a line, so a tracked label sized
   // to its own content gets ellipsised a character or two early — "TAP TO S…".
-  caption: { textAlign: 'center', minHeight: 16, width: '100%' },
+  caption: { textAlign: 'center', width: '100%' },
+  captionFade: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'column' },
 });

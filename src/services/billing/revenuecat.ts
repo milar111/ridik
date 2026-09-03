@@ -139,6 +139,41 @@ export function isAvailable(): boolean {
   return load() !== null && apiKey() !== null;
 }
 
+/**
+ * Why this build cannot sell anything, in the words the person needs.
+ *
+ * `isAvailable()` returning false is the *correct* behaviour for a key the
+ * native SDK would reject — see `NATIVE_KEY_PREFIXES` — but it is silent, and
+ * silence here costs whole evenings. The only trace was a logcat line nobody
+ * reads on a phone, and the paywall then said "the store did not return
+ * anything to sell", which blames a store that was never asked.
+ *
+ * Null when nothing is wrong.
+ */
+export function unavailableReason(): string | null {
+  if (load() === null) return 'react-native-purchases is not compiled into this build.';
+  const extra = config();
+  const key = (Platform.OS === 'ios' ? extra.ios : extra.android)?.trim();
+  if (!key) {
+    return Platform.OS === 'ios'
+      ? 'No EXPO_PUBLIC_REVENUECAT_IOS_KEY is set.'
+      : 'No EXPO_PUBLIC_REVENUECAT_ANDROID_KEY is set.';
+  }
+  if (apiKey() === null) {
+    // Named exactly, because the two keys look alike in a dashboard and only
+    // one of them works on a phone. A `test_`/`rcb_` key is RevenueCat *Web
+    // Billing*; the native SDKs take the platform's own public SDK key.
+    const wanted = Platform.OS === 'ios' ? 'appl_' : 'goog_';
+    return (
+      `The RevenueCat key for this platform starts with "${key.slice(0, 5)}", which the native ` +
+      `SDK cannot use — it needs the ${Platform.OS === 'ios' ? 'App Store' : 'Play Store'} ` +
+      `public SDK key beginning "${wanted}". A "test_" or "rcb_" key is Web Billing and sells ` +
+      `nothing on a device.`
+    );
+  }
+  return null;
+}
+
 const millis = (iso: string | null | undefined): number | null => {
   if (!iso) return null;
   const at = Date.parse(iso);

@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import type { Project } from '@/db/schema';
 import type { ProjectCounts } from '@/repositories/projects';
-import { Badge, Button, Chip, Txt } from '@/ui/components';
+import { BackControl, Badge, Button, Chip, Txt } from '@/ui/components';
 import { colorForTag } from '@/ui/theme';
 import { useTheme } from '@/ui/ThemeProvider';
 
@@ -27,14 +27,12 @@ const STATUS_TONE = {
 export function ProjectHeader({
   project,
   counts,
-  onBack,
   onShare,
   onMenu,
   sharing,
 }: {
   project: Project;
   counts: ProjectCounts;
-  onBack: () => void;
   onShare: () => void;
   onMenu: () => void;
   sharing?: boolean;
@@ -50,13 +48,10 @@ export function ProjectHeader({
   return (
     <View style={{ gap: spacing.sm }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Button
-          icon="chevron-back"
-          variant="ghost"
-          onPress={onBack}
-          accessibilityLabel="Back"
-          style={tapTarget}
-        />
+        {/* The app's back control, not a ghost `Button` wearing a chevron: that
+            one's own padding put its ink 18pt inside the gutter every other
+            screen's chevron sits on. */}
+        <BackControl fallback="/projects" />
         <View style={{ flexDirection: 'row', gap: spacing.xs }}>
           <Button
             icon="share-outline"

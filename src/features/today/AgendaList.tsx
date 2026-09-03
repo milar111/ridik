@@ -193,11 +193,20 @@ function Row({
         </View>
       ) : null}
 
-      {isBuffer ? (
-        <Ionicons name="walk-outline" size={13} color={colors.textTertiary} />
-      ) : item.kind === 'class' ? (
-        <Ionicons name="school-outline" size={13} color={colors.textTertiary} />
-      ) : null}
+      {/*
+        Always the slot, even when there is no glyph for it — the same reason
+        `dotGap` exists six lines up, and it was missed here. A conditional
+        13pt icon plus the row's 8pt gap let the CLASH badge on a row without
+        one sit **21pt** further right than the badge on the row above it, so
+        two identical warnings in one list did not share a column.
+      */}
+      <View style={styles.kind}>
+        {isBuffer ? (
+          <Ionicons name="walk-outline" size={13} color={colors.textTertiary} />
+        ) : item.kind === 'class' ? (
+          <Ionicons name="school-outline" size={13} color={colors.textTertiary} />
+        ) : null}
+      </View>
     </AnimatedPressable>
   );
 }
@@ -210,6 +219,7 @@ const styles = StyleSheet.create({
   dotGap: { width: 6 },
   body: { flex: 1, gap: 1 },
   clash: { paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 },
+  kind: { width: 13, alignItems: 'center' },
   // Tracked mono sized to its own content is measured short on Android and
   // loses its last character; an explicit width plus `textAlign` is the fix.
   clashLabel: { width: 42, textAlign: 'center' },

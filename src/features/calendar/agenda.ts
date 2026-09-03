@@ -231,3 +231,67 @@ export function describeSync(
     icon: 'phone-portrait-outline',
   };
 }
+
+/* ------------------------------------------------------------------ joins */
+
+/**
+ * What sits between one item and the one before it.
+ *
+ * The agenda used to be a plain stack of cards, and a stack of cards cannot
+ * say the two things a day is actually made of. It could not show that
+ * `Robotics 14:00–17:00` and `Project meeting 15:00–16:00` **collide** — the
+ * Today screen says CLASH about that same pair, and the calendar, which is the
+ * screen you go to when you want to know your day, said nothing. And it could
+ * not show that nothing at all happens between 09:00 and 14:00, so a day with
+ * two things in it looked exactly like a day with two things back to back.
+ *
+ * Deliberately not solved by drawing time to scale: five empty hours would be
+ * five empty hours of screen, and the whole point of an agenda over a grid is
+ * that it spends its pixels on what is there. A labelled gap is the same fact
+ * in one line.
+ */
+export type AgendaJoin =
+  /** Free time worth naming. */
+  | { kind: 'gap'; minutes: number }
+  /** This item starts before something already running has finished. */
+  | { kind: 'overlap'; minutes: number }
+  /** Touching, or close enough that a label would be noise. */
+  | { kind: 'butt' };
+
+/**
+ * Under this, a gap is not worth a line of its own — the ten minutes between
+ * two lessons is not "free time", it is the walk between rooms.
+ */
+export const GAP_FLOOR_MINUTES = 45;
+
+/**
+ * `joins[i]` describes what is above `items[i]`; `joins[0]` is always null.
+ *
+ * Measured against the furthest end seen so far, not against the previous
+ * item's end: a three-hour class with two half-hour meetings inside it has to
+ * mark **both** of them as overlapping, and comparing each to its immediate
+ * predecessor would clear the second one the moment the first ended.
+ */
+export function joinsOf(items: readonly AgendaItem[]): (AgendaJoin | null)[] {
+  let reach = -Infinity;
+  return items.map((item, index) => {
+    const start = visualStartOf(item);
+    const join: AgendaJoin | null =
+      index === 0
+        ? null
+        : start < reach
+          ? {
+              kind: 'overlap',
+              // How much of *this* item is covered, not how much of the thing
+              // covering it is left. A one-hour meeting sitting inside a
+              // three-hour class is a one-hour clash; measuring to the class's
+              // end reported 2h 20m for it, a number larger than the meeting.
+              minutes: Math.round((Math.min(reach, item.endsAt) - start) / 60_000),
+            }
+          : (start - reach) / 60_000 >= GAP_FLOOR_MINUTES
+            ? { kind: 'gap', minutes: Math.round((start - reach) / 60_000) }
+            : { kind: 'butt' };
+    reach = Math.max(reach, item.endsAt);
+    return join;
+  });
+}

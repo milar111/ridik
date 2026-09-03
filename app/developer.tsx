@@ -20,6 +20,8 @@ import { formatDateTime, isValidZone } from '@/core/time';
 import { copyToClipboard } from '@/features/export';
 import {
   Group,
+  ReserveRowLead,
+  useRowLeadInset,
   GroupSkeleton,
   RetryRow,
   Row,
@@ -46,9 +48,7 @@ import {
 } from '@/services/billing/allowance';
 import {
   useBackgroundStatus,
-  useCalendarConnection,
-  useConnectCalendar,
-  useDisconnectCalendar,
+
   useDatabaseStats,
   useLogEntries,
   usePermissions,
@@ -81,14 +81,14 @@ export default function DeveloperScreen() {
       subtitle="Everything the main screen deliberately hides"
       right={<Button label="Done" size="sm" onPress={() => router.back()} />}
     >
+      {/* Half these cards carry icons and half do not — one reserved leading
+          column so the labels share a left edge. See `ROW_LEAD`. */}
+      <ReserveRowLead>
       <ErrorBoundary label="developer: assistant">
         <AssistantGroup />
       </ErrorBoundary>
       <ErrorBoundary label="developer: recognition">
         <RecognitionGroup />
-      </ErrorBoundary>
-      <ErrorBoundary label="developer: calendar">
-        <CalendarGroup />
       </ErrorBoundary>
       <ErrorBoundary label="developer: system">
         <SystemGroup />
@@ -117,6 +117,7 @@ export default function DeveloperScreen() {
           }
         />
       </Group>
+      </ReserveRowLead>
     </Screen>
   );
 }
@@ -182,6 +183,9 @@ function latencyDetail(latency: LatencySummary): string {
 
 function AssistantGroup() {
   const { spacing } = useTheme();
+  // The card mixes rows with a chip block and two sliders; without this the
+  // second kind sits 34pt to the left of the first. See `useRowLeadInset`.
+  const lead = useRowLeadInset();
   const mode = useAssistantMode();
   const model = useSetting('llmModel');
   const dailyCap = useSetting('llmDailyRequestCap');
@@ -214,7 +218,14 @@ function AssistantGroup() {
       />
 
       {hosted ? null : (
-        <View style={{ padding: spacing.md, gap: spacing.sm }}>
+        <View
+          style={{
+            paddingLeft: spacing.md + lead,
+            paddingRight: spacing.md,
+            paddingVertical: spacing.md,
+            gap: spacing.sm,
+          }}
+        >
           <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.6 }}>
             MODEL
           </Txt>
@@ -339,98 +350,12 @@ function AssistantGroup() {
   );
 }
 
-/* ---------------------------------------------------------------- calendar */
-
-/**
- * Connecting Google Calendar, moved off the profile.
- *
- * It cannot be replaced by a default — the connect step is an interactive OAuth
- * consent screen, so something has to offer it. But it is a one-time setup act,
- * not a preference, and a paying user should meet it during onboarding rather
- * than find it sitting in their profile forever.
- *
- * "Show in your phone calendar" used to sit beside it and is gone: it was never
- * a preference at all, only a mirror of an OS permission that the app now asks
- * for at the point it needs it.
- */
-function CalendarGroup() {
-  const connection = useCalendarConnection();
-  const connect = useConnectCalendar();
-  const disconnect = useDisconnectCalendar();
-  const toast = useToast();
-
-  if (connection.isLoading && !connection.data) return <GroupSkeleton title="Calendar" rows={1} />;
-  if (connection.isError) {
-    return (
-      <Group title="Calendar">
-        <RetryRow
-          message="Could not read your calendar status."
-          onRetry={() => void connection.refetch()}
-        />
-      </Group>
-    );
-  }
-
-  const status = connection.data;
-  const connected = status?.connected ?? false;
-  const configured = status?.configured ?? false;
-
-  return (
-    <Group title="Calendar">
-      <Row
-        icon="calendar-outline"
-        label="Google Calendar"
-        value={
-          !configured
-            ? 'Not available in this build'
-            : connected
-              ? (status?.email ?? 'Connected')
-              : 'Not connected'
-        }
-        hint={
-          connected
-            ? 'Your events sync both ways in the background.'
-            : 'Events stay on this phone until you connect it.'
-        }
-        right={
-          !configured ? undefined : connected ? (
-            <Button
-              label="Disconnect"
-              size="sm"
-              loading={disconnect.isPending}
-              onPress={() =>
-                disconnect.mutate(undefined, {
-                  onSuccess: () => toast.show({ message: 'Disconnected' }),
-                  onError: (error: Error) => toast.show({ message: error.message, tone: 'danger' }),
-                })
-              }
-            />
-          ) : (
-            <Button
-              label="Connect"
-              size="sm"
-              variant="primary"
-              loading={connect.isPending}
-              onPress={() =>
-                connect.mutate(undefined, {
-                  onSuccess: () => toast.show({ message: 'Connected', tone: 'success' }),
-                  onError: (error: Error) => toast.show({ message: error.message, tone: 'danger' }),
-                })
-              }
-            />
-          )
-        }
-      />
-
-    </Group>
-  );
-}
-
 /* ------------------------------------------------------------- recognition */
 
 function RecognitionGroup() {
   const confidence = useSetting('voiceConfidenceThreshold');
   const silence = useSetting('silenceTimeoutMs');
+  const tts = useSetting('ttsEnabled');
   const rate = useSetting('ttsRate');
   const whisper = useSetting('whisperFallbackEnabled');
   const whisperKey = useSecret('whisper');
@@ -456,8 +381,27 @@ function RecognitionGroup() {
         format={(v) => `${(v / 1000).toFixed(1)}s`}
         onChange={(v) => silence.set(Math.round(v))}
       />
+      {/*
+        Moved off the main screen, and reunited with its own rate control in the
+        move — the on/off was a Preference and the speed was here, so a person
+        who turned speaking on had no way to reach the dial that makes it
+        bearable, and a person who found the dial could not hear it move.
+
+        It is here rather than on Settings because the app is one microphone and
+        one answer, and every switch in front of that is a decision taken before
+        anything gets done. This one is also off by default, has been for the
+        life of the app, and reads every confirmation and the whole briefing out
+        loud — a feature nobody asked for, in front of everybody.
+      */}
+      <SwitchRow
+        label="Speak replies"
+        hint="Read confirmations and the briefing out loud."
+        value={tts.value}
+        onChange={tts.set}
+      />
       <SliderRow
         label="Speech rate"
+        hint="Only audible with Speak replies on."
         value={rate.value}
         min={0.5}
         max={2}

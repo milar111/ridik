@@ -19,7 +19,8 @@ import { Txt } from '@/ui/components/Text';
 import { Button } from '@/ui/components/Button';
 import { Input } from '@/ui/components/Controls';
 import { SheetCard } from '@/ui/components/SheetCard';
-import { MIC_GAP, MIC_SIZE } from '@/ui/layout';
+import { ThinkingDots } from '@/ui/components/ThinkingDots';
+import { MIC_DOCK_RIGHT, MIC_GAP, MIC_SIZE } from '@/ui/layout';
 import { SPRING_TAP } from '@/ui/motion';
 import { AnimatedPressable, usePressScale, usePulse } from '@/ui/motionHooks';
 import { elevate } from '@/ui/shadow';
@@ -32,6 +33,20 @@ import { useQuickActionRouting } from './useQuickActions';
  * far more than anyone dictates and still a bounded number of tokens.
  */
 const MAX_DRAFT_CHARS = 20_000;
+
+/**
+ * What the review box says above the words.
+ *
+ * Two facts, in the order they matter: this is what was heard, and it has not
+ * gone anywhere yet. The second is what makes the pause read as a checkpoint
+ * rather than a stall — and it is literally true, which is the point of the
+ * whole feature: nothing has been sent, so nothing has been charged for.
+ *
+ * It deliberately does not mention tokens, plans or trials. The reason to fix a
+ * mis-heard word is that it is wrong; the saving is why this is on by default,
+ * not why the user is being asked.
+ */
+const REVIEW_NOTE = 'Heard this — nothing sent yet. Fix anything that came out wrong.';
 
 /**
  * The dock's own states, said rather than drawn.
@@ -84,8 +99,30 @@ export function VoiceDock() {
   const startTyping = useVoiceStore((s) => s.startTyping);
 
   const [draft, setDraft] = useState('');
+  /**
+   * Whether this box is holding a sentence back rather than replacing one.
+   *
+   * The difference is the whole of the copy. Every label here was written for
+   * somebody typing because talking did not work — "Type what you would have
+   * said", "Speak instead" — and putting a sentence the app *did* hear behind
+   * those words reports a success as a failure. It also has to be sticky: the
+   * seed that set it is consumed immediately, and the box stays up while the
+   * word gets fixed.
+   */
+  const [reviewing, setReviewing] = useState(false);
+  /**
+   * Set when a yes/no question has been answered "No" and the correction is
+   * being typed. It is *not* the same as `typing`: a pending question forces
+   * the box open regardless, and without this the buttons and the keyboard
+   * would be up at the same time, which asks a yes/no question and then puts a
+   * text field under it — the exact thing this replaced.
+   */
+  const [correcting, setCorrecting] = useState(false);
 
   const listening = status === 'listening';
+  // Buttons only where a yes is actually meaningful. An open question — the
+  // model asking for a value it could not default — has no yes to give.
+  const yesNo = clarification?.answers === 'yesno';
 
   /**
    * The listening pulse, on the shared loop rather than a hand-rolled sequence.
@@ -108,8 +145,15 @@ export function VoiceDock() {
     }
   }, [outcome, queryClient]);
 
+  /*
+    A pending question opens the sheet, but it no longer forces the keyboard up:
+    a question with buttons under it is answered by tapping one. Only an open
+    question — the model needing words it could not default — still needs the
+    box from the start.
+  */
   useEffect(() => {
-    if (clarification) setTyping(true);
+    setCorrecting(false);
+    if (clarification) setTyping(clarification.answers !== 'yesno');
   }, [clarification]);
 
   // Nothing to retry on a device with no recogniser, so go straight to the way
@@ -119,13 +163,18 @@ export function VoiceDock() {
   }, [sttUnavailable]);
 
   /**
-   * A recovered transcript arriving from anywhere — the card in this sheet, or
-   * the one on home, which is a different component entirely and cannot reach
-   * this text box. The store carries the text between them; the dock takes it.
+   * Text arriving from anywhere — the recovery card in this sheet, the one on
+   * home (a different component entirely, which cannot reach this text box), or
+   * a finished utterance held back for review. The store carries it between
+   * them; the dock takes it.
+   *
+   * The reason is kept in its own state rather than read off `draftSeed`,
+   * because the seed is consumed on the same tick and the box outlives it.
    */
   useEffect(() => {
     if (draftSeed == null) return;
-    setDraft(draftSeed);
+    setDraft(draftSeed.text);
+    setReviewing(draftSeed.reason === 'review');
     setTyping(true);
     consumeDraftSeed();
   }, [draftSeed, consumeDraftSeed]);
@@ -280,8 +329,12 @@ export function VoiceDock() {
   // constant, so the two mics read as one control that followed you here rather
   // than as a second, differently-coloured feature.
   const micColor = status === 'error' ? colors.danger : listening ? colors.accent : colors.text;
-  const micIcon: keyof typeof Ionicons.glyphMap =
-    status === 'thinking' ? 'ellipsis-horizontal' : status === 'speaking' ? 'volume-high' : 'mic';
+  // Same swap as `HomeMic`, for the same reason: a still ellipsis at the one
+  // moment there is nothing to do but wait reads as a hung app. The two mics
+  // are meant to be one control that followed you here, so they cannot animate
+  // differently.
+  const working = status === 'thinking';
+  const micIcon: keyof typeof Ionicons.glyphMap = status === 'speaking' ? 'volume-high' : 'mic';
 
   const onPressMic = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -308,6 +361,7 @@ export function VoiceDock() {
     if (status === 'thinking') return;
     const text = draft;
     setDraft('');
+    setReviewing(false);
     setTyping(false);
     void submitText(text);
   };
@@ -349,7 +403,11 @@ export function VoiceDock() {
                 micPress.style,
               ]}
             >
-              <Ionicons name={micIcon} size={26} color={colors.surface} />
+              {working ? (
+                <ThinkingDots color={colors.surface} size={6} gap={4} />
+              ) : (
+                <Ionicons name={micIcon} size={26} color={colors.surface} />
+              )}
             </AnimatedPressable>
           </Animated.View>
 
@@ -525,6 +583,43 @@ export function VoiceDock() {
               </View>
             ) : null}
 
+            {/*
+              Two taps, and neither of them reaches the model.
+
+              `classifyConfirmation` in the orchestrator parses these words
+              before anything else happens: a yes replays the actions that were
+              already parked, and a no drops them. So the whole exchange is free
+              — which is why forcing it through a keyboard was the wrong shape
+              twice over. It was slow, and it was slow in an app whose premise is
+              that you do not have to look at it.
+
+              "No" does not end the turn. It opens the box with the question
+              still on screen, because the useful answer to "Book it Thursday at
+              14:00?" is usually not "no" but "no — Friday".
+            */}
+            {yesNo && !correcting ? (
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                <Button
+                  label="Yes"
+                  variant="primary"
+                  icon="checkmark"
+                  disabled={status === 'thinking'}
+                  accessibilityLabel={`Yes — ${clarification.question}`}
+                  onPress={() => void submitText('yes')}
+                />
+                <Button
+                  label="No"
+                  icon="close"
+                  disabled={status === 'thinking'}
+                  accessibilityLabel={`No — ${clarification.question}`}
+                  onPress={() => {
+                    setCorrecting(true);
+                    setTyping(true);
+                  }}
+                />
+              </View>
+            ) : null}
+
             {outcome?.notice ? (
               <View
                 style={[
@@ -620,10 +715,42 @@ export function VoiceDock() {
               </Txt>
             ) : null}
 
-            {typing || clarification ? (
+            {/*
+              A pending question used to render this box unconditionally, which
+              is why turning off the forced `setTyping` was not enough on its
+              own: a yes/no question still came up with a focused text field and
+              a keyboard over half the sheet, under two buttons that made it
+              pointless. The box belongs to typing, to an *open* question, and
+              to a No that is being corrected — not to the existence of a
+              question.
+            */}
+            {typing || correcting || (clarification && !yesNo) ? (
               <View style={{ gap: spacing.sm }}>
+                {reviewing && !clarification ? (
+                  /*
+                    The one line that turns a text box into a check.
+
+                    Without it this surface is indistinguishable from the one
+                    that comes up when dictation *failed*, and a person whose
+                    sentence was heard perfectly is looking at what reads like an
+                    error. It says what was heard and what has not happened yet;
+                    the second half is the part that makes waiting here feel like
+                    a choice rather than a hang.
+
+                    A live region, because it appears with news on it and the
+                    box below it steals the focus — see `src/ui/a11y.ts`.
+                  */
+                  <Txt
+                    variant="caption"
+                    tone="secondary"
+                    accessibilityLiveRegion="polite"
+                    testID="voice-review-note"
+                  >
+                    {REVIEW_NOTE}
+                  </Txt>
+                ) : null}
                 <Input
-                  autoFocus
+                  autoFocus={!reviewing}
                   value={draft}
                   onChangeText={setDraft}
                   // The placeholder is a hint on one platform and the label on
@@ -631,9 +758,28 @@ export function VoiceDock() {
                   // same thing — and the answer box has to say what it is
                   // answering.
                   accessibilityLabel={
-                    clarification ? `Your answer to: ${clarification.question}` : 'What you would have said'
+                    clarification
+                      ? `Your answer to: ${clarification.question}`
+                      : reviewing
+                        ? `What Ridik heard, ready to edit: ${draft}`
+                        : 'What you would have said'
                   }
-                  placeholder={clarification ? 'Your answer…' : 'Type what you would have said…'}
+                  /*
+                    The placeholder is the only place the *length* of a useful
+                    answer can be taught, and it is worth teaching: this box is
+                    reached by tapping No on a concrete proposal, so what is
+                    wanted is the correction, not the whole sentence again.
+                    "Your answer…" invited a paragraph.
+                  */
+                  placeholder={
+                    correcting
+                      ? 'What instead? e.g. Friday at 3'
+                      : clarification
+                        ? 'Your answer…'
+                        : reviewing
+                          ? 'What Ridik heard…'
+                          : 'Type what you would have said…'
+                  }
                   multiline
                   // This box is "what you would have said", and nobody says
                   // twenty thousand characters. It took a paste of any size:
@@ -657,7 +803,35 @@ export function VoiceDock() {
                     // swallowing the sentence.
                     disabled={!draft.trim() || status === 'thinking'}
                   />
-                  <Button label="Speak instead" icon="mic" onPress={() => { setTyping(false); void startListening(); }} />
+                  <Button
+                    // "Speak instead" is right when the box replaced the
+                    // microphone. Here the microphone is what filled it, so the
+                    // offer is to have another go at the same sentence.
+                    label={reviewing ? 'Say it again' : 'Speak instead'}
+                    icon="mic"
+                    onPress={() => {
+                      setTyping(false);
+                      setReviewing(false);
+                      void startListening();
+                    }}
+                  />
+                  {reviewing ? (
+                    // The third answer, and the only one that costs nothing.
+                    // Without it the way out of a wrong transcript is to clear
+                    // the box by hand or dismiss the sheet, and dismissing it
+                    // files the words as unsent — a card on home about a
+                    // sentence the user had already decided against.
+                    <Button
+                      label="Discard"
+                      variant="ghost"
+                      onPress={() => {
+                        setDraft('');
+                        setReviewing(false);
+                        setTyping(false);
+                        close();
+                      }}
+                    />
+                  ) : null}
                 </View>
               </View>
             ) : (
@@ -766,7 +940,13 @@ function HitRow({ hit, onPress }: { hit: NonNullable<VoiceOutcomeItem['results']
 }
 
 const styles = StyleSheet.create({
-  dock: { position: 'absolute', right: 18, alignItems: 'flex-end', gap: 8, zIndex: 50 },
+  dock: {
+    position: 'absolute',
+    right: MIC_DOCK_RIGHT,
+    alignItems: 'flex-end',
+    gap: 8,
+    zIndex: 50,
+  },
   mic: {
     width: MIC_SIZE,
     height: MIC_SIZE,

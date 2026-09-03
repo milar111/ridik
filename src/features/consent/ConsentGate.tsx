@@ -19,6 +19,13 @@
  * It shows for exactly one reason: nobody has answered yet. A person who
  * declined has answered, and must never see this again — the route at
  * `/consent` is where they go if they change their mind.
+ *
+ * What it draws is `WelcomeFlow`, which *ends* with the same `ConsentScreen`
+ * this file used to show directly. The gate condition is unchanged and so is
+ * the thing that closes it: answering the disclosure. The welcome and the
+ * permission asks are steps in front of that, not a second gate with its own
+ * flag — an install that got halfway through the tour and was killed comes back
+ * to the start of it rather than to a half-onboarded state nothing can describe.
  */
 import { StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, useReducedMotion } from 'react-native-reanimated';
@@ -27,7 +34,7 @@ import { useSetting } from '@/hooks/useSettings';
 import { FADE } from '@/ui/motion';
 import { useTheme } from '@/ui/ThemeProvider';
 
-import { ConsentScreen } from './ConsentScreen';
+import { WelcomeFlow } from '@/features/onboarding';
 
 /**
  * Whether the lid is up.
@@ -80,7 +87,7 @@ export function ConsentGate() {
       onStartShouldSetResponder={() => true}
     >
       <View style={styles.fill}>
-        <ConsentScreen />
+        <WelcomeFlow />
       </View>
     </Animated.View>
   );

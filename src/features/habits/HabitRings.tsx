@@ -44,6 +44,13 @@ import { completionRate, formatRate, summarise, type HabitRate } from './rate';
 
 /** Big enough for two digits and a percent sign at `micro`, small enough for a row. */
 const SIZE = 56;
+
+/**
+ * Columns per row. Four 56pt rings and their names fit the narrowest phone this
+ * ships to, and four is the count that leaves a five-habit user a sensible
+ * second row rather than a single orphan.
+ */
+const PER_ROW = 4;
 const STROKE = 5;
 
 /**
@@ -166,8 +173,22 @@ function Ring({ name, rate, known }: { name: string; rate: HabitRate; known: boo
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
-  item: { width: SIZE, gap: 4, alignItems: 'center' },
+  /**
+   * A grid of fixed columns, not a packed row.
+   *
+   * `gap: 14` around `width: SIZE` items packs them against the left edge, so
+   * three habits drew three 56pt rings in the left 45% of a full-width card and
+   * left the rest of it empty — which reads as a layout that ran out rather
+   * than as a card with room in it. Quarters put each ring on a column centre
+   * whatever the count, so an empty slot looks like an empty slot, and a fourth
+   * habit lands where the eye already expected one.
+   *
+   * A percentage rather than a measured width because the card is whatever the
+   * screen is wide, and `gap` is deliberately absent: it would be added to
+   * four 25% columns and wrap the fourth onto its own row.
+   */
+  row: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 14 },
+  item: { width: `${100 / PER_ROW}%`, gap: 4, alignItems: 'center', paddingHorizontal: 4 },
   ring: { width: SIZE, height: SIZE, position: 'relative' },
   readout: {
     position: 'absolute',
@@ -178,7 +199,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  name: { width: SIZE, textAlign: 'center' },
+  name: { alignSelf: 'stretch', textAlign: 'center' },
   summary: {
     flexDirection: 'row',
     alignItems: 'center',

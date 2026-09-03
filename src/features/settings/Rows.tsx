@@ -6,7 +6,7 @@
  * and behave like the rest of the app, and a second set of near-identical rows
  * is how two screens quietly drift apart.
  */
-import { Children, useEffect, useState, type ReactNode } from 'react';
+import { Children, createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,6 +31,61 @@ import { Button, Card, Divider, Input, Section, Toggle, Txt, useToast } from '@/
  * its neighbours, and a layout transition on identities that shuffle animates
  * the wrong rows towards the wrong places.
  */
+/**
+ * The leading column, and the reason every label on a settings screen starts at
+ * the same x.
+ *
+ * A row used to size its own leading slot from whatever was in it — 19dp for an
+ * `Ionicons` glyph, 42 for the ember swatch, **nothing at all** for a row with
+ * no icon. Inside one card that is invisible, because a card tends to be all
+ * one kind. Down a whole screen it is not: Settings put `Free`, `Microphone`
+ * and `Where your words go` at 61dp, `Speak replies` at 30 and `Ember` at 80,
+ * so the eye had three left edges to track in one list.
+ *
+ * 22 is the widest thing that has to sit in it — a 19dp glyph with a point of
+ * air each side — and the ember swatch is drawn to that width rather than the
+ * column being widened to the swatch, because a 42dp column would push every
+ * label on the screen a finger's width right to accommodate one row.
+ */
+export const ROW_LEAD = 22;
+
+/**
+ * Whether rows in this subtree reserve the leading column even without an icon.
+ *
+ * It is a property of the *screen*, not of the row and not of the card: a
+ * screen where some cards have icons has to reserve it in the cards that do
+ * not, or the labels step in and out as you scroll past. Screens with no icons
+ * anywhere never turn it on and keep their labels against the card padding,
+ * which is why this is not simply always-on — 314 of the app's 711 rows have no
+ * icon and would gain an indent that means nothing.
+ */
+const LeadContext = createContext(false);
+
+export function ReserveRowLead({ children }: { children: ReactNode }) {
+  return <LeadContext.Provider value>{children}</LeadContext.Provider>;
+}
+
+/**
+ * The same indent a `Row`'s label gets, for the things in a card that are not
+ * rows.
+ *
+ * A card is rarely all rows. Developer's Assistant card is `Mode` (a row), then
+ * a `MODEL` heading with its chips, then two sliders, then three more rows —
+ * and only the rows knew about the leading column, so the card had its labels
+ * at **64pt** and its headings, chips, sliders and captions at **29pt**. That
+ * is the identical defect `ReserveRowLead` was written for, one level further
+ * in: it lined the rows up with each other and left everything between them
+ * behind.
+ *
+ * It is the column plus the row's own gap, because that is the distance from
+ * the card's padding to where a label actually starts. Zero when the screen has
+ * not reserved the column, so a card of plain rows is untouched.
+ */
+export function useRowLeadInset(): number {
+  const { spacing } = useTheme();
+  return useContext(LeadContext) ? ROW_LEAD + spacing.md : 0;
+}
+
 export function Group({ title, children }: { title: string; children: ReactNode }) {
   const { spacing } = useTheme();
   const arrive = useStaggeredEntry({ from: 'below' });
@@ -67,12 +122,19 @@ export function Row({
   onPress?: () => void;
 }) {
   const { colors, spacing } = useTheme();
+  const reserve = useContext(LeadContext);
   // A settings row runs the full width of a card; 0.98 is as far as something
   // that wide can travel before the card looks like it is being squeezed.
   const press = usePressScale({ scale: 0.98 });
   const body = (
     <View style={[styles.row, { paddingHorizontal: spacing.md, gap: spacing.md }]}>
-      {icon ? <Ionicons name={icon} size={19} color={tone ? colors[tone] : colors.textSecondary} /> : null}
+      {icon || reserve ? (
+        <View style={styles.lead}>
+          {icon ? (
+            <Ionicons name={icon} size={19} color={tone ? colors[tone] : colors.textSecondary} />
+          ) : null}
+        </View>
+      ) : null}
       <View style={{ flex: 1, gap: 1 }}>
         <Txt variant="body">{label}</Txt>
         {value ? (
@@ -86,7 +148,23 @@ export function Row({
           </Txt>
         ) : null}
       </View>
-      {right}
+      {/*
+        A slot, not the bare node.
+
+        `Button` sets `alignSelf: 'flex-start'` so it does not stretch to full
+        width when it is stacked in a column — which is right there and wrong
+        here, because this row's cross axis is *vertical*: the same declaration
+        means "hug the top", and it overrides the row's own `alignItems`. The
+        result was a `Change` button level with the title of a six-line row with
+        a hand's width of empty card under it, next to an icon that was
+        correctly centred, on the one screen where a stranger forms their first
+        opinion of the app.
+
+        Wrapping restores a column context, so the Button's `alignSelf` means
+        the horizontal thing it was written to mean and this row's
+        `alignItems: 'center'` decides the vertical.
+      */}
+      {right ? <View style={styles.rowRight}>{right}</View> : null}
     </View>
   );
   if (!onPress) return body;
@@ -155,6 +233,7 @@ export function SliderRow({
   onChange: (next: number) => void;
 }) {
   const { colors, radius, spacing } = useTheme();
+  const lead = useRowLeadInset();
   const [width, setWidth] = useState(0);
   const [shown, setShown] = useState(value);
   const [dragging, setDragging] = useState(false);
@@ -197,7 +276,14 @@ export function SliderRow({
   };
 
   return (
-    <View style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2, gap: 6 }}>
+    <View
+      style={{
+        paddingLeft: spacing.md + lead,
+        paddingRight: spacing.md,
+        paddingVertical: spacing.sm + 2,
+        gap: 6,
+      }}
+    >
       <View style={styles.sliderHead}>
         <Txt variant="body">{label}</Txt>
         <Txt variant="mono" tone="accent">
@@ -301,12 +387,15 @@ export function ValidatedTextRow({
   onCommit: (value: string) => void;
 }) {
   const { spacing } = useTheme();
+  const lead = useRowLeadInset();
   const [draft, setDraft] = useState<string | null>(null);
   const current = draft ?? value;
   const error = draft === null ? null : validate(draft.trim());
 
   return (
-    <View style={{ padding: spacing.md, gap: spacing.sm }}>
+    <View
+      style={{ paddingLeft: spacing.md + lead, paddingRight: spacing.md, paddingVertical: spacing.md, gap: spacing.sm }}
+    >
       <Input
         label={label}
         value={current}
@@ -394,6 +483,7 @@ export function SecretRow({
   const { spacing } = useTheme();
   const toast = useToast();
   const save = useSetSecret();
+  const lead = useRowLeadInset();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
 
@@ -413,7 +503,9 @@ export function SecretRow({
 
   if (editing) {
     return (
-      <View style={{ padding: spacing.md, gap: spacing.sm }}>
+      <View
+        style={{ paddingLeft: spacing.md + lead, paddingRight: spacing.md, paddingVertical: spacing.md, gap: spacing.sm }}
+      >
         <Input
           label={label}
           value={draft}
@@ -465,7 +557,10 @@ export function SecretRow({
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingVertical: 10, gap: 12 },
+  lead: { width: ROW_LEAD, alignItems: 'center' },
   rowActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  /** See the comment at the `right` slot. Column direction is the whole point. */
+  rowRight: { alignItems: 'flex-end' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   sliderHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sliderTrackArea: { justifyContent: 'center', height: 32 },

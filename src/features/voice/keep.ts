@@ -126,7 +126,7 @@ export function installTranscriptKeeper(): void {
       // Emptied *into the composer* rather than thrown away. The dock's draft
       // is React state and dies with the process exactly like the slot used
       // to, so the file stays put until the sentence is discarded or actually
-      // goes through — "Put it back" must not be the tap that loses it.
+      // goes through — "Edit" must not be the tap that loses it.
       if (!state.recovered && state.draftSeed) return;
       writeKeptTranscript(state.recovered);
       return;

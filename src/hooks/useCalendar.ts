@@ -30,6 +30,13 @@ import type {
 } from '@/repositories/calendarEvents';
 import type { SyncQueueEntry, SyncStatus } from '@/repositories/syncQueue';
 
+import {
+  CALENDAR_ENTITY_TABLE,
+  SYNC_OPERATIONS,
+  pushEventNow,
+  type CalendarSyncPayload,
+} from '@/services/calendar';
+
 import { invalidateKeys, qk } from './keys';
 
 /** A calendar write moves the day view, Today, and the outbox badge. */
@@ -117,12 +124,62 @@ export function usePendingCalendarSync(limit = 100): UseQueryResult<CalendarEven
   });
 }
 
+/* -------------------------------------------------------------- outbox -- */
+
+/**
+ * Puts one screen-made change in the sync outbox.
+ *
+ * This did not exist, and its absence was the whole of a bug that made the app
+ * quietly wrong rather than visibly broken: **only the assistant's writes were
+ * ever synced.** `src/llm/executor.ts` has done this since sync was built, so
+ * an event the user *spoke* reached Google and the phone's own calendar, while
+ * the identical event created, edited or deleted on the calendar screen changed
+ * nothing anywhere but SQLite. Deleting was the loudest case — the event
+ * vanished from Ridik and stayed in Google for ever — and `useDeleteEvent`
+ * carried the comment "keeps a tombstone so the worker can retract the event
+ * remotely" over code that never told the worker anything.
+ *
+ * It takes the **row**, not an id, and that is the point rather than a
+ * convenience. `enqueueEventSync` in the service re-reads by id, which is
+ * correct for a soft delete and silently useless for a hard one: the row is
+ * already gone, so all three remote ids come back null and the retraction has
+ * nothing left to retract. The ids have to be copied off the row the mutation
+ * returned, while it still exists.
+ *
+ * Queue first, then try to land it now. The queue is the durable path and the
+ * push is an optimisation; doing it the other way round means a change that
+ * succeeds immediately is never recorded, and one that fails is lost.
+ */
+async function queueSync(event: CalendarEvent, operation: 'push' | 'delete'): Promise<void> {
+  try {
+    await getRepositories().syncQueue.enqueue({
+      operation: operation === 'delete' ? SYNC_OPERATIONS.delete : SYNC_OPERATIONS.push,
+      entityTable: CALENDAR_ENTITY_TABLE,
+      entityId: event.id,
+      payload: {
+        googleEventId: event.googleEventId,
+        googleCalendarId: event.googleCalendarId,
+        nativeEventId: event.nativeEventId,
+      } satisfies CalendarSyncPayload,
+    });
+    await pushEventNow(event.id);
+  } catch {
+    // Never the user's problem, and never the mutation's. The row is written;
+    // syncing it is the queue's job and the queue is durable, so a failure here
+    // is a retry later rather than a screen that says the save did not work.
+  }
+}
+
 /* ------------------------------------------------------------------ writes */
 
 export function useCreateEvent(): UseMutationResult<CalendarEvent, Error, CreateEventInput> {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: CreateEventInput) => getRepositories().calendar.createEvent(input),
+    mutationFn: async (input: CreateEventInput) => {
+      const event = await getRepositories().calendar.createEvent(input);
+      await queueSync(event, 'push');
+      return event;
+    },
     onSettled: () => invalidateKeys(client, CALENDAR_WRITE_KEYS),
   });
 }
@@ -134,10 +191,16 @@ export function useCreateEventWithBuffer(): UseMutationResult<
 > {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (args: { input: CreateEventWithBufferInput; bufferMinutes?: number }) =>
-      getRepositories().calendar.createEventWithBuffer(args.input, {
+    mutationFn: async (args: { input: CreateEventWithBufferInput; bufferMinutes?: number }) => {
+      const created = await getRepositories().calendar.createEventWithBuffer(args.input, {
         bufferMinutes: args.bufferMinutes,
-      }),
+      });
+      // The travel block is a real event with its own remote copy, so it syncs
+      // on its own account — the executor does the same for the pair.
+      await queueSync(created.event, 'push');
+      if (created.buffer) await queueSync(created.buffer, 'push');
+      return created;
+    },
     onSettled: () => invalidateKeys(client, CALENDAR_WRITE_KEYS),
   });
 }
@@ -149,8 +212,11 @@ export function useUpdateEvent(): UseMutationResult<
 > {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { id: string; patch: UpdateEventPatch }) =>
-      unwrap(await getRepositories().calendar.updateEvent(input.id, input.patch)),
+    mutationFn: async (input: { id: string; patch: UpdateEventPatch }) => {
+      const updated = unwrap(await getRepositories().calendar.updateEvent(input.id, input.patch));
+      await queueSync(updated, 'push');
+      return updated;
+    },
     onSettled: () => invalidateKeys(client, CALENDAR_WRITE_KEYS),
   });
 }
@@ -165,9 +231,18 @@ export function useDeleteEvent(): UseMutationResult<
   return useMutation({
     mutationFn: async (input: { id: string; hard?: boolean }) => {
       const calendar = getRepositories().calendar;
-      return unwrap(
+      // Any travel block hanging off this event goes with it, and has to be
+      // read *before* the delete — a hard delete takes the rows with it and a
+      // soft one hides them from this query.
+      const buffers = (await calendar.listBuffersFor(input.id)).filter(
+        (row) => row.deletedAt === null,
+      );
+      const removed = unwrap(
         await (input.hard ? calendar.hardDelete(input.id) : calendar.softDelete(input.id)),
       );
+      await queueSync(removed, 'delete');
+      for (const buffer of buffers) await queueSync(buffer, 'delete');
+      return removed;
     },
     onSettled: () => invalidateKeys(client, CALENDAR_WRITE_KEYS),
   });

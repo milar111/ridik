@@ -59,6 +59,23 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ back: jest.fn(), replace: jest.fn(), canGoBack: () => true }),
 }));
 
+/* The welcome flow the gate now draws asks for permissions, and
+   `@/hooks/useSystem` binds the keychain, the calendar and the speech
+   recogniser at import time. Everything the ask rows read is supplied here so
+   the *disclosure* stays what these suites are about. */
+jest.mock('@/hooks/useSystem', () => ({
+  usePermissions: () => ({
+    data: {
+      microphone: { id: 'microphone', level: 'denied', detail: '' },
+      notifications: { id: 'notifications', level: 'denied', detail: '' },
+      calendar: { id: 'calendar', level: 'denied', detail: '' },
+      location: { id: 'location', level: 'denied', detail: '' },
+    },
+    isLoading: false,
+  }),
+  useRequestPermission: () => ({ mutate: jest.fn(), isPending: false, variables: undefined }),
+}));
+
 import { ConsentGate, ConsentScreen, useConsentGateOpen } from '@/features/consent';
 
 function wrap(ui: React.ReactElement) {
@@ -132,7 +149,9 @@ describe('the decision says what it decides', () => {
   it('marks its headings as headings', async () => {
     await wrap(<ConsentScreen />);
 
-    expect(screen.getByText('Where your words go').props.accessibilityRole).toBe('header');
+    expect(screen.getByText('Your life stays on this phone').props.accessibilityRole).toBe(
+      'header',
+    );
     expect(screen.getByText('Goes to Google').props.accessibilityRole).toBe('header');
   });
 });

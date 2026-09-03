@@ -59,12 +59,18 @@ const TAPPED = 'expo.modules.notifications.actions.DEFAULT';
 /**
  * Only the app's own routes, and only ones a notification has a reason to open.
  *
- * The same shape as `PUSH_BLOCKED_PARAMS` in `briefingPush.ts` and for the same
- * reason: `ridik:///?speak=1` is the one address in this app that is a verb,
- * and a notification that could carry it would be a way to start a recording
- * from outside the app. A scheduled reminder opens a screen; it never acts.
+ * `ridik:///?speak=1` is the one address in this app that is a verb, and a
+ * notification that could carry it would be a way to start a recording from
+ * outside the app. A scheduled reminder opens a screen; it never acts.
+ *
+ * This used to be one of two: `PUSH_BLOCKED_PARAMS` in `briefingPush.ts` said
+ * the same thing for the OneSignal briefing, whose href came off a dashboard
+ * and was therefore the *less* trusted of the two. That file is gone with the
+ * SDK, which makes this the only enforcement point left — so it is exported and
+ * tested by name rather than left as a private helper, and the rule is now
+ * stated here rather than cross-referenced from here.
  */
-function safeHref(href: unknown): string | null {
+export function safeHref(href: unknown): string | null {
   if (typeof href !== 'string') return null;
   const trimmed = href.trim();
   if (!trimmed.startsWith('/')) return null;

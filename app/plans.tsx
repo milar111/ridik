@@ -29,6 +29,7 @@ import {
   useRestorePurchases,
   useTopUpPrice,
 } from '@/hooks/useBilling';
+import { storeUnavailableReason } from '@/services/billing';
 import {
   NO_CREDITS,
   creditsRemaining,
@@ -481,6 +482,9 @@ function Offer() {
      to go looking for. */
   const [cadence, setCadence] = useState<Cadence>('year');
   const shown = plansBilling(available, cadence);
+  // Read at render, not at module load: `expoConfig` is not populated when this
+  // file is first evaluated, so a constant here would always say "no key".
+  const storeReason = storeUnavailableReason();
   const monthlyFor = (tier: PlanTier) =>
     plansBilling(available, 'month').find((plan) => plan.tier === tier) ?? null;
   /* One badge for the page, from the tier the badge is on — both tiers are
@@ -525,12 +529,28 @@ function Offer() {
         </Txt>
       ) : shown.length === 0 ? (
         <Card accent={colors.warning}>
+          {/*
+            Two very different failures used to read as one sentence.
+
+            "The store did not return anything to sell" blames a store that, in
+            the common case, was never asked: if no usable RevenueCat key is
+            present the provider is not even registered, and the paywall was
+            reporting an empty product list from a shop it had not opened. That
+            sentence sent somebody hunting through the paywall for a bug that
+            was a `test_` key in `.env` — RevenueCat Web Billing, which the
+            native SDKs refuse and which sells nothing on a phone.
+
+            `storeUnavailableReason()` names it exactly, including which prefix
+            this platform actually needs. When it is null the store *is*
+            configured and the old sentence is the true one.
+          */}
           <Txt variant="bodyStrong" tone="warning">
-            No plans available
+            {storeReason ? 'No store in this build' : 'No plans available'}
           </Txt>
           <Txt variant="caption" tone="secondary">
-            The store did not return anything to sell. On a simulator that is expected until the
-            products exist in App Store Connect and Play Console.
+            {storeReason ??
+              'The store did not return anything to sell. On a simulator that is expected until ' +
+                'the products exist in App Store Connect and Play Console.'}
           </Txt>
         </Card>
       ) : (

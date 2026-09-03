@@ -133,5 +133,7 @@ export function SectionBoundary({
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', minHeight: 44 },
-  retry: { minHeight: 44 },
+  // `alignSelf` because `Button` pins itself to `flex-start`, which on a row
+  // is the top — and this message is explicitly allowed two lines.
+  retry: { alignSelf: 'center', minHeight: 44 },
 });

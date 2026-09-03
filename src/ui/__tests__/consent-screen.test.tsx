@@ -30,7 +30,6 @@ import { ToastProvider } from '../components/Toast';
 const ALL_PROVIDERS = [
   consentModule.ASSISTANT_PROVIDER,
   consentModule.WHISPER_PROVIDER,
-  consentModule.PUSH_PROVIDER,
   consentModule.ANALYTICS_PROVIDER,
   consentModule.CRASH_PROVIDER,
   consentModule.STORE_PROVIDER,
@@ -78,6 +77,25 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ back: mockRouterBack, replace: mockRouterReplace, canGoBack: () => true }),
 }));
 
+/* The welcome flow the gate now draws asks for permissions, and
+   `@/hooks/useSystem` binds the keychain, the calendar and the speech
+   recogniser at import time. Everything the ask rows read is supplied here so
+   the *disclosure* stays what these suites are about. */
+let mockLevel = 'denied';
+jest.mock('@/hooks/useSystem', () => ({
+  usePermissions: () => ({
+    data: {
+      microphone: { id: 'microphone', level: mockLevel, detail: '' },
+      notifications: { id: 'notifications', level: mockLevel, detail: '' },
+      calendar: { id: 'calendar', level: mockLevel, detail: '' },
+      location: { id: 'location', level: mockLevel, detail: '' },
+    },
+    isLoading: false,
+    isSuccess: true,
+  }),
+  useRequestPermission: () => ({ mutate: jest.fn(), isPending: false, variables: undefined }),
+}));
+
 import { ConsentGate, ConsentScreen } from '@/features/consent';
 import ConsentRoute from '../../../app/consent';
 
@@ -108,6 +126,7 @@ function wrap(ui: React.ReactElement) {
 }
 
 beforeEach(() => {
+  mockLevel = 'denied';
   mockStored = defaultSettings();
   mockMode = 'personal-key';
   mockSetMany.mockClear();
@@ -127,12 +146,40 @@ describe('what the screen says', () => {
 
   /* What stays, what goes, what is never sent — and the third one is the one
      people assume is false, so it is the one that must be on the screen. */
+  /*
+   * The screen leads with what stays, so that half is the heading and the
+   * opening paragraph rather than a card. The two panels that *name a
+   * recipient* stay above the fold; the elaboration on what stays and what is
+   * never sent opens on request, which is the whole reason this screen stopped
+   * being five hundred words of prose in front of a first run.
+   */
   it('says what stays and what is never sent, not only what leaves', async () => {
     await wrap(<ConsentScreen />);
 
-    expect(await screen.findByText('Stays on this phone')).toBeTruthy();
-    expect(screen.getByText('Never sent')).toBeTruthy();
+    expect(await screen.findByText('Your life stays on this phone')).toBeTruthy();
     expect(screen.getByText(/nothing to sign in to/i)).toBeTruthy();
+
+    await fireEvent.press(screen.getByText('Exactly what is sent, and what never is'));
+    expect(screen.getByText('Stays on this phone')).toBeTruthy();
+    expect(screen.getByText('Never sent')).toBeTruthy();
+  });
+
+  /*
+   * The line the expander must never cross.
+   *
+   * Collapsing reassurance is a kindness; collapsing the disclosure would make
+   * this a screen that asks for consent without stating what to, which is the
+   * specific thing Guideline 5.1.2(i) rejects for. Both panels that name a
+   * recipient — the assistant, and the dictation service the audio reaches when
+   * the phone has no offline voice — have to be readable before anyone taps
+   * anything.
+   */
+  it('never hides a recipient behind the expander', async () => {
+    await wrap(<ConsentScreen />);
+
+    expect(await screen.findByText('Goes to Google')).toBeTruthy();
+    expect(screen.getByText('The recording')).toBeTruthy();
+    expect(screen.getByText(/to work out what you meant/)).toBeTruthy();
   });
 
   /**
@@ -196,16 +243,27 @@ describe('what the screen says', () => {
    * hospital appointment with it. A disclosure that understates is worse than
    * none, because it is the thing the grant was obtained with.
    */
+  /*
+   * Asserted against the whole screen rather than one text node, which is both
+   * more robust and a stronger guarantee: what matters is that a person can
+   * read every category, not which element happens to hold it. The index used
+   * to be one sixty-word sentence and is now a list, and the version of this
+   * test that read `panel.props.children` would have gone green on a screen
+   * that had quietly dropped two of the lines.
+   */
   it('says the assistant is told the labels, not only the sentence', async () => {
     await wrap(<ConsentScreen />);
-    // Keyed on a phrase the panel does not share with the opening paragraph,
-    // which summarises the same thing in one line.
-    const panel = await screen.findByText(/can work out what you meant/);
-    const body = String(panel.props.children);
+    await screen.findByText(/to work out what you meant/);
 
-    expect(body).toContain('calendar');
-    expect(body).toContain('open tasks');
-    expect(body).toContain('people you keep track of');
+    for (const category of [
+      /calendar today and tomorrow/i,
+      /timetable, with times and places/i,
+      /open tasks and when they are due/i,
+      /projects, notes, lists, habits, places, spending categories/i,
+      /people you keep track of/i,
+    ]) {
+      expect(screen.getByText(category)).toBeTruthy();
+    }
   });
 
   /**
@@ -224,7 +282,7 @@ describe('what the screen says', () => {
     expect(screen.queryByText(/audio is gone the moment/i)).toBeNull();
     expect(screen.getByText(/offline voice for your language/i)).toBeTruthy();
     // The refusal is what makes it true, so it has to be part of the answer.
-    expect(screen.getByText(/Say no below and Ridik will not do that/i)).toBeTruthy();
+    expect(screen.getByText(/Say no below and it never does/i)).toBeTruthy();
   });
 
   it.each([
@@ -324,7 +382,77 @@ describe('the first-run lid', () => {
     await wrap(<ConsentGate />);
 
     expect(await screen.findByTestId('consent-gate')).toBeTruthy();
-    expect(screen.getByText('Goes to Google')).toBeTruthy();
+    // The lid now opens on the welcome rather than straight onto the
+    // disclosure; what has not changed is that only the disclosure lifts it.
+    expect(screen.getByTestId('welcome-flow')).toBeTruthy();
+  });
+
+  /*
+   * The one thing the flow must never be able to do.
+   *
+   * There is a single control on every step now — a Skip was tried and removed,
+   * because a second button under the primary one is a choice on the one screen
+   * whose job is to be followed. Walking the whole tour therefore lands on the
+   * permission step, and the disclosure is still the last thing between it and
+   * a usable app. If a route ever appears that reaches home without passing the
+   * screen that names the third party your voice goes to, this fails.
+   */
+  it('has no way past the disclosure', async () => {
+    mockLevel = 'granted';
+    await wrap(<ConsentGate />);
+    await screen.findByTestId('welcome-flow');
+
+    for (let panel = 0; panel < 3; panel += 1) {
+      await fireEvent.press(screen.getByText('Next'));
+    }
+    expect(screen.queryByTestId('consent-screen')).toBeNull();
+
+    await fireEvent.press(screen.getByText('Continue'));
+    expect(await screen.findByText('Goes to Google')).toBeTruthy();
+  });
+
+  /*
+   * The app needs all three to do what it does, so the flow does not continue
+   * without them. The locked button *names what is missing* rather than going
+   * grey and silent — a disabled control with no explanation is the commonest
+   * way an onboarding dead-ends, and here the explanation costs three words.
+   *
+   * The escape hatch this must never lose is in `AskRow`: a permission the OS
+   * has hard-blocked raises no dialog again, so that row offers system settings
+   * instead of a button that would do nothing. Requiring a permission you
+   * cannot ask for twice is otherwise an install with no way forward.
+   */
+  it('will not continue until every permission is granted', async () => {
+    mockLevel = 'denied';
+    await wrap(<ConsentGate />);
+    await screen.findByTestId('welcome-flow');
+    for (let panel = 0; panel < 3; panel += 1) {
+      await fireEvent.press(screen.getByText('Next'));
+    }
+
+    // Still says Continue — it is off, not renamed. The label became a sentence
+    // for one build ("3 still needed", with a padlock) and read as a different
+    // control appearing where the button had been.
+    const locked = screen.getByText('Continue');
+    await fireEvent.press(locked);
+    expect(screen.queryByTestId('consent-screen')).toBeNull();
+
+    // And a dim button says nothing to a screen reader, so the label does.
+    expect(
+      screen.getByLabelText(/Not yet available — Microphone, Notifications, Calendar/),
+    ).toBeTruthy();
+  });
+
+  /** Blocked is not a dead end: it is the one state that sends you to the OS. */
+  it('sends a blocked permission to system settings', async () => {
+    mockLevel = 'blocked';
+    await wrap(<ConsentGate />);
+    await screen.findByTestId('welcome-flow');
+    for (let panel = 0; panel < 3; panel += 1) {
+      await fireEvent.press(screen.getByText('Next'));
+    }
+
+    expect(screen.getAllByText('Settings')).toHaveLength(3);
   });
 
   it.each(['granted', 'declined'] as const)('is gone once the answer is %p', async (answer) => {

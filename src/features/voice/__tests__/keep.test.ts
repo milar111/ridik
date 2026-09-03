@@ -127,7 +127,7 @@ describe('the keeper, wired to the store', () => {
   });
 
   /**
-   * "Put it back" moves the words out of the slot and into the composer — and
+   * "Edit" moves the words out of the slot and into the composer — and
    * the composer is React state, which dies with the process exactly like the
    * slot used to. Deleting the file there would make the *recovery* button the
    * tap that loses the sentence.

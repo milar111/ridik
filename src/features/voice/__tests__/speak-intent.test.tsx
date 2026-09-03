@@ -20,10 +20,7 @@ import { join } from 'node:path';
 import { act, render, screen, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
-import {
-  PUSH_BLOCKED_PARAMS,
-  resolvePushHref,
-} from '@/services/notifications/briefingPush';
+import { safeHref } from '@/services/notifications/responses';
 
 import {
   SPEAK_DEEP_LINK,
@@ -287,14 +284,18 @@ describe('the deep link, across four files', () => {
    * And a fifth place, which refuses it rather than opening it.
    *
    * A push may open home, so the parameter is what push routing has to bar —
-   * it cannot bar the segment. `briefingPush.ts` is pure by contract and this
-   * module is a hook over expo-router, so the name is spelled twice; if the
-   * flag were ever renamed and only one copy followed, a notification would
-   * silently regain the ability to switch somebody's microphone on.
+   * it cannot bar the segment — the *parameter* is the thing to refuse, and
+   * home is where a briefing should open.
+   *
+   * There were two enforcement points and now there is one. `briefingPush.ts`
+   * held the other for the OneSignal briefing, whose href came off a dashboard
+   * and was the less trusted of the two; it went with the SDK. `safeHref` in
+   * `responses.ts` is what is left, so this asserts against it directly.
    */
-  it('is the parameter a push is not allowed to carry', () => {
-    expect(PUSH_BLOCKED_PARAMS).toContain(SPEAK_PARAM);
-    expect(resolvePushHref({ data: { href: SPEAK_DEEP_LINK } }, null)).toBeNull();
+  it('is the parameter a notification is not allowed to carry', () => {
+    // The flag is refused while the route it rode in on survives.
+    expect(safeHref(SPEAK_DEEP_LINK.replace('ridik://', ''))).not.toContain(SPEAK_PARAM);
+    expect(safeHref(`/tasks?${SPEAK_PARAM}=1`)).toBe('/tasks');
   });
 });
 

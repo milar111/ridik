@@ -30,7 +30,14 @@ export function ErrorRow({ message, onRetry }: { message: string; onRetry: () =>
       <Txt variant="caption" tone="danger" style={{ flex: 1 }}>
         {message}
       </Txt>
-      <Button label="Retry" size="sm" variant="ghost" onPress={onRetry} />
+      <Button
+        label="Retry"
+        size="sm"
+        variant="ghost"
+        // See `centreOnRow`: `Button` pins itself to the top of a row.
+        style={styles.centreOnRow}
+        onPress={onRetry}
+      />
     </View>
   );
 }
@@ -61,5 +68,12 @@ export function SkeletonRows({ count = 5, height = 54 }: { count?: number; heigh
 }
 
 const styles = StyleSheet.create({
+  /**
+   * `Button` sets `alignSelf: 'flex-start'` so it does not stretch to the
+   * full width of a *column*. On a row that same declaration means the top,
+   * and it beats the row's own `alignItems`. Only the caller knows which axis
+   * it is on, so the caller says.
+   */
+  centreOnRow: { alignSelf: 'center' },
   error: { flexDirection: 'row', alignItems: 'center', minHeight: 44 },
 });

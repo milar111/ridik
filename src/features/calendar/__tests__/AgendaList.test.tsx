@@ -104,6 +104,49 @@ describe('AgendaList', () => {
     expect(screen.getByText('1 event')).toBeTruthy();
   });
 
+  /**
+   * The redesign. A stack of cards could say what is on and could not say what
+   * the day is *shaped* like, so both of these were invisible on the one screen
+   * you open to find out — while the Today screen said CLASH about the very
+   * same pair.
+   */
+  it('names the free time between two things', async () => {
+    stub([
+      event({ id: 'a', title: 'Dentist', startsAt: at('09:00'), endsAt: at('10:00') }),
+      event({ id: 'b', title: 'Lecture', startsAt: at('14:00'), endsAt: at('15:00') }),
+    ]);
+    await wrap(<AgendaList date={DATE} zone={ZONE} onOpen={jest.fn()} />);
+    expect(screen.getByText('4h free')).toBeTruthy();
+  });
+
+  it('says when two things collide, and by how much of the later one', async () => {
+    stub([
+      event({ id: 'a', title: 'Robotics', startsAt: at('14:00'), endsAt: at('17:00') }),
+      event({ id: 'b', title: 'Meeting', startsAt: at('15:00'), endsAt: at('16:00') }),
+    ]);
+    await wrap(<AgendaList date={DATE} zone={ZONE} onOpen={jest.fn()} />);
+    expect(screen.getByText('Clashes by 1h')).toBeTruthy();
+  });
+
+  it('carries the end time on the card, not arithmetic in the gutter', async () => {
+    stub([event({ id: 'a', title: 'Dentist', startsAt: at('09:00'), endsAt: at('10:30') })]);
+    await wrap(<AgendaList date={DATE} zone={ZONE} onOpen={jest.fn()} />);
+    // The gutter is a clock column: one reading, the start.
+    expect(screen.getByText('09:00')).toBeTruthy();
+    expect(screen.getByText(/1h 30m · until 10:30/)).toBeTruthy();
+  });
+
+  /** An all-day event has no time, so it has no place on a time spine. */
+  it('lifts an all-day event out of the clock column', async () => {
+    stub([
+      event({ id: 'a', title: 'Public holiday', allDay: true }),
+      event({ id: 'b', title: 'Dentist', startsAt: at('09:00'), endsAt: at('10:00') }),
+    ]);
+    await wrap(<AgendaList date={DATE} zone={ZONE} onOpen={jest.fn()} />);
+    expect(screen.getByText('all day')).toBeTruthy();
+    expect(screen.getByText('Public holiday')).toBeTruthy();
+  });
+
   it('coaches the user with something to say when the day is empty', async () => {
     stub([]);
     await wrap(<AgendaList date={DATE} zone={ZONE} onOpen={jest.fn()} />);

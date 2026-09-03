@@ -306,7 +306,7 @@ describe('getting it back', () => {
     useVoiceStore.getState().close();
 
     expect(useVoiceStore.getState().recoverTranscript()).toBe('add oat milk to the shopping list');
-    expect(useVoiceStore.getState().draftSeed).toBe('add oat milk to the shopping list');
+    expect(useVoiceStore.getState().draftSeed).toEqual({ text: 'add oat milk to the shopping list', reason: 'recovered' });
     expect(useVoiceStore.getState().expanded).toBe(true);
     // Out of the keeping place, because it is now in the composer where the
     // user can see it — and `keepDraft` is what puts it back if the sheet goes.
@@ -346,7 +346,7 @@ describe('getting it back', () => {
   });
 
   /**
-   * The edit, which is the whole reason "Put it back" exists.
+   * The edit, which is the whole reason "Edit" exists.
    *
    * The dock used to call `keepDraft(draft)` and then `close()`, and `close()`
    * recomputes the slot from `state.transcript` — which is still the *original*

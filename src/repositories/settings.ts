@@ -164,6 +164,25 @@ export const SETTINGS = {
   /** When that switch was last changed, as UTC epoch ms, or null. */
   analyticsOptInAt: define<number | null>(z.number().int().min(0).nullable(), () => null),
   weekStartsOn: define<0 | 1>(z.union([z.literal(0), z.literal(1)]), () => 1),
+  /**
+   * Which of the calendar's three views it opens on.
+   *
+   * A preference rather than screen state: somebody who thinks in weeks thinks
+   * in weeks every time they open it, and losing that on every navigation is
+   * the sort of small rudeness that makes an app feel like a demo. `day` is the
+   * default because it is the one that needs no reading — it is the agenda the
+   * rest of the app is built around.
+   */
+  /*
+    Two views, not three. Week was the least distinct of them — Day says what is
+    next, Month says where in the month, and Week said a bit of both at a size
+    that could show neither well. A row still holding `"week"` fails the union
+    and decodes to the default, which is the whole reason these are closed sets.
+  */
+  calendarView: define<'day' | 'month'>(
+    z.union([z.literal('day'), z.literal('month')]),
+    () => 'day',
+  ),
   whisperFallbackEnabled: define(z.boolean(), () => true),
 
   /**

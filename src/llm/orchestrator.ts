@@ -90,7 +90,21 @@ export type TurnOutcome = {
   transcript: string;
   feedback?: string;
   items: TurnItem[];
-  clarification?: { question: string; pending?: string };
+  /**
+   * A question the turn stopped on, and how it can be answered.
+   *
+   * `answers` is the half the screen needs. A confirmation is always a yes/no
+   * — the actions are parked and a yes replays them without calling the model
+   * at all — so it gets buttons, and answering costs nothing. An open question
+   * is the model asking for something it genuinely could not default, and only
+   * a sentence will do.
+   *
+   * It exists because the sheet had one answer box for both, so the fastest
+   * possible reply to "Add to calendar — Robotics report, 3 Sep 14:00?" was to
+   * type the word "yes" at a keyboard, on the screen of an app whose entire
+   * premise is not having to.
+   */
+  clarification?: { question: string; pending?: string; answers?: ClarificationAnswers };
   /**
    * The turn did not run. Set only where nothing was interpreted and nothing
    * was written — a transport failure, a 401, a timeout, or an internal throw.
@@ -183,6 +197,15 @@ const NO = { markers: new Set(NO_MARKERS), words: new Set([...NO_MARKERS, ...NO_
 const CONFIRMATION_WORD_CAP = 6;
 
 export type Confirmation = 'yes' | 'no' | 'other';
+
+/**
+ * How a pending question can be answered.
+ *
+ * `yesno` — the actions are already parked; a yes replays them and a no drops
+ * them, both without reaching the model. `open` — the model asked for
+ * something it could not default and needs words back.
+ */
+export type ClarificationAnswers = 'yesno' | 'open';
 
 export function classifyConfirmation(text: string): Confirmation {
   const tokens = text
@@ -578,6 +601,11 @@ export function createOrchestrator(options: OrchestratorOptions) {
       asked ??
       (modelQuestion
         ? {
+            // The model was told to propose something concrete and ask a
+            // yes/no (see RULES 4 in `prompt.ts`), so this is offered with
+            // buttons too — but a yes here still costs a turn, because there
+            // is nothing parked to replay and the model has to be told.
+            answers: 'yesno' as const,
             question: modelQuestion.question,
             pending: encodePending({
               v: 1,
@@ -702,7 +730,7 @@ type Pair = { action: LlmAction; result: ActionResult; granted?: ConfirmScope };
 function clarificationFor(
   transcript: string,
   pairs: Pair[],
-): { question: string; pending: string } | undefined {
+): { question: string; pending: string; answers: ClarificationAnswers } | undefined {
   const blocked = pairs.filter((pair) => pair.result.needsConfirmation);
   // Source order everywhere except the one sentence the user hears: a later
   // action routinely depends on a row an earlier one created, so the *actions*
@@ -726,6 +754,11 @@ function clarificationFor(
         } an answer too${answerable ? ' — yes covers them all' : ''}.`;
 
   return {
+    // Every question this function produces is a yes/no: it is built from
+    // actions that are already parked, and `applyPending` replays them without
+    // calling the model. Answering costs nothing, which is exactly why it
+    // should not require a keyboard.
+    answers: 'yesno' as const,
     question,
     pending: encodePending(
       answerable

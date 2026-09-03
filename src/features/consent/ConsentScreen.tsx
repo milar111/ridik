@@ -27,7 +27,7 @@
  * notice point at. One component, so the wording a decision was taken under
  * cannot drift between the two places it is taken.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Linking, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
@@ -42,7 +42,6 @@ import {
   ANALYTICS_PROVIDER,
   ASSISTANT_PROVIDER,
   CRASH_PROVIDER,
-  PUSH_PROVIDER,
   STORE_PROVIDER,
   WHISPER_PROVIDER,
   type AssistantConsent,
@@ -53,7 +52,7 @@ import { isStoreBuild } from '@/services/billing/entitlement';
 import { HeatField } from '@/ui/HeatField';
 import { useTheme } from '@/ui/ThemeProvider';
 import { useFontsReady } from '@/ui/fonts';
-import { useStaggeredEntry } from '@/ui/motionHooks';
+import { AnimatedPressable, usePressScale, useStaggeredEntry } from '@/ui/motionHooks';
 import { Button, Card, Txt, useToast } from '@/ui/components';
 
 import { consentPatch } from './gate';
@@ -64,6 +63,40 @@ type Panel = {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   body: string;
+  /**
+   * The enumeration, when there is one, drawn as lines rather than as clauses.
+   *
+   * This is where the real length was. The index Google is sent is a *list* of
+   * six or seven things, and it was written as one sixty-word sentence held
+   * together by semicolons — accurate, unreadable, and impossible to skim for
+   * the one item you actually wanted to check. Nothing was cut to make these:
+   * every category in the old sentence is a line here, which is why the screen
+   * reads shorter while saying the same amount.
+   */
+  items?: readonly string[];
+  /** The sentence after the list. */
+  tail?: string;
+  /**
+   * Whether this panel is the disclosure or the elaboration.
+   *
+   * The two visible ones are the two that name a recipient: the assistant, and
+   * the dictation service the audio reaches when the phone has no offline
+   * voice. Those are what a person is actually deciding about, and moving
+   * either behind a tap would make this a screen that asks for consent without
+   * saying what to — the specific thing Guideline 5.1.2(i) rejects for.
+   *
+   * The other two are true and reassuring rather than load-bearing: what stays
+   * (summarised in the heading above them) and what is never sent. They open on
+   * request.
+   *
+   * A caution learned the expensive way, recorded below: the visible half must
+   * not be a *shorter* version of the enumeration. A first attempt at this
+   * screen summarised the index as "your event and task titles, list and habit
+   * names" and silently dropped the timetable's places, task due dates,
+   * projects, note titles and spending categories. Understating is the failure
+   * mode here, so the panel body is used verbatim in both places.
+   */
+  disclosure?: true;
 };
 
 /**
@@ -99,44 +132,52 @@ const PANELS: Panel[] = [
     icon: 'phone-portrait-outline',
     title: 'Stays on this phone',
     body:
-      'Your calendar, tasks, notes, lists, spending and the people you keep track of live in one ' +
-      'file on this device. There is no account and nothing to sign in to. Ridik keeps its own ' +
-      'count of how you use it — how many turns, which tools ran, what failed and how long it ' +
-      'took — in that same file, where you can read it under Usage and clear it whenever you ' +
-      'like. None of it is sent, and none of it is what you said. That file is included in your ' +
-      "phone's own backup, so if you have iCloud or Google backup switched on, a copy sits in " +
-      'your account — and comes back when you restore a new phone.',
+      'Your calendar, tasks, notes, lists, spending and people live in one file on this device. ' +
+      'Ridik also counts how you use it — how many turns, which tools ran, what failed, how long ' +
+      'it took — in that same file. You can read that under Usage and clear it whenever you ' +
+      'like; none of it is sent, and none of it is what you said. The file is part of your ' +
+      "phone's own backup, so with iCloud or Google backup on, a copy sits in your account and " +
+      'comes back when you restore a new phone.',
   },
   {
     icon: 'paper-plane-outline',
+    disclosure: true,
     title: `Goes to ${ASSISTANT_PROVIDER}`,
     body:
-      `The words of your request, today's date, and a short index of your own labels, so ` +
-      `${ASSISTANT_PROVIDER} can work out what you meant by "Thursday" or "the robotics lab": ` +
-      'what is on your calendar today and tomorrow and what is on your timetable, with their ' +
-      'times and places; your open tasks and when they are due; and the names of your projects, ' +
-      'notes, lists, habits, places, spending categories and the people you keep track of. It ' +
-      'answers with what to do; Ridik does it here.',
+      `Your request, today's date, and a short index of your own labels — enough for ` +
+      `${ASSISTANT_PROVIDER} to work out what you meant by "Thursday" or "the robotics lab":`,
+    items: [
+      'Your calendar today and tomorrow, and your timetable, with times and places',
+      'Your open tasks and when they are due',
+      'The names of your projects, notes, lists, habits, places, spending categories and the people you keep track of',
+    ],
+    tail: `${ASSISTANT_PROVIDER} answers with what to do. Ridik does it here.`,
   },
   {
     icon: 'mic-outline',
+    disclosure: true,
     title: 'The recording',
     body:
-      'Your phone turns speech into text itself whenever it has an offline voice for your ' +
-      "language. When it has none, the words are dictated by the same service your keyboard's " +
-      'microphone uses, and the audio goes there. Say no below and Ridik will not do that — it ' +
-      'asks you to type instead. Either way Ridik keeps no recording.',
+      'Your phone transcribes on its own whenever it has an offline voice for your language. ' +
+      "When it has none, the audio goes to the same dictation service your keyboard's microphone " +
+      'uses. Say no below and it never does — Ridik asks you to type instead. Either way, no ' +
+      'recording is kept.',
   },
   {
     icon: 'lock-closed-outline',
     title: 'Never sent',
     body:
       'What is written inside a note. What anything cost. A phone number, an address, or where ' +
-      'you have been. Of the things you make, only the labels above ever leave, and only so the ' +
-      'assistant can tell one of your things from another. The counts below are not part of ' +
-      'this: they record that something happened, never what it was.',
+      'you have been. Only the labels listed above ever leave, and only so the assistant can ' +
+      'tell one of your things from another. The counts are not part of that: they record that ' +
+      'something happened, never what it was.',
   },
 ];
+
+/** What a person must read before deciding. */
+const DISCLOSURE = PANELS.filter((panel) => panel.disclosure);
+/** True, reassuring, and one tap away. */
+const REST = PANELS.filter((panel) => !panel.disclosure);
 
 /** One line saying which way this particular build reaches the assistant. */
 const ROUTE_COPY = {
@@ -245,46 +286,52 @@ export function ConsentScreen({ onDone }: ConsentScreenProps) {
         }}
         showsVerticalScrollIndicator={false}
       >
+        {/*
+          The promise first, the disclosure second, the enumeration on request.
+
+          This screen used to open with "Where your words go" over four cards
+          holding about five hundred words of prose, and it is the first thing a
+          new install ever sees. Every sentence in it is accurate and hard-won —
+          two of them used to be *wrong*, and the docblock on `PANELS` records
+          what that cost — so none of them have been cut. What changed is which
+          of them a person has to read before they can decide.
+
+          The lead is now the thing that is actually true and actually rare: no
+          account, and your life in a file on your phone. That is the product's
+          best claim, and it was being delivered in the register of a terms of
+          service. Under it, the one sentence Guideline 5.1.2(i) and Play's
+          prominent-disclosure rule require — what leaves, to whom, and why —
+          which stays visible and unexpandable. The full enumeration is one tap
+          away and everything in it is still exact.
+
+          A note for anyone tempted to trim further: the *disclosure* is the
+          visible half. Moving "goes to Google" behind the expander would make
+          this a screen that asks for consent without stating what to, which is
+          the specific thing the guideline rejects for.
+        */}
         <Animated.View entering={arrive(0)} style={{ gap: spacing.xs }}>
           <Txt variant="eyebrow" tone="tertiary">
             {granted ? 'YOUR WORDS' : 'BEFORE YOU START'}
           </Txt>
-          {/* Headers, so a screen reader can move through this by heading
-              rather than swiping every paragraph of it. It is the longest
-              screen in the app and the one nobody may skip. */}
           <Txt variant="display" accessibilityRole="header">
-            Where your words go
+            Your life stays on this phone
           </Txt>
           <Txt variant="body" tone="secondary">
-            Ridik keeps your life on this phone. To turn what you say into events, tasks and notes,
-            it sends what you said — and a short index of your own labels — to {ASSISTANT_PROVIDER}.
+            No account, nothing to sign in to. Your calendar, tasks, notes, lists and spending
+            live in one file on this device, and you can export or erase all of it whenever you
+            like.
           </Txt>
         </Animated.View>
 
-        {PANELS.map((panel, index) => (
+        {DISCLOSURE.map((panel, index) => (
           <Animated.View key={panel.title} entering={arrive(index + 1)}>
-            <Card style={{ gap: spacing.sm }}>
-              <View style={styles.panelHead}>
-                <View
-                  style={[
-                    styles.glyph,
-                    { backgroundColor: colors.accentMuted, borderRadius: radius.sm },
-                  ]}
-                >
-                  <Ionicons name={panel.icon} size={17} color={colors.accent} />
-                </View>
-                {/* `flex: 1` and not its own content: Android measures a Text in
-                    a flex row short and clips it rather than wrapping. */}
-                <Txt variant="heading" accessibilityRole="header" style={styles.panelTitle}>
-                  {panel.title}
-                </Txt>
-              </View>
-              <Txt variant="caption" tone="secondary">
-                {panel.body}
-              </Txt>
-            </Card>
+            <PanelCard panel={panel} />
           </Animated.View>
         ))}
+
+        <Animated.View entering={arrive(DISCLOSURE.length + 1)}>
+          <Disclosure />
+        </Animated.View>
 
         <Animated.View entering={arrive(4)} style={{ gap: spacing.sm }}>
           {mode.data ? (
@@ -327,10 +374,9 @@ export function ConsentScreen({ onDone }: ConsentScreenProps) {
               switch on rather than merely leave alone; the sentence says so,
               because "optional" and "off right now" are different promises. */}
           <Txt variant="micro" tone="tertiary">
-            There is no account. Four optional extras also need this permission, and each is off
+            There is no account. Three optional extras also need this permission, and each is off
             or unconfigured until you set it up: Whisper transcription, which uploads the recording
-            to {WHISPER_PROVIDER} with a key you paste in yourself; the daily briefing notification,
-            whose one line is handed to {PUSH_PROVIDER} to deliver; and — only if you switch on Help
+            to {WHISPER_PROVIDER} with a key you paste in yourself; and — only if you switch on Help
             improve Ridik in Settings, which is off — a count of what you did, never what you said,
             to {ANALYTICS_PROVIDER}, along with crash reports to {CRASH_PROVIDER}.
           </Txt>
@@ -402,8 +448,105 @@ export function ConsentScreen({ onDone }: ConsentScreenProps) {
   );
 }
 
+/** One panel. Used verbatim above the fold and inside the expander. */
+function PanelCard({ panel }: { panel: Panel }) {
+  const { colors, radius, spacing } = useTheme();
+  return (
+    <Card style={{ gap: spacing.sm }}>
+      <View style={styles.panelHead}>
+        <View
+          style={[styles.glyph, { backgroundColor: colors.accentMuted, borderRadius: radius.sm }]}
+        >
+          <Ionicons name={panel.icon} size={17} color={colors.accent} />
+        </View>
+        {/* `flex: 1` and not its own content: Android measures a Text in a flex
+            row short and clips it rather than wrapping. */}
+        <Txt variant="heading" accessibilityRole="header" style={styles.panelTitle}>
+          {panel.title}
+        </Txt>
+      </View>
+      <Txt variant="caption" tone="secondary">
+        {panel.body}
+      </Txt>
+      {panel.items ? (
+        <View style={{ gap: 4 }}>
+          {panel.items.map((item) => (
+            <View key={item} style={styles.item}>
+              {/* A dot rather than a bullet glyph: the character renders at a
+                  different weight in every fallback face, and this list has to
+                  look the same on both platforms. */}
+              <View style={[styles.dot, { backgroundColor: colors.accent }]} />
+              <Txt variant="caption" tone="secondary" style={{ flex: 1 }}>
+                {item}
+              </Txt>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {panel.tail ? (
+        <Txt variant="caption" tone="secondary">
+          {panel.tail}
+        </Txt>
+      ) : null}
+    </Card>
+  );
+}
+
+/**
+ * The rest, on request.
+ *
+ * Every word of `PANELS` is still here and still exact — this is a change of
+ * *order*, not of content. What a person must read to decide is above; what
+ * they may want to read is behind this, and it opens in place rather than on
+ * another screen so the decision and the detail are never separated by
+ * navigation.
+ *
+ * It is not a link out to a policy. A privacy policy on the web is a different
+ * document with a different audience, and a consent screen that outsources its
+ * own explanation to a browser is one where the grant is obtained without the
+ * disclosure being read at all.
+ */
+function Disclosure() {
+  const { colors, radius, spacing } = useTheme();
+  const [open, setOpen] = useState(false);
+  const press = usePressScale({ scale: 0.99 });
+
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <AnimatedPressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={open ? 'Hide the detail' : 'Read exactly what is sent and what never is'}
+        onPress={() => setOpen((current) => !current)}
+        {...press.handlers}
+        style={[
+          styles.more,
+          { backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.md },
+          press.style,
+        ]}
+      >
+        <Ionicons name="document-text-outline" size={17} color={colors.accent} />
+        <Txt variant="bodyStrong" style={{ flex: 1 }}>
+          Exactly what is sent, and what never is
+        </Txt>
+        <Ionicons
+          name={open ? 'chevron-up' : 'chevron-down'}
+          size={16}
+          color={colors.textSecondary}
+        />
+      </AnimatedPressable>
+
+      {open ? REST.map((panel) => <PanelCard key={panel.title} panel={panel} />) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  more: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  item: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  // Nudged to sit on the first line's optical centre rather than its box.
+  dot: { width: 4, height: 4, borderRadius: 2, marginTop: 7 },
   panelHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   glyph: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
   panelTitle: { flex: 1 },

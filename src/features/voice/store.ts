@@ -4,6 +4,7 @@ import type { LlmAction } from '@/llm/contract';
 // Type-only, so nothing of the executor is loaded here: the dock renders the
 // rows a search found and has to name their shape, not build one.
 import type { ResultHit } from '@/llm/executor';
+import type { ClarificationAnswers } from '@/llm/orchestrator';
 
 export type VoiceStatus = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error';
 
@@ -39,6 +40,19 @@ export type RecoveredTranscript = {
   reason: 'failed' | 'unsent' | 'unanswered';
 };
 
+/**
+ * Text on its way into the composer, and what the composer should say about it.
+ *
+ * `recovered` — the user is taking back something that was set aside. The
+ * words are theirs and the box is where they left off.
+ *
+ * `review` — the recogniser has just finished and nothing has been sent. The
+ * words are a *claim* about what was said, and the box is the last point at
+ * which correcting them is free. See `reviewBeforeSending` in
+ * `src/repositories/settings.ts` for why that point is worth stopping at.
+ */
+export type DraftSeed = { text: string; reason: 'recovered' | 'review' };
+
 export type VoiceOutcomeItem = {
   toolName: LlmAction['tool_name'];
   ok: boolean;
@@ -70,7 +84,21 @@ export type VoiceOutcome = {
   noticeAction?: { label: string; href: string };
   feedback?: string;
   items: VoiceOutcomeItem[];
-  clarification?: { question: string; pending?: string };
+  /**
+   * A question the turn stopped on, and how it can be answered.
+   *
+   * `answers` is the half the screen needs. A confirmation is always a yes/no
+   * — the actions are parked and a yes replays them without calling the model
+   * at all — so it gets buttons, and answering costs nothing. An open question
+   * is the model asking for something it genuinely could not default, and only
+   * a sentence will do.
+   *
+   * It exists because the sheet had one answer box for both, so the fastest
+   * possible reply to "Add to calendar — Robotics report, 3 Sep 14:00?" was to
+   * type the word "yes" at a keyboard, on the screen of an app whose entire
+   * premise is not having to.
+   */
+  clarification?: { question: string; pending?: string; answers?: ClarificationAnswers };
   /**
    * The turn never ran — a transport failure, a 401, a timeout, an internal
    * throw. See `TurnOutcome.failed`.
@@ -173,7 +201,7 @@ type VoiceState = {
    */
   heardNothing: boolean;
   outcome: VoiceOutcome | null;
-  pendingClarification: { question: string; pending?: string } | null;
+  pendingClarification: { question: string; pending?: string; answers?: ClarificationAnswers } | null;
   /** See `RecoveredTranscript`. Outlives `close()` and `reset()` by design. */
   recovered: RecoveredTranscript | null;
   /**
@@ -182,8 +210,16 @@ type VoiceState = {
    * One-shot, and it exists because the offer to restore is drawn in two
    * places — the sheet and home — while the text box lives in only one of
    * them. `consumeDraftSeed()` is the dock taking it.
+   *
+   * It carries **why** as well as what, because the same box says two
+   * different things. `recovered` is "this was lost, here it is back" and the
+   * words are already the user's own. `review` is "this is what I heard, is it
+   * right?" — the words are the *recogniser's* claim about what was said, and
+   * the box is a chance to correct it before anybody is charged for it. A box
+   * labelled "Type what you would have said" over a sentence the app just
+   * heard reads as a failure, which is exactly what this path is not.
    */
-  draftSeed: string | null;
+  draftSeed: DraftSeed | null;
 
   open: () => void;
   /**
@@ -192,7 +228,7 @@ type VoiceState = {
    * `draft` is whatever was still in the text box, and it **outranks** the
    * transcript rather than being kept beside it. The dock used to call
    * `keepDraft(draft)` and then `close()`, and `close()` recomputed the slot
-   * from `state.transcript` — so a user who pressed "Put it back", edited the
+   * from `state.transcript` — so a user who pressed "Edit", changed the
    * sentence and then tapped the backdrop got the *pre-edit* words handed back
    * and their correction destroyed by the one feature whose entire job is not
    * losing typed words. One call, one decision, newest wins.
@@ -340,10 +376,40 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
           if (ticket !== session) return;
           set({ partial: text });
         },
+        /*
+          A finished utterance is *shown*, never sent.
+
+          Not a preference, and deliberately not one. It was built as a switch
+          and the switch was removed the same day, because the two halves of the
+          app it sits between are not symmetrical: sending is one tap and
+          unsending is not a thing that exists. There is no "rewind my last
+          request" — `LastAction` undoes a *single* row through an allow-list
+          (see `src/features/home/undo.ts`), so a mis-heard sentence that filed
+          three actions is three separate corrections, some of which cannot be
+          made at all. Against that, one look at one line of text is nothing.
+
+          It is also the only check in this app that happens before the model is
+          called. `confirmMode`, the executor's review gate and the handlers'
+          own questions all read a *reply*, so by the time any of them can ask,
+          the request has been made and billed. Here nothing has been spent yet,
+          which is what makes fixing "doctor" to "tutor" free.
+
+          Not `submitText`, not an error, and emphatically not `recovered`:
+          nothing has gone wrong and nothing has been lost. The words go into
+          the composer wearing the review label, and the user presses Send — or
+          fixes the one word the recogniser missed first.
+        */
         onFinal: (text) => {
           if (ticket !== session) return;
-          set({ partial: '' });
-          void get().submitText(text);
+          set({
+            partial: '',
+            status: 'idle',
+            error: null,
+            needsRetry: false,
+            heardNothing: false,
+            expanded: true,
+            draftSeed: { text, reason: 'review' as const },
+          });
         },
         onError: (message, reason) => {
           if (ticket !== session) return;
@@ -474,7 +540,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     // an in-flight turn as finished.
     set({
       recovered: null,
-      draftSeed: kept.text,
+      draftSeed: { text: kept.text, reason: 'recovered' as const },
       expanded: true,
       ...(state.status === 'error'
         ? { status: 'idle' as const, error: null, needsRetry: false, heardNothing: false }

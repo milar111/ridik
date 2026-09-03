@@ -68,16 +68,26 @@ export const ASSISTANT_PROVIDER = 'Google';
  */
 export const WHISPER_PROVIDER = 'OpenAI';
 
-/**
- * The third, which is not an AI vendor and still receives personal data.
- *
- * The daily briefing push is composed by the dashboard from tags this device
- * publishes, and two of those tags are `composeVisual`'s own sentences — real
- * event titles, task titles, habit names, the names of people in the CRM. That
- * is content leaving the phone to a named company, so it belongs on the same
- * screen and behind the same grant. See `services/notifications/push.ts`.
- */
-export const PUSH_PROVIDER = 'OneSignal';
+/*
+  There is no `PUSH_PROVIDER` any more, and its absence is the point.
+
+  It was `'OneSignal'`, and it belonged here for a good reason: the daily
+  briefing push was composed by a dashboard from tags this device published, and
+  two of those tags were `composeVisual`'s own sentences — real event titles,
+  task titles, habit names, the names of people in the CRM. That is content
+  leaving the phone to a named company, so it sat on the same screen behind the
+  same grant.
+
+  The SDK is gone (see `services/notifications/index.ts` for what linking it
+  cost), so the recipient is gone, so the sentence naming it is gone. That
+  ordering matters: a disclosure that keeps naming a company you no longer send
+  anything to is not harmlessly out of date, it is inaccurate about where data
+  goes, which is the one thing this file exists to be right about.
+
+  `consent-screen.test.tsx` enumerates every `*_PROVIDER` this module exports and
+  fails if one is not on the screen — so removing the constant is what keeps that
+  test honest rather than something the test had to be told about.
+*/
 
 /**
  * The fourth recipient, and the only one that is us.

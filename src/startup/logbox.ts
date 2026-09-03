@@ -12,11 +12,13 @@
  * Three separate reasons it is inert here, and it needs all three to be worth
  * silencing rather than investigating:
  *
- *  - **It is not this app's registration.** Push is OneSignal
- *    (`services/notifications/push.ts`). Nothing in `src/` calls
+ *  - **It is not this app's registration.** Nothing in `src/` calls
  *    `getExpoPushTokenAsync`, so the value being read is one nothing writes and
  *    nothing reads back. `expo-notifications` is here for *local* notifications
- *    — the briefing and reminders — which do not touch this path.
+ *    — reminders, place alerts, focus phases — which do not touch this path.
+ *    (It used to say "push is OneSignal" as the first half of this reason.
+ *    There is no remote push at all now, which makes the point stronger rather
+ *    than weaker: nothing in this app has ever wanted an Expo push token.)
  *  - **It cannot happen on a build that ships.** A signed build has the
  *    entitlement and the read succeeds. It is not reachable by a user.
  *  - **It cannot be fixed by adding the entitlement**, because an unsigned
@@ -25,8 +27,9 @@
  * So it is unfixable, harmless, and printed on every launch — which is the
  * combination that matters, because an overlay that is always red is one nobody
  * reads. The pattern is the full sentence rather than a package-wide prefix:
- * every *other* thing `expo-notifications` complains about is still shown,
- * including the delegate collision `services/notifications/index.ts` documents.
+ * every *other* thing `expo-notifications` complains about is still shown —
+ * which is how the delegate collision `services/notifications/index.ts`
+ * documents stayed visible for as long as it existed.
  *
  * `LogBox` is a development-only overlay and `ignoreLogs` is a no-op in a
  * release bundle, so nothing here changes what ships. It must be imported

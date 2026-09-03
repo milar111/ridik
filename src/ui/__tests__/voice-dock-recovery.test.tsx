@@ -5,7 +5,7 @@
  * recogniser that recorded *nothing* produces, and a recovered transcript
  * arriving in the text box the user can edit and send. The offer to restore is
  * drawn on home by a different component entirely, so the text travels through
- * the store — and a dock that never picked it up would leave a "Put it back"
+ * the store — and a dock that never picked it up would leave an "Edit"
  * button that appeared to do nothing at all.
  */
 import { act, fireEvent, render, screen } from '@testing-library/react-native';

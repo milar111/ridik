@@ -333,12 +333,20 @@ export const FEW_SHOT_EXAMPLES: readonly FewShotExample[] = [
     },
   },
   {
+    /*
+      The shape every clarification has to take: a concrete proposal, answerable
+      with one tap. The old version of this example asked "When should I book
+      the meeting with Professor Dimitrov?", which is a *worse* interaction than
+      the one the user just had — they spoke a sentence and got back a demand
+      for another, longer sentence, in an app whose premise is not typing.
+      Guessing 10:00 and being told no costs two words; asking costs a dictation.
+    */
     input: 'Book a meeting with Professor Dimitrov.',
     output: {
       conversational_feedback: 'I need a time first.',
       requires_user_input: true,
       clarification: {
-        question: 'When should I book the meeting with Professor Dimitrov?',
+        question: 'Book it tomorrow at 10:00?',
         pending: 'calendar_add: meeting with Professor Dimitrov, time unknown',
       },
       actions: [],
@@ -507,7 +515,7 @@ export function buildSystemPrompt(context: LlmContext, options: SystemPromptOpti
       '1. MULTI-INTENT. One utterance may contain several unrelated intents across several domains. Emit an action for every one of them, in the order the user said them. Never drop the parts you find least interesting.',
       '2. CURRICULUM INFERENCE. Homework for a subject is due the evening before that subject\'s next class. Read CLASSES above to find that class, schedule the work before it, and write the reasoning into schedule_reason ("next Physics class is Monday 08:00"). If the subject has no class listed, fall back to tomorrow evening and say so in schedule_reason.',
       '3. BUFFERS. Set needs_buffer when the event has a physical location the user must travel to, or when it is an exam or a critical meeting. Suggest buffer_minutes (15 for nearby, 30 for across town, 60 before an exam). Do not buffer calls, online meetings or plain reminders.',
-      '4. CLARIFICATION. Ask only when an essential scheduling parameter is genuinely missing and no sensible default exists. Then set requires_user_input to true, put one short question in clarification.question, and return NO actions at all — never a partial write. Never ask about something you can default: durations default to 60 minutes, unspecified evening work to 18:00, "morning" to 09:00, and a bare date to that day.',
+      '4. CLARIFICATION. Ask only when an essential scheduling parameter is genuinely missing and no sensible default exists. Then set requires_user_input to true, put ONE question in clarification.question, and return NO actions at all — never a partial write. Never ask about something you can default: durations default to 60 minutes, unspecified evening work to 18:00, "morning" to 09:00, and a bare date to that day. The question MUST be answerable with yes or no, and MUST propose the concrete thing you would do — "Book it Thursday at 14:00?", never "When should I book it?". Pick the most likely value and offer it; the user taps No and says the correction in a word or two if you guessed wrong. Under fifteen words, one question only, no lists, no "and", never two questions in one sentence.',
       '5. PROJECTS. When the user frames something as "for project X" / "for my X trip", route it to project_add_item with project: "X". Prefer is_checkbox: true for anything that sounds like packing, shopping or a todo; leave it false for ideas, notes and questions.',
       '6. NEVER invent ids. You have never seen one. Refer to existing rows with a target/query object using the words the user said.',
       '7. Datetimes are LOCAL wall clock, "YYYY-MM-DDTHH:mm", with no timezone and no offset. Dates are "YYYY-MM-DD". Times of day are "HH:mm" on a 24-hour clock. Resolve "tomorrow", "Friday" and "next week" against NOW above.',

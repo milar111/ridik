@@ -1,5 +1,8 @@
 export {
   DraftInput,
+  ROW_LEAD,
+  ReserveRowLead,
+  useRowLeadInset,
   Group,
   GroupSkeleton,
   RetryRow,

@@ -207,7 +207,7 @@ describe('settings screen', () => {
   it('renders against a completely empty database', async () => {
     await wrap(<SettingsScreen />);
 
-    for (const group of ['PREFERENCES', 'YOUR DATA', 'ABOUT']) {
+    for (const group of ['COLOUR', 'YOUR DATA', 'ABOUT']) {
       expect(await screen.findByText(group)).toBeTruthy();
     }
   });
@@ -221,7 +221,7 @@ describe('settings screen', () => {
    */
   it('keeps the knobs that can break the app off the profile', async () => {
     await wrap(<SettingsScreen />);
-    await screen.findByText('PREFERENCES');
+    await screen.findByText('COLOUR');
 
     for (const gone of [
       'Model',
@@ -240,10 +240,8 @@ describe('settings screen', () => {
       'Rebuild search index',
       'Week starts on',
       'Default travel buffer',
-      // Moved to developer: a store build has nothing to paste, and connecting
-      // Google is a one-time setup act rather than a preference.
+      // Moved to developer: a store build has nothing to paste.
       'Assistant key',
-      'Google Calendar',
       // Deleted outright — it was a mirror of an OS permission, not a setting.
       'Show in your phone calendar',
     ]) {
@@ -258,7 +256,7 @@ describe('settings screen', () => {
    */
   it('has no briefing schedule to configure', async () => {
     await wrap(<SettingsScreen />);
-    await screen.findByText('PREFERENCES');
+    await screen.findByText('COLOUR');
 
     expect(screen.queryByText('Briefing at')).toBeNull();
     expect(screen.queryByText('Morning briefing')).toBeNull();
@@ -411,7 +409,7 @@ describe('settings screen', () => {
       });
       const view = await wrap(<SettingsScreen />);
 
-      await screen.findByText('PREFERENCES');
+      await screen.findByText('COLOUR');
       expect(screen.queryByText(describeTrial({ requestsUsed: 18, tokensUsed: 0 }))).toBeNull();
       expect(screen.queryByText(/free requests left/)).toBeNull();
       await view.unmount();
@@ -420,10 +418,52 @@ describe('settings screen', () => {
 
   /* Two preferences now, and both pass the same test: set either one to the
      worst value you can find and the app still works. */
-  it('leaves the preferences that cannot break anything', async () => {
+  /*
+   * The screen is one microphone and one answer, and the test for a row here is
+   * no longer "can a stranger break the app with it" but "does the app need to
+   * ask at all". A switch is a decision taken before anything gets done, which
+   * is the opposite of the product.
+   *
+   * What survives is not preferences. It is the plan, the disclosure of where
+   * words go, the switch that lets anything leave the phone, the user's own
+   * data, and one choice of colour that cannot be wrong — every ember is held
+   * to the same contrast rules in `widget-tokens.test.ts`.
+   */
+  it('asks about nothing it could decide itself', async () => {
     await wrap(<SettingsScreen />);
-    expect(await screen.findByText('Speak replies')).toBeTruthy();
     expect(await screen.findByText('COLOUR')).toBeTruthy();
+
+    // Off by default, on for the life of the app, and it reads every
+    // confirmation and the whole briefing out loud. It is behind the developer
+    // gate now, beside the rate control it was always separated from.
+    expect(screen.queryByText('Speak replies')).toBeNull();
+    expect(screen.queryByText('PREFERENCES')).toBeNull();
+  });
+
+  /*
+   * The review before sending is not on this screen because it is not a choice.
+   * It shipped as a switch for one afternoon; sending is one tap and unsending
+   * is not a thing that exists, so the only free correction point in the app
+   * cannot be something a person can turn off and then dictate through.
+   */
+  /*
+   * Google Calendar came *back* from the developer screen, and the reason is
+   * worth keeping: the calendar screen draws a banner saying "Google Calendar
+   * isn't connected" and sends you here to fix it, so hiding the row behind
+   * seven taps on Version made the app advertise a destination that did not
+   * exist. It passes this screen's own test — the worst value a stranger can
+   * pick is "not connected", which is a working app whose events stay local.
+   */
+  it('lets Google Calendar be connected from where the banner sends you', async () => {
+    await wrap(<SettingsScreen />);
+    expect(await screen.findByText('Google Calendar')).toBeTruthy();
+  });
+
+  it('offers no way to skip the check before sending', async () => {
+    await wrap(<SettingsScreen />);
+    await screen.findByText('COLOUR');
+
+    expect(screen.queryByText('Check before sending')).toBeNull();
   });
 
 
@@ -440,7 +480,7 @@ describe('settings screen', () => {
       notifications: 'granted',
     };
     await wrap(<SettingsScreen />);
-    await screen.findByText('PREFERENCES');
+    await screen.findByText('COLOUR');
 
     // Calendar and location are denied, and stay unmentioned: nothing the user
     // has switched on needs them. They are asked for on the screens that do —

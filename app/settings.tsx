@@ -27,7 +27,10 @@ import { now } from '@/core/clock';
 import { formatDayHeading } from '@/core/time';
 import {
   Group,
+  ROW_LEAD,
+  ReserveRowLead,
   GroupSkeleton,
+  RetryRow,
   Row,
   SwitchRow,
 } from '@/features/settings';
@@ -48,6 +51,9 @@ import {
   FREE,
 } from '@/services/billing/entitlement';
 import {
+  useCalendarConnection,
+  useConnectCalendar,
+  useDisconnectCalendar,
   useEraseAllData,
   useExportEverything,
   usePermissions,
@@ -68,6 +74,10 @@ export default function SettingsScreen() {
 
   return (
     <Screen back title="Profile">
+      {/* Some cards here carry icons and some do not; the leading column is
+          reserved across all of them so the labels share one left edge down
+          the whole screen. See `ROW_LEAD`. */}
+      <ReserveRowLead>
       <ErrorBoundary label="profile: plan">
         <PlanGroup />
       </ErrorBoundary>
@@ -77,8 +87,8 @@ export default function SettingsScreen() {
       <ErrorBoundary label="profile: assistant">
         <AssistantGroup />
       </ErrorBoundary>
-      <ErrorBoundary label="profile: preferences">
-        <PreferencesGroup />
+      <ErrorBoundary label="profile: calendar">
+        <CalendarGroup />
       </ErrorBoundary>
       <ErrorBoundary label="profile: colour">
         <ColourGroup />
@@ -90,6 +100,7 @@ export default function SettingsScreen() {
       <ErrorBoundary label="profile: about">
         <AboutGroup unlocked={developer.value} onUnlock={() => developer.set(true)} />
       </ErrorBoundary>
+      </ReserveRowLead>
     </Screen>
   );
 }
@@ -339,18 +350,105 @@ function AssistantGroup() {
   );
 }
 
-/* ------------------------------------------------------------------- voice */
+/* ---------------------------------------------------------------- calendar */
 
-function PreferencesGroup() {
-  const tts = useSetting('ttsEnabled');
+/**
+ * Connecting Google Calendar.
+ *
+ * It belongs on this screen for the same reason "Where your words go" does: it
+ * is not a preference, it is a second place the user's data lives, and the one
+ * question a stranger could get wrong — connect or not — has a working app on
+ * both sides of it.
+ *
+ * It spent a while behind the developer gate, on the reasoning that it is a
+ * one-time setup act rather than a preference. Both halves were true and the
+ * conclusion was still wrong, because the calendar screen draws a banner that
+ * says "Google Calendar isn't connected" and sends you *here* to fix it — so
+ * the app was advertising a destination that did not exist for anybody who had
+ * not tapped Version seven times. The confusion it caused is worth recording:
+ * events mirrored to the phone's own calendar show up in Samsung Calendar,
+ * which is itself synced to Google, so the app looked connected while nothing
+ * had ever reached Google at all. See the note in `nativeCalendar.ts` about the
+ * mirror being a LOCAL calendar.
+ *
+ * "Show in your phone calendar" used to sit beside it and is gone: it was never
+ * a preference at all, only a mirror of an OS permission that the app now asks
+ * for at the point it needs it.
+ */
+function CalendarGroup() {
+  const connection = useCalendarConnection();
+  const connect = useConnectCalendar();
+  const disconnect = useDisconnectCalendar();
+  const toast = useToast();
+
+  if (connection.isLoading && !connection.data) return <GroupSkeleton title="Calendar" rows={1} />;
+  if (connection.isError) {
+    return (
+      <Group title="Calendar">
+        <RetryRow
+          message="Could not read your calendar status."
+          onRetry={() => void connection.refetch()}
+        />
+      </Group>
+    );
+  }
+
+  const status = connection.data;
+  const connected = status?.connected ?? false;
+  const configured = status?.configured ?? false;
+
   return (
-    <Group title="Preferences">
-      <SwitchRow
-        label="Speak replies"
-        hint="Read confirmations and the briefing out loud."
-        value={tts.value}
-        onChange={tts.set}
+    <Group title="Calendar">
+      <Row
+        icon="calendar-outline"
+        label="Google Calendar"
+        value={
+          !configured
+            ? 'Not available in this build'
+            : connected
+              ? (status?.email ?? 'Connected')
+              : 'Not connected'
+        }
+        hint={
+          connected
+            ? 'Your events sync both ways in the background.'
+            : // Not "stay on this phone": they do reach the phone's own
+              // calendar, which is exactly what made this confusing — that
+              // calendar is displayed by Samsung Calendar and Google Calendar,
+              // both of which sync to Google, while the events themselves never
+              // did. See the note in `SyncBanner`.
+              'Events reach your phone’s own calendar, but not Google, until you connect.'
+        }
+        right={
+          !configured ? undefined : connected ? (
+            <Button
+              label="Disconnect"
+              size="sm"
+              loading={disconnect.isPending}
+              onPress={() =>
+                disconnect.mutate(undefined, {
+                  onSuccess: () => toast.show({ message: 'Disconnected' }),
+                  onError: (error: Error) => toast.show({ message: error.message, tone: 'danger' }),
+                })
+              }
+            />
+          ) : (
+            <Button
+              label="Connect"
+              size="sm"
+              variant="primary"
+              loading={connect.isPending}
+              onPress={() =>
+                connect.mutate(undefined, {
+                  onSuccess: () => toast.show({ message: 'Connected', tone: 'success' }),
+                  onError: (error: Error) => toast.show({ message: error.message, tone: 'danger' }),
+                })
+              }
+            />
+          )
+        }
       />
+
     </Group>
   );
 }
@@ -418,11 +516,16 @@ function EmberRow({
           gap: spacing.md,
         }}
       >
-        <View style={{ flexDirection: 'row', gap: 2 }}>
+        {/* Drawn to `ROW_LEAD`, not to its own taste: four cells of 4 with 2dp
+            between them is exactly the 22 every other row's icon sits in, so
+            `Ember` starts at the same x as `Microphone` two cards above it. A
+            42dp swatch would have been the other way round — one row widening
+            the column for the whole screen. */}
+        <View style={{ width: ROW_LEAD, flexDirection: 'row', gap: 2 }}>
           {[ramp.cold, ramp.low, ramp.mid, ramp.hot].map((fill, index) => (
             <View
               key={index}
-              style={{ width: 9, height: 22, borderRadius: radius.sm / 5, backgroundColor: fill }}
+              style={{ width: 4, height: 22, borderRadius: radius.sm / 5, backgroundColor: fill }}
             />
           ))}
         </View>

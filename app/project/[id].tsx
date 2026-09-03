@@ -341,7 +341,6 @@ export default function ProjectDetailScreen() {
         <ProjectHeader
           project={data.project}
           counts={data.counts}
-          onBack={() => router.back()}
           onShare={() => void share()}
           onMenu={() => setMenu({ kind: 'project' })}
           sharing={sharing}

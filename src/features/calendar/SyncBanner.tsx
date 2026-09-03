@@ -20,7 +20,7 @@ export function SyncBanner({ onPress }: { onPress: () => void }) {
     <AnimatedPressable
       testID="calendar-not-connected"
       accessibilityRole="button"
-      accessibilityLabel="Google Calendar is not connected. Open settings to connect."
+      accessibilityLabel="Google Calendar is not connected. Events show in your phone's own calendar but never reach Google. Open settings to connect."
       onPress={onPress}
       {...press.handlers}
       style={[
@@ -38,8 +38,19 @@ export function SyncBanner({ onPress }: { onPress: () => void }) {
         <Txt variant="caption" style={{ color: colors.warning }}>
           Google Calendar isn’t connected
         </Txt>
+        {/*
+          Precise, because the vague version cost a real user an evening. It
+          said "Events stay on this device", and they do — in the phone's *own*
+          calendar, which on an Android with a Google account signed in is
+          displayed by Samsung Calendar and Google Calendar alike. So the events
+          appeared in an app that syncs to Google, and the obvious conclusion
+          was that they had reached Google. They had not: the mirror is a LOCAL
+          calendar (`nativeCalendar.ts`) and Android never syncs one of those to
+          an account. "On this device" was true and unhelpful; naming the two
+          places is what makes the banner worth reading.
+        */}
         <Txt variant="micro" tone="tertiary">
-          Events stay on this device until you connect it.
+          They show in your phone’s calendar, but never reach Google.
         </Txt>
       </View>
       <Ionicons name="chevron-forward" size={14} color={colors.warning} />

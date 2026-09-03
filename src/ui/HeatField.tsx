@@ -52,6 +52,19 @@ export type HeatState = 'idle' | 'listening' | 'thinking' | 'error';
  * Heat is carried by `CORE` below instead — a tighter, brighter source — which
  * leaves the peach edges intact and keeps the readout legible.
  */
+/** The pulse while a turn is in flight. Slower than a voice, faster than rest. */
+const THINKING_MS = 2200;
+
+/**
+ * How long the source takes to cross and come back.
+ *
+ * Thinking is meant to be noticed. Idle is meant to be *felt* — long enough
+ * that the movement is under the threshold of being seen happening, which is
+ * the whole difference between an ambient field and a screensaver.
+ */
+const THINKING_DRIFT_MS = 2600;
+const IDLE_DRIFT_MS = 18_000;
+
 const REACH: Record<HeatState, number> = {
   idle: 0.80,
   listening: 0.86,
@@ -66,11 +79,24 @@ const INTENSITY: Record<HeatState, number> = {
   error: 0.6,
 };
 
-/** The inner source, which is what actually gets hot. */
+/**
+ * The inner source, which is what actually gets hot.
+ *
+ * `thinking` was 0.45 and barely moved, which made the app's slowest moment its
+ * quietest one — the field settled to a dim glow and sat there for as long as
+ * the model took. Waiting is the state that most needs to look alive, because
+ * it is the only one where the user has nothing to do but decide whether the
+ * app has stopped. It is up, and it *pulses* on its own tempo (see
+ * `THINKING_MS`) rather than sharing idle's slow breath.
+ *
+ * Still under `listening`. Listening is the user acting; thinking is the app
+ * working, and an app that shouts louder than the person is the wrong way
+ * round.
+ */
 const CORE: Record<HeatState, number> = {
   idle: 0,
   listening: 1,
-  thinking: 0.45,
+  thinking: 0.72,
   error: 0,
 };
 
@@ -112,9 +138,11 @@ export function HeatField({
       return;
     }
 
-    // Listening reuses the same value at a quicker tempo, so the field never
-    // jumps between two independent loops mid-phrase.
-    const period = state === 'listening' ? 1500 : BREATH_MS;
+    // One value, three tempos — never three loops, so the field cannot jump
+    // between two independent animations mid-phrase. Listening is quick because
+    // it answers a voice; thinking sits between that and rest, which is what
+    // makes it read as effort rather than as a heartbeat or a pause.
+    const period = state === 'listening' ? 1500 : state === 'thinking' ? THINKING_MS : BREATH_MS;
     breath.value = withRepeat(
       withSequence(
         withTiming(1, { duration: period / 2, easing: Easing.inOut(Easing.sin) }),
@@ -124,11 +152,29 @@ export function HeatField({
       false,
     );
 
-    if (state === 'thinking') {
+    /*
+      The source wanders, and how fast says what the app is doing.
+
+      Idle used to be *still* — the field breathed in place and nothing moved
+      sideways, which at a glance is a very large blurred circle sitting in the
+      middle of the screen. What makes an ambient background read as expensive
+      rather than as a static gradient is that it is never quite where it was,
+      and the way to get that is a period long enough that nobody catches it
+      moving: eighteen seconds out and eighteen back, against thinking's 2.6.
+      You cannot watch it happen; you notice the screen is not the same.
+
+      One shared value at three tempos, never three loops — the same rule the
+      breath follows, and for the same reason: independent animations drift out
+      of phase and the field stops reading as one object.
+    */
+    const wander =
+      state === 'thinking' ? THINKING_DRIFT_MS : state === 'error' ? null : IDLE_DRIFT_MS;
+
+    if (wander !== null) {
       drift.value = withRepeat(
         withSequence(
-          withTiming(1, { duration: 2600, easing: Easing.inOut(Easing.sin) }),
-          withTiming(-1, { duration: 2600, easing: Easing.inOut(Easing.sin) }),
+          withTiming(1, { duration: wander, easing: Easing.inOut(Easing.sin) }),
+          withTiming(-1, { duration: wander, easing: Easing.inOut(Easing.sin) }),
         ),
         -1,
         true,
@@ -150,19 +196,39 @@ export function HeatField({
 
   const coreStyle = useAnimatedStyle(() => ({
     opacity: core.value * (0.72 + breath.value * 0.28),
-    transform: [{ scale: 0.9 + breath.value * 0.12 + core.value * 0.1 }],
+    transform: [
+      { scale: 0.9 + breath.value * 0.12 + core.value * 0.1 },
+      // Only while thinking, and only a little: the source rides up and down
+      // with its own breath, so the light appears to come from something
+      // working rather than from a lamp on a dimmer. 14pt at the extremes.
+      { translateY: state === 'thinking' ? (0.5 - breath.value) * 28 : 0 },
+    ],
   }));
 
   const glow = useAnimatedStyle(() => {
     // Felt at the edge of vision, not watched. Listening is the only state
     // where the pulse is meant to be noticed.
-    const amplitude = state === 'listening' ? 0.07 : 0.028;
+    const amplitude = state === 'listening' ? 0.07 : state === 'thinking' ? 0.05 : 0.028;
     return {
       opacity: intensity.value,
       transform: [
-        // Only `thinking` moves the source sideways, and barely: a light that
-        // wandered while you were reading would pull the eye off the text.
-        { translateX: drift.value * width * 0.05 },
+        /*
+          How far the source wanders, which is a different question from how
+          fast. Thinking is meant to be noticed — this used to be half as far,
+          which was below the threshold of registering at all, in the one state
+          where the user is waiting and needs to see that something is
+          happening. Idle goes further still, because it has eighteen seconds to
+          get there and nothing on screen is competing with it; what makes that
+          safe is the *speed*, not the distance.
+
+          Both stay well inside the frame. A light that visibly crossed the page
+          while you were reading would pull the eye off the text, and the
+          receipt and the next event are both on this screen.
+        */
+        { translateX: drift.value * width * (state === 'thinking' ? 0.085 : 0.11) },
+        // And a little vertically, on a different beat to the horizontal, so
+        // the path is a slow figure rather than a line being retraced.
+        { translateY: drift.value * breath.value * height * 0.03 },
         { scale: reach.value * (1 + breath.value * amplitude) },
       ],
     };

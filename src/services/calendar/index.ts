@@ -240,6 +240,7 @@ export { RIDIK_CALENDAR_TITLE } from './nativeCalendar';
 export {
   CALENDAR_ENTITY_TABLE,
   SYNC_OPERATIONS,
+  type CalendarSyncPayload,
   type CalendarSyncOperation,
   type ProcessQueueResult,
   type PullSummary,

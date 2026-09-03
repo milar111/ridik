@@ -21,7 +21,7 @@ Worth knowing first, because it decides how much of this is one-time work.
 | **Free-trial length** | App Store Connect / Play Console, on the product | Next launch |
 | **Assistant model, spend caps** | In-app: Profile → tap Version ×7 → Developer | Immediately |
 | **The entitlement's name** | RevenueCat, plus `EXPO_PUBLIC_REVENUECAT_ENTITLEMENT` | Next build — no code |
-| **Which RevenueCat / OneSignal project** | `EXPO_PUBLIC_REVENUECAT_*`, `EXPO_PUBLIC_ONESIGNAL_APP_ID` | Next build — no code |
+| **Which RevenueCat project** | `EXPO_PUBLIC_REVENUECAT_*` | Next build — no code |
 
 Everything else — screens, copy outside the paywall, the palette — is code and
 needs a release.
@@ -234,27 +234,6 @@ The three failures, and what each actually means:
 Only for the map picker in Places, and **Android only** — iOS uses Apple Maps
 with no key. Full steps in `SETUP.md` §5c.
 
-### 2.5 OneSignal — remote push (optional)
-
-Only for pushes the *server* sends. Everything the app schedules for itself —
-reminders, the briefing, location alerts — is `expo-notifications` and needs
-none of this.
-
-1. Create a OneSignal app; add both platforms (iOS bundle id and Android
-   package are both `ai.dby.ridik`).
-2. iOS needs an **APNs .p8 key** uploaded to OneSignal, and push enabled on the
-   provisioning profile. Android needs the **Firebase service account JSON**.
-   Both live in the OneSignal dashboard, never in this repo.
-3. Set the App ID — it is a public identifier, and the SDK takes it at runtime,
-   so it is the only value the app needs:
-
-```bash
-EXPO_PUBLIC_ONESIGNAL_APP_ID=00000000-0000-0000-0000-000000000000
-```
-
-Unset, the app initialises nothing and behaves exactly as it did before push
-existed.
-
 ## Crash reporting (Sentry) — optional, and off unless you configure it
 
 ```bash
@@ -290,15 +269,6 @@ Two things to know before you turn it on:
   has been asked is the thing the consent screen exists to prevent. See the
   docblock in `crash.ts` before "fixing" it.
 
-One thing *is* compiled in and cannot be changed from a dashboard: `mode` in the
-`onesignal-expo-plugin` entry writes the `aps-environment` entitlement. Store
-and TestFlight builds must be built with `ONESIGNAL_MODE=production`; anything
-else silently receives no pushes on iOS, because a development entitlement
-listens to the sandbox APNs host and Apple sends to the live one.
-
-```bash
-ONESIGNAL_MODE=production npx expo prebuild --clean
-```
 
 The plugin also adds a **Notification Service Extension** target to the iOS
 project (confirmed delivery, badges, images). It sits alongside the WidgetKit
@@ -346,12 +316,12 @@ Then check `app.config.ts`:
 
    | Data type | What actually goes, and where | Purpose |
    | --- | --- | --- |
-   | Contact Info → Name | up to 25 of the names in your CRM ride in the assistant's context (`src/llm/context.ts`), and the briefing sentence handed to OneSignal can carry one | App Functionality |
+   | Contact Info → Name | up to 25 of the names in your CRM ride in the assistant's context (`src/llm/context.ts`) | App Functionality |
    | User Content → Audio Data | the recording, to Apple's or Google's speech service when the phone has no offline voice, and to OpenAI when a Whisper key is set | App Functionality |
    | User Content → Other User Content | list, project, note, habit and place names, task titles and due dates, spending categories, event titles and times — the assistant's context on every turn | App Functionality |
    | Location → Precise and Coarse | coordinates to the platform geocoder for a place's address (`useSystem.ts`). Geofencing itself never leaves the phone and is not collection | App Functionality |
    | Purchases | the fact of a subscription, through Apple/Google and RevenueCat | App Functionality |
-   | Identifiers → Device ID | RevenueCat's anonymous app user id, which is also what the hosted assistant endpoint counts an allowance against; OneSignal's subscription id | App Functionality |
+   | Identifiers → Device ID | RevenueCat's anonymous app user id, which is also what the hosted assistant endpoint counts an allowance against | App Functionality |
    | Usage Data → Product Interaction | the opt-in upload: event names and their enum properties, nothing else | Analytics |
    | Diagnostics → Performance Data | the same upload: which of five latency bands a turn fell in | Analytics |
    | Diagnostics → Crash Data | Sentry, behind the same opt-in switch | App Functionality |

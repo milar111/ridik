@@ -1,5 +1,6 @@
 export { WeekStrip, type WeekStripProps } from './WeekStrip';
 export { AgendaList, type AgendaListProps, type OpenEvent } from './AgendaList';
+export { MonthGrid, type MonthGridProps } from './MonthGrid';
 export { EventSheet, type EventSheetProps, type EventSheetTarget } from './EventSheet';
 export { MonthJumpSheet, type MonthJumpSheetProps } from './MonthJumpSheet';
 export { SyncBanner } from './SyncBanner';
@@ -14,11 +15,13 @@ export {
   type ClassSlot,
   type SyncPresentation,
 } from './agenda';
+export { monthCell, titleOf } from './grid';
 export {
   addMonths,
   addWeeks,
   epochOfDate,
   formatMonthLabel,
+  isSameMonth,
   monthGrid,
   monthOfWeek,
   startOfWeek,

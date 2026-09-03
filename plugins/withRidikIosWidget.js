@@ -383,9 +383,14 @@ function withWidgetTarget(config, { targetBundleIdentifier }) {
  * an extension missing from that list gets no provisioning profile — the build
  * dies at the signing step, on their machine, after everything else passed.
  *
- * Spread rather than assigned: `onesignal-expo-plugin` registers its
+ * Spread rather than assigned, and **keep it that way even though this is
+ * currently the only extension.** `onesignal-expo-plugin` used to register a
  * Notification Service Extension in the same array, and whichever of the two
- * runs second must not erase the first.
+ * ran second would erase the first — an EAS build with managed credentials then
+ * provisioned one extension and not the other, and died at signing after
+ * everything else had passed. That plugin is gone, so the spread is presently a
+ * no-op; reverting it would be a landmine for whatever gets added next, and the
+ * failure it prevents happens on somebody else's machine at the last step.
  */
 function withEasAppExtension(config, { appGroup, targetBundleIdentifier }) {
   const extra = config.extra ?? {};

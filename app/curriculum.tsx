@@ -142,7 +142,14 @@ export default function CurriculumScreen() {
             <Txt variant="caption" tone="danger" style={{ flex: 1 }}>
               Could not load the timetable.
             </Txt>
-            <Button label="Retry" size="sm" variant="ghost" onPress={() => entries.refetch()} />
+            <Button
+              label="Retry"
+              size="sm"
+              variant="ghost"
+              // See `centreOnRow`: `Button` pins itself to the top of a row.
+              style={styles.centreOnRow}
+              onPress={() => entries.refetch()}
+            />
           </View>
         </Card>
       ) : rows.length === 0 ? (
@@ -370,7 +377,23 @@ function TimetableBlock({ entry, onPress }: { entry: CurriculumEntry; onPress: (
         press.style,
       ]}
     >
-      <Txt variant="micro" numberOfLines={2} style={{ color: tint }}>
+      {/*
+        One line, ellipsised, and it has to be — a week is seven columns across
+        a phone, which is **45pt** each and 39 of that inside the block's rule
+        and padding. Measured in Bricolage Medium: "Physics" is 41.9pt at
+        `micro`'s 11 and 37.9 at 10, "Robotics" 47.7 and 42.7, "Chemistry"
+        50.3, "Mathematics" 63.5. There is no size that fits them, so two lines
+        did not wrap these names, it *broke* them: the grid read "Physic / s"
+        and "Roboti / cs", an orphan letter on its own line under each class.
+        A tail ellipsis leaves "Robotic…", which is the name; the full one is on
+        the accessibility label above and on the List tab beside it.
+      */}
+      <Txt
+        variant="micro"
+        numberOfLines={1}
+        ellipsizeMode="tail"
+        style={{ color: tint, fontSize: 10, lineHeight: 13 }}
+      >
         {entry.subjectName}
       </Txt>
     </AnimatedPressable>
@@ -744,6 +767,13 @@ function GridSkeleton() {
 }
 
 const styles = StyleSheet.create({
+  /**
+   * `Button` sets `alignSelf: 'flex-start'` so it does not stretch to the
+   * full width of a *column*. On a row that same declaration means the top,
+   * and it beats the row's own `alignItems`. Only the caller knows which axis
+   * it is on, so the caller says.
+   */
+  centreOnRow: { alignSelf: 'center' },
   retry: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   gridHeader: {
     flexDirection: 'row',
@@ -756,7 +786,8 @@ const styles = StyleSheet.create({
   block: {
     flex: 1,
     borderLeftWidth: 2,
-    paddingHorizontal: 3,
+    // 2 rather than 3: at a 45pt column every point of it is a character.
+    paddingHorizontal: 2,
     paddingVertical: 2,
     overflow: 'hidden',
   },

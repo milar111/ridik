@@ -15,7 +15,11 @@ import { registerBootstrapStep } from '@/startup/bootstrap';
 
 import { configureBilling, registerBillingProvider } from './entitlement';
 import { createDevelopmentProvider } from './development';
-import { createRevenueCatProvider, isAvailable as storeIsAvailable } from './revenuecat';
+import {
+  createRevenueCatProvider,
+  isAvailable as storeIsAvailable,
+  unavailableReason,
+} from './revenuecat';
 
 const log = createLogger('billing');
 
@@ -44,6 +48,11 @@ registerBootstrapStep({
       // in this state still cannot take a payment and has to say so loudly.
       log.error('release build has no store configured; nothing can be sold', {
         provider: provider.name,
+        // The *reason*, not just the fact. A logcat line saying "nothing can be
+        // sold" sent somebody looking for a bug in the paywall; the bug was a
+        // Web Billing key in `.env` that the native SDK will not take, and the
+        // guard doing exactly its job.
+        reason: unavailableReason(),
       });
       return;
     }
@@ -51,6 +60,7 @@ registerBootstrapStep({
   },
 });
 
+export { unavailableReason as storeUnavailableReason } from './revenuecat';
 export {
   availablePlans,
   currentEntitlement,

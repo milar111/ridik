@@ -6,7 +6,7 @@
  * Both carry the same trailing menu button, so checkbox / move / delete are
  * always in the same place under the thumb.
  */
-import { View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { ProjectItem } from '@/db/schema';
@@ -104,7 +104,15 @@ export function ProjectItemRow({
         press.style,
       ]}
     >
-      <Ionicons name={ITEM_KIND_ICON[item.kind]} size={16} color={colors.textTertiary} />
+      {/*
+        Drawn to the checkbox's own column, not to the glyph's width. A list
+        mixes both kinds — Japan trip has three ticked packing rows above two
+        lightbulb ideas — and a 16pt icon beside a 21pt box put their labels
+        5pt apart down one card.
+      */}
+      <View style={styles.lead}>
+        <Ionicons name={ITEM_KIND_ICON[item.kind]} size={16} color={colors.textTertiary} />
+      </View>
       <View style={{ flex: 1, gap: 1 }}>
         <Txt variant="body">{item.content}</Txt>
         {item.detail ? (
@@ -117,3 +125,9 @@ export function ProjectItemRow({
     </AnimatedPressable>
   );
 }
+
+/** 21 is `box` in `src/ui/components/Controls.tsx`; the 10pt gap either side
+ *  of the branch is already the same. */
+const styles = StyleSheet.create({
+  lead: { width: 21, alignItems: 'center' },
+});

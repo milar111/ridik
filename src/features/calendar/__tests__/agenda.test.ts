@@ -8,6 +8,7 @@ import {
   densityDots,
   describeSync,
   durationMinutes,
+  joinsOf,
 } from '../agenda';
 import {
   formatMonthLabel,
@@ -233,5 +234,86 @@ describe('week and month geometry', () => {
 
   it('names the month it is given', () => {
     expect(formatMonthLabel(localToEpoch(DATE, ZONE), ZONE)).toBe('August 2026');
+  });
+});
+
+/**
+ * The thing a stack of cards could not say.
+ *
+ * Both facts here are ones the calendar screen was silent about while the Today
+ * screen said CLASH about the very same pair.
+ */
+describe('joinsOf', () => {
+  const build = (spans: [string, string][]) =>
+    buildAgenda(
+      spans.map(([from, to], i) => event({ id: `e${i}`, startsAt: at(from), endsAt: at(to) })),
+      [],
+    );
+
+  it('says nothing above the first item', () => {
+    expect(joinsOf(build([['09:00', '10:00']]))).toEqual([null]);
+  });
+
+  it('names free time worth naming, and stays quiet about a walk between rooms', () => {
+    expect(joinsOf(build([['09:00', '10:00'], ['14:00', '15:00']]))[1]).toEqual({
+      kind: 'gap',
+      minutes: 240,
+    });
+    // Ten minutes is not free time.
+    expect(joinsOf(build([['09:00', '10:00'], ['10:10', '11:00']]))[1]).toEqual({ kind: 'butt' });
+    // Exactly the floor counts.
+    expect(joinsOf(build([['09:00', '10:00'], ['10:45', '11:00']]))[1]).toEqual({
+      kind: 'gap',
+      minutes: 45,
+    });
+  });
+
+  it('measures a collision by how much of the later thing is covered', () => {
+    // The meeting sits wholly inside the class, so the whole hour of it
+    // clashes. Measuring to the class's end instead reported 2h — a figure
+    // larger than the meeting it was describing.
+    expect(joinsOf(build([['14:00', '17:00'], ['15:00', '16:00']]))[1]).toEqual({
+      kind: 'overlap',
+      minutes: 60,
+    });
+    // Partly covered: only the overlapping half counts.
+    expect(joinsOf(build([['14:00', '15:00'], ['14:30', '16:00']]))[1]).toEqual({
+      kind: 'overlap',
+      minutes: 30,
+    });
+  });
+
+  /**
+   * The reason this measures the furthest end seen rather than the previous
+   * item's: both meetings are inside the class, and comparing each to the one
+   * before it clears the second the moment the first ends.
+   */
+  it('keeps marking overlaps while the long thing is still running', () => {
+    const joins = joinsOf(
+      build([['14:00', '17:00'], ['15:00', '15:30'], ['16:00', '16:30']]),
+    );
+    expect(joins[1]?.kind).toBe('overlap');
+    expect(joins[2]?.kind).toBe('overlap');
+  });
+
+  it('counts a buffer as the start of the thing it belongs to', () => {
+    // The travel block is drawn attached above its meeting, so the gap the eye
+    // sees ends where the *buffer* starts, not where the meeting does.
+    const items = buildAgenda(
+      [
+        event({ id: 'a', startsAt: at('09:00'), endsAt: at('10:00') }),
+        event({ id: 'b', startsAt: at('12:00'), endsAt: at('13:00') }),
+        event({
+          id: 'buf',
+          kind: 'buffer',
+          bufferForId: 'b',
+          startsAt: at('11:40'),
+          endsAt: at('12:00'),
+        }),
+      ],
+      [],
+    );
+    // 100 minutes to the travel block, not 180 to the meeting behind it.
+    expect(joinsOf(items)[1]).toEqual({ kind: 'gap', minutes: 100 });
   });
 });

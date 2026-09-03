@@ -80,8 +80,13 @@ export function monthGrid(anchor: number, zone: string, weekStartsOn: WeekStart 
  * Month name and year, e.g. "August 2026". Hand-rolled because '@/core/time'
  * exposes no month-only formatter and is not ours to extend.
  */
-export function formatMonthLabel(epoch: number, zone: string): string {
-  return epochToLocal(epoch, zone).toFormat('LLLL yyyy');
+export function formatMonthLabel(epoch: number, zone: string, compact = false): string {
+  // "September 2026" is 191.8pt of 24pt Bricolage Bold and the header's slot is
+  // 216 with nothing else in it — but 148 once the week and month views add
+  // their two paging chevrons. "Sep 2026" is 108.7 and always fits, so the
+  // grids ask for the short one rather than the header quietly truncating to
+  // "September 2…", which is what it did.
+  return epochToLocal(epoch, zone).toFormat(compact ? 'LLL yyyy' : 'LLLL yyyy');
 }
 
 /** The month a week belongs to is the one holding its midpoint, not its Monday. */
