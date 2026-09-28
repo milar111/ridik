@@ -112,8 +112,16 @@ function apiKey(): string | null {
   const key = (Platform.OS === 'ios' ? extra.ios : extra.android)?.trim();
   if (!key) return null;
   const accepted = Platform.OS === 'ios' ? NATIVE_KEY_PREFIXES.ios : NATIVE_KEY_PREFIXES.android;
-  return accepted.some((prefix) => key.startsWith(prefix)) ? key : null;
+  if (accepted.some((prefix) => key.startsWith(prefix))) return key;
+  // A `test_` key is RevenueCat's Test Store, which the native SDK *does* run —
+  // in a debug build. A release build with one is what shows "Wrong API Key"
+  // and closes the app, so it stays refused there and only there.
+  if (TEST_STORE_ALLOWED() && key.startsWith('test_')) return key;
+  return null;
 }
+
+/** Debug builds only. A function so a test can flip `__DEV__` and see it. */
+const TEST_STORE_ALLOWED = (): boolean => typeof __DEV__ !== 'undefined' && __DEV__;
 
 /** Read per call, not cached: `expoConfig` is not populated at module load. */
 function entitlementId(): string {

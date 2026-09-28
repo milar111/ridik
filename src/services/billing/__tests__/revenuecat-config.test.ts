@@ -115,6 +115,7 @@ describe('revenuecat configuration', () => {
    * meaning, rather than handed over for the SDK to object to.
    */
   it('refuses a key belonging to another RevenueCat SDK rather than passing it to the native one', () => {
+    (globalThis as { __DEV__?: boolean }).__DEV__ = false;
     for (const foreign of ['test_cSEtgfp', 'rcb_live_abc', 'strp_abc']) {
       mockPlatform.OS = 'android';
       mockExtra.revenueCat = { android: foreign };
@@ -123,6 +124,30 @@ describe('revenuecat configuration', () => {
       mockPlatform.OS = 'ios';
       mockExtra.revenueCat = { ios: foreign };
       expect(isAvailable()).toBe(false);
+    }
+  });
+
+  /**
+   * Except in a debug build, where a `test_` key is RevenueCat's Test Store and
+   * the native SDK runs it — that is how the paywall shows real prices before
+   * any store exists. The release half is the test above.
+   */
+  it('accepts a Test Store key in a debug build only', () => {
+    const g = globalThis as { __DEV__?: boolean };
+    const before = g.__DEV__;
+    try {
+      mockPlatform.OS = 'android';
+      mockExtra.revenueCat = { android: 'test_cSEtgfp' };
+      g.__DEV__ = true;
+      expect(isAvailable()).toBe(true);
+      g.__DEV__ = false;
+      expect(isAvailable()).toBe(false);
+      // Web Billing stays refused even in debug: it is a different SDK.
+      g.__DEV__ = true;
+      mockExtra.revenueCat = { android: 'rcb_live_abc' };
+      expect(isAvailable()).toBe(false);
+    } finally {
+      g.__DEV__ = before;
     }
   });
 
