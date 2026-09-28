@@ -44,6 +44,13 @@ module.exports = {
       transform,
       moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1',
+        // Untransformed ESM whose only purpose is to reach a native runtime
+        // Node does not have. It arrived here transitively — `src/voice/stt.ts`
+        // reaches for Apple's on-device analyzer through it — and broke two
+        // suites that had nothing to do with native speech, with a parse error
+        // naming a file this repo never imports. The stub reports the module as
+        // absent, which is what a build without it reports; see the file.
+        '^expo-modules-core$': '<rootDir>/jest/expo-modules-core-mock.ts',
       },
       setupFilesAfterEnv: ['<rootDir>/jest/setup-logic.ts'],
       clearMocks: true,

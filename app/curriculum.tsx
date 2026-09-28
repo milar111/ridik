@@ -10,7 +10,15 @@
  * against, and a wrong parity or a switched-off row is only visible here.
  */
 import { useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import Animated, { LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,10 +37,24 @@ import type { CurriculumEntry } from '@/db/schema';
 import type { WeekParity } from '@/repositories/curriculum';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry , AnimatedPressable, usePressScale } from '@/ui/motionHooks';
+import { useStaggeredEntry, AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
 import { colorForTag } from '@/ui/theme';
-import { Badge, Button, Card, Chip, Divider, EmptyState, Input, Screen, Section, Segmented, SheetCard, Txt, useToast } from '@/ui/components';
+import {
+  Badge,
+  Button,
+  Card,
+  Chip,
+  Divider,
+  EmptyState,
+  Input,
+  Screen,
+  Section,
+  Segmented,
+  SheetCard,
+  Txt,
+  useToast,
+} from '@/ui/components';
 
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -183,7 +205,9 @@ export default function CurriculumScreen() {
         </>
       )}
 
-      {draft ? <EntrySheet draft={draft} onChange={setDraft} onClose={() => setDraft(null)} /> : null}
+      {draft ? (
+        <EntrySheet draft={draft} onChange={setDraft} onClose={() => setDraft(null)} />
+      ) : null}
     </Screen>
   );
 }
@@ -251,10 +275,7 @@ function WeekGrid({
   const byDay = useMemo(() => {
     const map = new Map<number, Placed[]>();
     for (const day of dayOrder) {
-      map.set(
-        day,
-        placeDay(entries.filter((entry) => entry.dayOfWeek === day)),
-      );
+      map.set(day, placeDay(entries.filter((entry) => entry.dayOfWeek === day)));
     }
     return map;
   }, [entries, dayOrder]);
@@ -357,9 +378,9 @@ function WeekGrid({
  * and leaves it exactly where the timetable put it.
  */
 function TimetableBlock({ entry, onPress }: { entry: CurriculumEntry; onPress: () => void }) {
-  const { colors, radius } = useTheme();
+  const { colors, radius, scheme } = useTheme();
   const press = usePressScale();
-  const tint = entry.color ?? colorForTag(entry.subjectName);
+  const tint = entry.color ?? colorForTag(entry.subjectName, scheme);
 
   return (
     <AnimatedPressable
@@ -467,9 +488,9 @@ function WeekRow({
   nextAt: number | undefined;
   onPress: () => void;
 }) {
-  const { colors, spacing } = useTheme();
+  const { colors, spacing, scheme } = useTheme();
   const press = usePressScale({ scale: 0.98 });
-  const tint = entry.color ?? colorForTag(entry.subjectName);
+  const tint = entry.color ?? colorForTag(entry.subjectName, scheme);
   const meta = [entry.location, entry.teacher].filter(Boolean).join(' · ');
 
   return (
@@ -530,7 +551,8 @@ function EntrySheet({
 
   const [mode, setMode] = useState<Mode>('form');
 
-  const set = <K extends keyof Draft>(key: K, value: Draft[K]) => onChange({ ...draft, [key]: value });
+  const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
+    onChange({ ...draft, [key]: value });
 
   const subjectError = draft.subjectName.trim() ? null : 'A class needs a subject.';
   const startError = TIME_OF_DAY_RE.test(draft.startTime) ? null : 'Use HH:mm, like 08:30.';
@@ -612,134 +634,145 @@ function EntrySheet({
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.sheetWrap}
       >
-      <SheetCard
-        style={[
-          styles.sheet,
-          { backgroundColor: colors.surface, borderColor: colors.border, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl },
-        ]}
-      >
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{
-            padding: spacing.lg,
-            // Save and Delete sit at the bottom, under the home indicator otherwise.
-            paddingBottom: insets.bottom + spacing.lg,
-            gap: spacing.md,
-          }}
+        <SheetCard
+          style={[
+            styles.sheet,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              borderTopLeftRadius: radius.xl,
+              borderTopRightRadius: radius.xl,
+            },
+          ]}
         >
-          <View style={styles.sheetHead}>
-            <Txt variant="heading">{draft.id ? 'Edit class' : 'New class'}</Txt>
-            <Button icon="close" size="sm" variant="ghost" accessibilityLabel="Close" onPress={onClose} />
-          </View>
-
-          <Input
-            label="Subject"
-            value={draft.subjectName}
-            onChangeText={(text) => set('subjectName', text)}
-            placeholder="Physics"
-            autoFocus={!draft.id}
-            error={draft.subjectName.length > 0 ? (subjectError ?? undefined) : undefined}
-          />
-
-          <View style={{ gap: spacing.sm }}>
-            <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.6 }}>
-              DAY
-            </Txt>
-            <View style={styles.chips}>
-              {DAY_SHORT.map((label, day) => (
-                <Chip
-                  key={label + day}
-                  label={label}
-                  selected={draft.dayOfWeek === day}
-                  onPress={() => set('dayOfWeek', day)}
-                />
-              ))}
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{
+              padding: spacing.lg,
+              // Save and Delete sit at the bottom, under the home indicator otherwise.
+              paddingBottom: insets.bottom + spacing.lg,
+              gap: spacing.md,
+            }}
+          >
+            <View style={styles.sheetHead}>
+              <Txt variant="heading">{draft.id ? 'Edit class' : 'New class'}</Txt>
+              <Button
+                icon="close"
+                size="sm"
+                variant="ghost"
+                accessibilityLabel="Close"
+                onPress={onClose}
+              />
             </View>
-          </View>
 
-          <View style={{ flexDirection: 'row', gap: spacing.md }}>
             <Input
-              label="Starts"
-              containerStyle={{ flex: 1 }}
-              value={draft.startTime}
-              onChangeText={(text) => set('startTime', text)}
-              placeholder="08:00"
-              keyboardType="numbers-and-punctuation"
-              error={startError ?? undefined}
+              label="Subject"
+              value={draft.subjectName}
+              onChangeText={(text) => set('subjectName', text)}
+              placeholder="Physics"
+              autoFocus={!draft.id}
+              error={draft.subjectName.length > 0 ? (subjectError ?? undefined) : undefined}
             />
-            <Input
-              label="Ends"
-              containerStyle={{ flex: 1 }}
-              value={draft.endTime}
-              onChangeText={(text) => set('endTime', text)}
-              placeholder="09:00"
-              keyboardType="numbers-and-punctuation"
-              error={endError ?? undefined}
-            />
-          </View>
 
-          <Input
-            label="Location"
-            value={draft.location}
-            onChangeText={(text) => set('location', text)}
-            placeholder="Room 204"
-          />
-          <Input
-            label="Teacher"
-            value={draft.teacher}
-            onChangeText={(text) => set('teacher', text)}
-            placeholder="Mrs Petrova"
-          />
-
-          <View style={{ gap: spacing.sm }}>
-            <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.6 }}>
-              REPEATS
-            </Txt>
-            <Segmented
-              value={draft.weekParity}
-              onChange={(value) => set('weekParity', value)}
-              options={[
-                { value: 'every' as WeekParity, label: 'Every' },
-                { value: 'odd' as WeekParity, label: 'Odd' },
-                { value: 'even' as WeekParity, label: 'Even' },
-              ]}
-            />
-            <Txt variant="micro" tone="tertiary">
-              {PARITY_LABEL[draft.weekParity]} — parity follows the ISO week number.
-            </Txt>
-          </View>
-
-          {mode === 'confirm' ? (
             <View style={{ gap: spacing.sm }}>
-              <Txt variant="caption" tone="secondary">
-                Delete “{draft.subjectName.trim() || 'this class'}”? It goes from every week.
+              <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.6 }}>
+                DAY
               </Txt>
               <View style={styles.chips}>
-                <Button
-                  label="Delete"
-                  variant="danger"
-                  loading={remove.isPending}
-                  onPress={confirmDelete}
-                />
-                <Button label="Keep" variant="ghost" onPress={() => setMode('form')} />
+                {DAY_SHORT.map((label, day) => (
+                  <Chip
+                    key={label + day}
+                    label={label}
+                    selected={draft.dayOfWeek === day}
+                    onPress={() => set('dayOfWeek', day)}
+                  />
+                ))}
               </View>
             </View>
-          ) : (
-            <View style={styles.chips}>
-              <Button
-                label={draft.id ? 'Save' : 'Add class'}
-                variant="primary"
-                disabled={invalid}
-                loading={saving}
-                onPress={save}
+
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <Input
+                label="Starts"
+                containerStyle={{ flex: 1 }}
+                value={draft.startTime}
+                onChangeText={(text) => set('startTime', text)}
+                placeholder="08:00"
+                keyboardType="numbers-and-punctuation"
+                error={startError ?? undefined}
               />
-              {draft.id ? (
-                <Button label="Delete" variant="danger" onPress={() => setMode('confirm')} />
-              ) : null}
+              <Input
+                label="Ends"
+                containerStyle={{ flex: 1 }}
+                value={draft.endTime}
+                onChangeText={(text) => set('endTime', text)}
+                placeholder="09:00"
+                keyboardType="numbers-and-punctuation"
+                error={endError ?? undefined}
+              />
             </View>
-          )}
-        </ScrollView>
-      </SheetCard>
+
+            <Input
+              label="Location"
+              value={draft.location}
+              onChangeText={(text) => set('location', text)}
+              placeholder="Room 204"
+            />
+            <Input
+              label="Teacher"
+              value={draft.teacher}
+              onChangeText={(text) => set('teacher', text)}
+              placeholder="Mrs Petrova"
+            />
+
+            <View style={{ gap: spacing.sm }}>
+              <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.6 }}>
+                REPEATS
+              </Txt>
+              <Segmented
+                value={draft.weekParity}
+                onChange={(value) => set('weekParity', value)}
+                options={[
+                  { value: 'every' as WeekParity, label: 'Every' },
+                  { value: 'odd' as WeekParity, label: 'Odd' },
+                  { value: 'even' as WeekParity, label: 'Even' },
+                ]}
+              />
+              <Txt variant="micro" tone="tertiary">
+                {PARITY_LABEL[draft.weekParity]} — parity follows the ISO week number.
+              </Txt>
+            </View>
+
+            {mode === 'confirm' ? (
+              <View style={{ gap: spacing.sm }}>
+                <Txt variant="caption" tone="secondary">
+                  Delete “{draft.subjectName.trim() || 'this class'}”? It goes from every week.
+                </Txt>
+                <View style={styles.chips}>
+                  <Button
+                    label="Delete"
+                    variant="danger"
+                    loading={remove.isPending}
+                    onPress={confirmDelete}
+                  />
+                  <Button label="Keep" variant="ghost" onPress={() => setMode('form')} />
+                </View>
+              </View>
+            ) : (
+              <View style={styles.chips}>
+                <Button
+                  label={draft.id ? 'Save' : 'Add class'}
+                  variant="primary"
+                  disabled={invalid}
+                  loading={saving}
+                  onPress={save}
+                />
+                {draft.id ? (
+                  <Button label="Delete" variant="danger" onPress={() => setMode('confirm')} />
+                ) : null}
+              </View>
+            )}
+          </ScrollView>
+        </SheetCard>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -791,7 +824,13 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     overflow: 'hidden',
   },
-  listRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, minHeight: 46 },
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 9,
+    minHeight: 46,
+  },
   chips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   sheetWrap: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },

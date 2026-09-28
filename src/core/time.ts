@@ -8,6 +8,10 @@
  */
 import { DateTime, Duration, Interval } from 'luxon';
 
+// The injectable clock, not `Date.now()`. `clock.ts` imports nothing, so this
+// cannot be a cycle. See the two defaults below.
+import { now as readClock } from './clock';
+
 /** `YYYY-MM-DD` */
 export type LocalDate = string;
 /** `YYYY-MM-DDTHH:mm` or `YYYY-MM-DDTHH:mm:ss` — wall clock, no offset. */
@@ -18,6 +22,108 @@ export const LOCAL_DATETIME_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/;
 export const TIME_OF_DAY_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 let zoneOverride: string | null = null;
+
+/**
+ * Twelve-hour or twenty-four, and why it is module state next to the zone.
+ *
+ * `HH:mm` was hard-coded at every render edge, so an American install read
+ * "21:00" on a phone whose own status bar said 9:41 PM — and the *widgets* had
+ * been getting this right all along (`DateFormat.is24HourFormat`, and the
+ * `ridik_rows_ampm` layout variant that exists for exactly this), which made
+ * the tile and the app that published it disagree about the same event.
+ *
+ * Three values, not a boolean. `auto` reads the device, and the device is not
+ * always readable: `Intl` resolves from the *locale*, which on iOS does carry
+ * the 24-Hour Time switch (it appends `-u-hc-h23`) and on Android does not —
+ * `Locale.getDefault()` knows nothing about that system toggle. So auto is a
+ * good default and a bad promise, which is the whole argument for `12h` and
+ * `24h` being sayable out loud on the Settings screen rather than inferred.
+ *
+ * It lives here, beside `zoneOverride`, because it has the same shape of bug:
+ * a setting that is read at every render but written once, so applying it only
+ * at bootstrap means changing it does nothing until the process is killed.
+ * `useSettings.ts` applies both on the write.
+ */
+export type ClockFormat = 'auto' | '12h' | '24h';
+
+/**
+ * The *resolved* answer, not the choice — `null` until something has applied
+ * one, which is the only state that asks the device.
+ *
+ * Resolving `auto` on every call would make `formatTime` read ambient locale
+ * at every render, which is the same untestability `now()` exists to prevent:
+ * under Node the suite's own locale is en-US, so half the app would render
+ * 12-hour in tests and 24 on the phone that wrote the expectations. `auto` is
+ * a question asked once, when the setting is applied.
+ */
+let twelveHour: boolean | null = null;
+
+export function setClockFormat(format: ClockFormat): void {
+  twelveHour = format === 'auto' ? deviceUses12Hour() : format === '12h';
+}
+
+/** What the device's own locale says, or 24-hour if it will not say. */
+function deviceUses12Hour(): boolean {
+  try {
+    const probe = new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).format(
+      new Date(Date.UTC(2020, 0, 1, 13)),
+    );
+    return /[ap]\.?\s?m/i.test(probe);
+  } catch {
+    // No full-ICU build. 24-hour is the safer miss: it is unambiguous, where a
+    // wrong AM/PM is a meeting read twelve hours out.
+    return false;
+  }
+}
+
+export function uses12Hour(): boolean {
+  return twelveHour ?? deviceUses12Hour();
+}
+
+/**
+ * The width a clock column has to reserve, in points.
+ *
+ * Measured in the face these columns are actually set in — `mono`, Martian
+ * Mono at 13, which is monospaced, so this is arithmetic rather than an
+ * estimate: `21:00` is 45.0pt and `12:00 AM` is 72.0pt. The 46 the agenda
+ * gutters were built for fits the first with a point to spare and the second
+ * not at all, and the failure is not a truncation — a `Text` with room for
+ * one line and content for two *wraps*, so every afternoon row in the Today
+ * agenda came out as "3:00" over "PM" and the day stopped reading as a list.
+ *
+ * The tracking is −0.2, which would take 8 characters down to 70.4 — but
+ * `AGENTS.md` records that Android does not count `letterSpacing` when it
+ * measures a line, so the number that has to fit is the untracked 72.
+ *
+ * A first version of this used 64, from a measurement taken in Bricolage by
+ * mistake. It typechecked, it passed, and it wrapped on the first device it
+ * was put on. Measure in the face the text is set in.
+ */
+export function clockColumnWidth(): number {
+  return uses12Hour() ? 74 : 46;
+}
+
+/** The three choices, in the order the Settings screen offers them. */
+export function clockFormatOptions(): { value: ClockFormat; label: string }[] {
+  return [
+    { value: 'auto', label: 'Match this phone' },
+    { value: '24h', label: '24-hour' },
+    { value: '12h', label: '12-hour' },
+  ];
+}
+
+/**
+ * One instant rendered the way a given choice would render it.
+ *
+ * The Settings row shows this instead of a description: "12-hour" is a
+ * specification and `9:41 PM` is the answer, and for `auto` it is the only
+ * honest label there is — the row cannot promise which one the device will
+ * say, but it can show what it *is* saying.
+ */
+export function sampleClock(format: ClockFormat, epoch: number, zone = currentZone()): string {
+  const twelve = format === 'auto' ? deviceUses12Hour() : format === '12h';
+  return epochToLocal(epoch, zone).toFormat(twelve ? 'h:mm a' : 'HH:mm');
+}
 
 /** The user's IANA zone. Overridable for tests and for a manual setting. */
 export function currentZone(): string {
@@ -72,7 +178,7 @@ export function todayLocalDate(zone = currentZone(), now = Date.now()): LocalDat
 /* ------------------------------------------------------------- formatting -- */
 
 export function formatTime(epoch: number, zone = currentZone()): string {
-  return epochToLocal(epoch, zone).toFormat('HH:mm');
+  return epochToLocal(epoch, zone).toFormat(uses12Hour() ? 'h:mm a' : 'HH:mm');
 }
 
 /** "9:30 AM" style, for spoken briefings. */
@@ -82,10 +188,23 @@ export function formatSpokenTime(epoch: number, zone = currentZone()): string {
 }
 
 export function formatDateTime(epoch: number, zone = currentZone()): string {
-  return epochToLocal(epoch, zone).toFormat('ccc d LLL, HH:mm');
+  return epochToLocal(epoch, zone).toFormat(uses12Hour() ? 'ccc d LLL, h:mm a' : 'ccc d LLL, HH:mm');
 }
 
-export function formatDayHeading(epoch: number, zone = currentZone(), now = Date.now()): string {
+/*
+ * These two defaulted to `Date.now()`, which is the one thing the invariant at
+ * the top of `AGENTS.md` forbids: a module that reads the wall clock directly
+ * cannot be frozen, so the string it renders is whatever the machine running
+ * the test happened to say. Five call sites relied on the default — the note
+ * row, the places screen, the people list and two on a person's profile — and
+ * every one of them was untestable for that reason alone. The projects screens
+ * already passed a `now` explicitly, which is what made the gap visible.
+ *
+ * The parameter stays, because a caller with a `useNow()` tick should keep
+ * passing it: that is what re-renders the label as time moves, and a default
+ * cannot do it.
+ */
+export function formatDayHeading(epoch: number, zone = currentZone(), now = readClock()): string {
   const dt = epochToLocal(epoch, zone).startOf('day');
   const today = epochToLocal(now, zone).startOf('day');
   const diff = dt.diff(today, 'days').days;
@@ -95,7 +214,7 @@ export function formatDayHeading(epoch: number, zone = currentZone(), now = Date
   return dt.toFormat(Math.abs(diff) < 300 ? 'cccc d LLLL' : 'cccc d LLLL yyyy');
 }
 
-export function formatRelative(epoch: number, now = Date.now()): string {
+export function formatRelative(epoch: number, now = readClock()): string {
   return DateTime.fromMillis(epoch).toRelative({ base: DateTime.fromMillis(now) }) ?? '';
 }
 

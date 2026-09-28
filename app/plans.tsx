@@ -132,7 +132,9 @@ function Subscribed({ plan }: { plan: Entitlement }) {
         ) : null}
         <Fact
           label={plan.willRenew ? 'Next charge' : 'Access ends'}
-          value={plan.renewsAt === null ? 'Unknown' : formatDayHeading(plan.renewsAt, undefined, at)}
+          value={
+            plan.renewsAt === null ? 'Unknown' : formatDayHeading(plan.renewsAt, undefined, at)
+          }
         />
         <Divider />
         <Fact
@@ -512,7 +514,10 @@ function Offer() {
 
       <Card style={{ gap: spacing.md }}>
         {benefits.map((line) => (
-          <View key={line} style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+          <View
+            key={line}
+            style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}
+          >
             <Ionicons name="checkmark" size={17} color={colors.accent} />
             <Txt variant="body" style={{ flex: 1 }}>
               {line}
@@ -565,7 +570,8 @@ function Offer() {
               onPress={() =>
                 purchase.mutate(option, {
                   onSuccess: (result) => {
-                    if (result.active) toast.show({ message: 'You are subscribed', tone: 'success' });
+                    if (result.active)
+                      toast.show({ message: 'You are subscribed', tone: 'success' });
                   },
                   onError: (error) => toast.show({ message: error.message, tone: 'danger' }),
                 })
@@ -594,11 +600,36 @@ function Offer() {
         }
       />
 
+      {/*
+        The answer to "I paid and it's gone", kept as fine print on purpose.
+
+        It belongs on this screen because there is nowhere else to put it: with
+        no account there is no email to write to somebody, and the only way back
+        to a plan is the button directly above this. But it is an answer to a
+        question most readers will never have, and a paywall that opens by
+        explaining what happens when the paywall goes wrong is selling badly —
+        so it goes in the same `caption`/`tertiary` block as the billing line
+        rather than in a card, a callout or a second paragraph. Nothing here
+        draws the eye; it is there for the one person who goes looking.
+
+        Not dimmed further. `tertiary` is already the quietest tone in the
+        palette and it is measured against the ground; the `dim` prop would put
+        0.6 opacity over that and drop it under 4.5:1, which is the difference
+        between quiet and unreadable.
+
+        The second sentence is the one that saves the support mail. A restore
+        reads the receipt from the *store account*, so the cross-platform case
+        genuinely cannot work — Play and the App Store hold separate receipts —
+        and somebody who has just moved from Android to iPhone will otherwise
+        press Restore, get "Nothing to restore", and conclude they were charged
+        for nothing.
+      */}
       <Txt variant="caption" tone="tertiary">
         Billed through your app store account and renewed automatically until you cancel there.
-        Ridik never sees your card.
+        Ridik never sees your card. If you&rsquo;ve paid and Ridik isn&rsquo;t showing it &mdash; a
+        new phone, a reinstall &mdash; Restore purchases brings it back from that same account. It
+        has to be the one you bought with: an Android purchase can&rsquo;t be restored on an iPhone.
       </Txt>
-
     </>
   );
 }

@@ -4,10 +4,10 @@ import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
-import { formatTime } from '@/core/time';
+import { clockColumnWidth, formatTime } from '@/core/time';
 import { useTheme } from '@/ui/ThemeProvider';
 import { colorForTag } from '@/ui/theme';
-import { AnimatedPressable, usePressScale , useStaggeredEntry } from '@/ui/motionHooks';
+import { AnimatedPressable, usePressScale, useStaggeredEntry } from '@/ui/motionHooks';
 import { Txt } from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
 
@@ -109,7 +109,7 @@ function Row({
   clash?: boolean;
 }) {
   const router = useRouter();
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
 
   const past = !allDay && item.endsAt <= now;
   const running = !allDay && item.startsAt <= now && item.endsAt > now;
@@ -122,7 +122,7 @@ function Row({
         .filter((part): part is string => Boolean(part))
         .join(' · ');
 
-  const dot = item.kind === 'class' ? (item.color ?? colorForTag(item.title)) : null;
+  const dot = item.kind === 'class' ? (item.color ?? colorForTag(item.title, scheme)) : null;
 
   // Scale only, no `opacity` option: the row already owns its opacity to fade
   // what is behind us, and a press that wrote `opacity` would have to know
@@ -158,7 +158,7 @@ function Row({
         press.style,
       ]}
     >
-      <View style={styles.timeCol}>
+      <View style={[styles.timeCol, { width: clockColumnWidth() }]}>
         <Txt
           variant={isBuffer ? 'micro' : 'mono'}
           tone={running ? 'accent' : isBuffer ? 'tertiary' : 'secondary'}
@@ -167,7 +167,11 @@ function Row({
         </Txt>
       </View>
 
-      {dot ? <View style={[styles.dot, { backgroundColor: dot }]} /> : <View style={styles.dotGap} />}
+      {dot ? (
+        <View style={[styles.dot, { backgroundColor: dot }]} />
+      ) : (
+        <View style={styles.dotGap} />
+      )}
 
       <View style={styles.body}>
         <Txt

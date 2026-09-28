@@ -29,6 +29,10 @@ const clock = (epochMs: number): string =>
 const action = (tool: ToolName, parameters: Record<string, unknown> = {}): LlmAction =>
   ({ tool_name: tool, parameters }) as LlmAction;
 
+/** The card renders label and value in a column; the tests read them flat. */
+const flat = (lines: { label?: string; value: string }[]): string =>
+  lines.map((l) => (l.label ? `${l.label}: ${l.value}` : l.value)).join('\n');
+
 describe('what gets confirmed', () => {
   it('never asks about a query', () => {
     for (const tool of ['search', 'ledger_query', 'briefing_generate', 'summary_generate'] as const) {
@@ -226,9 +230,9 @@ describe('the card shows what could have been mis-heard', () => {
       clock,
     );
     expect(preview.title).toBe('Add to calendar');
-    expect(preview.lines.join('\n')).toContain('Meeting with James');
-    expect(preview.lines.join('\n')).toContain('Maker lab');
-    expect(preview.lines.some((l) => l.startsWith('Starts:'))).toBe(true);
+    expect(flat(preview.lines)).toContain('Meeting with James');
+    expect(flat(preview.lines)).toContain('Maker lab');
+    expect(preview.lines.some((l) => l.label === 'Starts')).toBe(true);
   });
 
   it('puts the amount and the person on a payment', () => {
@@ -236,13 +240,13 @@ describe('the card shows what could have been mis-heard', () => {
       action('ledger_add', { amount: 42.5, currency: 'EUR', entity_name: 'Ana', direction: 'out' }),
       clock,
     );
-    expect(preview.lines.join('\n')).toContain('42.50 EUR');
-    expect(preview.lines.join('\n')).toContain('Ana');
+    expect(flat(preview.lines)).toContain('42.50 EUR');
+    expect(flat(preview.lines)).toContain('Ana');
   });
 
   it('drops decimals that carry nothing', () => {
     const preview = describeAction(action('ledger_add', { amount: 12, currency: 'EUR' }), clock);
-    expect(preview.lines.join('\n')).toContain('12 EUR');
+    expect(flat(preview.lines)).toContain('12 EUR');
   });
 
   it('lists the bullets a note is about to gain', () => {
@@ -250,7 +254,7 @@ describe('the card shows what could have been mis-heard', () => {
       action('note_create', { title_summary: 'Shopping', bullets: ['milk', 'bread'] }),
       clock,
     );
-    expect(preview.lines.join('\n')).toContain('milk · bread');
+    expect(flat(preview.lines)).toContain('milk · bread');
   });
 
   /* The recogniser's own timezone bug: an event dictated abroad rendered in the
@@ -258,12 +262,12 @@ describe('the card shows what could have been mis-heard', () => {
      whole job is catching exactly that. */
   it('renders time through the clock it is given, not the device', () => {
     const preview = describeAction(action('calendar_add', { title: 'x', start: 0 }), clock);
-    expect(preview.lines.join('\n')).toContain('1970-01-01 00:00');
+    expect(flat(preview.lines)).toContain('1970-01-01 00:00');
   });
 
   it('shows a wall-clock string the model emitted verbatim', () => {
     const preview = describeAction(action('task_add', { title: 'x', due: 'tomorrow 5pm' }), clock);
-    expect(preview.lines.join('\n')).toContain('tomorrow 5pm');
+    expect(flat(preview.lines)).toContain('tomorrow 5pm');
   });
 
   /* A blank card is a yes/no question with nothing to read, and the answer to
@@ -284,8 +288,8 @@ describe('the card shows what could have been mis-heard', () => {
 
   it('omits a line rather than printing an empty one', () => {
     const preview = describeAction(action('calendar_add', { title: 'x', location: '   ' }), clock);
-    expect(preview.lines.some((l) => /:\s*$/.test(l))).toBe(false);
-    expect(preview.lines.join('\n')).not.toContain('Where');
+    expect(preview.lines.some((l) => l.value.trim() === '')).toBe(false);
+    expect(preview.lines.map((l) => l.label).join('\n')).not.toContain('Where');
   });
 });
 

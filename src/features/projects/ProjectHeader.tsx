@@ -10,7 +10,6 @@ import { Ionicons } from '@expo/vector-icons';
 import type { Project } from '@/db/schema';
 import type { ProjectCounts } from '@/repositories/projects';
 import { BackControl, Badge, Button, Chip, Txt } from '@/ui/components';
-import { colorForTag } from '@/ui/theme';
 import { useTheme } from '@/ui/ThemeProvider';
 
 import { ProgressBar } from './Bits';
@@ -37,8 +36,10 @@ export function ProjectHeader({
   onMenu: () => void;
   sharing?: boolean;
 }) {
-  const { spacing } = useTheme();
-  const kindTint = colorForTag(project.kind);
+  const { colors, spacing } = useTheme();
+  // The kind already arrives as its own glyph, so a hue on top of it was a
+  // second answer to a question the icon had finished answering.
+  const kindTint = colors.textSecondary;
   // `Button` sizes itself from its padding, which leaves an icon-only ghost at
   // ~37pt. These three are the screen's navigation, so they get the full 44.
   const tapTarget = { minWidth: 44, minHeight: 44 } as const;
@@ -90,7 +91,9 @@ export function ProjectHeader({
         </Txt>
       ) : null}
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}>
+      <View
+        style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs }}
+      >
         <Chip label={PROJECT_KIND_LABEL[project.kind]} color={kindTint} size="sm" />
         <Badge label={STATUS_LABEL[project.status]} tone={STATUS_TONE[project.status]} />
         {deadline ? (

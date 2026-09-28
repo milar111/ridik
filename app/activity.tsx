@@ -1,12 +1,5 @@
 import { useMemo, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,7 +27,7 @@ import type { ActivitySummary } from '@/repositories/activity';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { SheetCard } from '@/ui/components/SheetCard';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, usePressScale , useStaggeredEntry } from '@/ui/motionHooks';
+import { AnimatedPressable, usePressScale, useStaggeredEntry } from '@/ui/motionHooks';
 import {
   Button,
   Card,
@@ -49,7 +42,6 @@ import {
   useToast,
 } from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
-import { colorForTag } from '@/ui/theme';
 
 type Period = 'day' | 'week' | 'month';
 
@@ -78,7 +70,13 @@ export default function ActivityScreen() {
       back
       title="Activity"
       right={
-        <Button icon="add" label="Add" size="sm" variant="primary" onPress={() => setLogging(true)} />
+        <Button
+          icon="add"
+          label="Add"
+          size="sm"
+          variant="primary"
+          onPress={() => setLogging(true)}
+        />
       }
     >
       <Segmented options={PERIODS} value={period} onChange={setPeriod} />
@@ -174,7 +172,10 @@ function ActivityBody({ period }: { period: Period }) {
       <Card>
         <View style={styles.summaryRow}>
           <Stat value={String(data.entries.length)} label="entries" />
-          <Stat value={data.totalMinutes > 0 ? formatDuration(data.totalMinutes) : '—'} label="tracked" />
+          <Stat
+            value={data.totalMinutes > 0 ? formatDuration(data.totalMinutes) : '—'}
+            label="tracked"
+          />
           <Stat
             flex={1.6}
             // 18 rather than 14: the wider column holds "Robotics build" whole
@@ -324,12 +325,8 @@ function EntryRow({
           <Txt variant="micro" tone="tertiary">
             {formatTime(entry.loggedAt)}
           </Txt>
-          {habitName ? (
-            <Chip label={habitName} size="sm" icon="flame" color={colorForTag(habitName)} />
-          ) : null}
-          {projectName ? (
-            <Chip label={projectName} size="sm" icon="folder-outline" color={colorForTag(projectName)} />
-          ) : null}
+          {habitName ? <Chip label={habitName} size="sm" icon="flame" /> : null}
+          {projectName ? <Chip label={projectName} size="sm" icon="folder-outline" /> : null}
         </View>
       </View>
       {entry.durationMinutes ? (
@@ -678,7 +675,10 @@ function SkeletonRows({ count = 5 }: { count?: number }) {
             ]}
           />
           <View
-            style={[styles.bone, { width: '28%', height: 8, backgroundColor: colors.surfaceSunken }]}
+            style={[
+              styles.bone,
+              { width: '28%', height: 8, backgroundColor: colors.surfaceSunken },
+            ]}
           />
         </View>
       ))}
@@ -690,9 +690,21 @@ const styles = StyleSheet.create({
   spread: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   tracked: { letterSpacing: 0.8 },
   summaryRow: { flexDirection: 'row', gap: 12 },
-  entryRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 52, paddingVertical: 9 },
+  entryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 52,
+    paddingVertical: 9,
+  },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52, paddingVertical: 10 },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 52,
+    paddingVertical: 10,
+  },
   sheetWrap: { flex: 1, justifyContent: 'flex-end' },
   sheet: { paddingHorizontal: 18, paddingTop: 14, gap: 10, borderWidth: StyleSheet.hairlineWidth },
   bone: { borderRadius: 4 },

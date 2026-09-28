@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Children, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, View, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -197,6 +197,13 @@ export function Section({
   compact?: boolean;
 }) {
   const { spacing } = useTheme();
+
+  // The same rule as `Card`, one level out: a heading is a label for what is
+  // under it, so a section whose children all fell through draws the word
+  // TRANSACTIONS over a gap and nothing else. `right` is always a modifier of
+  // the children — a count, a "latest 6 of 40" — so it goes with them.
+  if (Children.toArray(children).length === 0) return null;
+
   return (
     <View style={{ gap: compact ? spacing.xs : spacing.sm }}>
       {title || right ? (

@@ -10,6 +10,7 @@
     "@react-native-community/netinfo": "^12.0.1",
     "@sentry/react-native": "~7.11.0",
     "@tanstack/react-query": "^5.101.4",
+    "buffer": "^6.0.3",
     "drizzle-orm": "^0.45.2",
     "expo": "~57.0.12",
     "expo-audio": "~57.0.3",
@@ -49,6 +50,7 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-svg": "15.15.4",
+    "whisper.rn": "^0.7.4",
     "zod": "^4.4.3",
     "zustand": "^5.0.14"
   },

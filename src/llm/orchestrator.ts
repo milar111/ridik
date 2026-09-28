@@ -32,7 +32,7 @@ import { newId } from '@/db/ids';
 import { llmInteractions } from '@/db/schema';
 import type { LlmClient } from '@/llm/client';
 import { actionSchema, type LlmAction, type ToolName } from '@/llm/contract';
-import { alwaysAsks, type ConfirmMode, type ConfirmScope } from './confirm';
+import { alwaysAsks, type ActionPreview, type ConfirmMode, type ConfirmScope } from './confirm';
 import { buildLlmContext } from '@/llm/context';
 import {
   createExecutor,
@@ -41,6 +41,7 @@ import {
   type ResultHit,
 } from '@/llm/executor';
 import type { LlmMessage } from '@/llm/provider';
+import { RECALL_TURNS, recallMessages } from '@/llm/recall';
 import type { Repositories } from '@/repositories';
 import { latencyBucket, parseEvent } from '@/services/analytics/events';
 
@@ -104,7 +105,13 @@ export type TurnOutcome = {
    * type the word "yes" at a keyboard, on the screen of an app whose entire
    * premise is not having to.
    */
-  clarification?: { question: string; pending?: string; answers?: ClarificationAnswers };
+  clarification?: {
+    question: string;
+    pending?: string;
+    answers?: ClarificationAnswers;
+    /** Set when the question is the review gate's, so the card can lay it out. */
+    preview?: ActionPreview;
+  };
   /**
    * The turn did not run. Set only where nothing was interpreted and nothing
    * was written — a transport failure, a 401, a timeout, or an internal throw.
@@ -536,12 +543,32 @@ export function createOrchestrator(options: OrchestratorOptions) {
     const { transcript } = input;
     const pending = parsePending(input.pending);
 
+    /*
+     * A yes to the model's own question has already reviewed the actions.
+     *
+     * This is where "move the physio to Wednesday" was asked twice, in the
+     * same words. The model proposes under RULE 4 — required to name the
+     * concrete thing, "Move the physio to Wednesday 10:00?" — the user says
+     * yes, and because a `clarify` has nothing parked to replay, the turn goes
+     * back to the model, comes back with actions, and the review gate then
+     * asks "Move event — Physio, Wed 10:00?". Two questions, one of them a
+     * verbatim restatement of the other, and the second is the one that looks
+     * like the app not listening.
+     *
+     * The gate's question is "is this what you said?". A yes to a concrete
+     * proposal is an answer to exactly that, so it releases `reviewed` and
+     * nothing else: the handlers' own checks — a clash, a delete, an ambiguous
+     * match — still run and can still ask, because those are questions the
+     * proposal could not have contained.
+     */
+    let reviewedByAnswer = false;
     if (pending) {
       const verdict = classifyConfirmation(transcript);
       if (verdict === 'no') return abandonPending(pending, input, startedAt);
       if (verdict === 'yes' && pending.kind === 'confirm') {
         return applyPending(pending, input, startedAt);
       }
+      reviewedByAnswer = verdict === 'yes' && pending.kind === 'clarify';
     }
 
     const weekStart = await readWeekStart();
@@ -553,7 +580,7 @@ export function createOrchestrator(options: OrchestratorOptions) {
       ...(logger ? { logger } : {}),
     });
 
-    const history = historyFor(pending, input.pending);
+    const history = appendPending(await recentTurns(startedAt), pending, input.pending);
     const interpretation = await client.interpret({
       transcript,
       context,
@@ -586,7 +613,12 @@ export function createOrchestrator(options: OrchestratorOptions) {
     const { response, raw, model, usage, calls, degraded } = interpretation.value;
     const executor = executorFor(startedAt, input.confidence ?? null);
     const results =
-      response.actions.length > 0 ? await executor.executeAll(response.actions) : [];
+      response.actions.length > 0
+        ? await executor.executeAll(
+            response.actions,
+            reviewedByAnswer ? { reviewed: true } : {},
+          )
+        : [];
     // `executeAll` returns one result per action, in order, so the pairing is
     // positional; the guard is only here because the types cannot say so.
     const pairs = results.flatMap((result, index) => {
@@ -651,6 +683,28 @@ export function createOrchestrator(options: OrchestratorOptions) {
       },
       ...(clarification ? { clarification } : {}),
     };
+  }
+
+  /**
+   * The conversation this utterance is part of.
+   *
+   * Read from `llm_interactions`, which has recorded every turn since the
+   * orchestrator was built — so the window costs one indexed query and no new
+   * storage. The current turn is not in it yet: `audit()` runs at the end.
+   *
+   * An unreadable trail degrades to no history rather than to no turn. That is
+   * the same call `readWeekStart` makes below and for the same reason: the
+   * utterance is the thing the user is waiting on, and losing the context of a
+   * fragment is a worse answer, not a failed one.
+   */
+  async function recentTurns(now: number): Promise<LlmMessage[]> {
+    try {
+      const rows = await repos.llmInteractions.listRecent({ limit: RECALL_TURNS });
+      return recallMessages(rows, { now });
+    } catch (error) {
+      logger?.warn('could not read recent turns', error);
+      return [];
+    }
   }
 
   /** A bad settings row must not stop a turn; Monday is the app-wide default. */
@@ -730,7 +784,12 @@ type Pair = { action: LlmAction; result: ActionResult; granted?: ConfirmScope };
 function clarificationFor(
   transcript: string,
   pairs: Pair[],
-): { question: string; pending: string; answers: ClarificationAnswers } | undefined {
+): {
+  question: string;
+  pending: string;
+  answers: ClarificationAnswers;
+  preview?: ActionPreview;
+} | undefined {
   const blocked = pairs.filter((pair) => pair.result.needsConfirmation);
   // Source order everywhere except the one sentence the user hears: a later
   // action routinely depends on a row an earlier one created, so the *actions*
@@ -760,6 +819,16 @@ function clarificationFor(
     // should not require a keyboard.
     answers: 'yesno' as const,
     question,
+    /*
+     * The structured half of the same question, for the card to draw.
+     *
+     * Only the review gate builds one — a handler's question is a written
+     * sentence about the stored row ("that clashes with Dentist at 4 PM") and
+     * has no fields to lay out. So the card gets a proper heading and a column
+     * of label/value where there is one, and the sentence alone where there is
+     * not, which is the right shape for each.
+     */
+    ...(asked.preview ? { preview: asked.preview } : {}),
     pending: encodePending(
       answerable
         ? {
@@ -789,22 +858,57 @@ function isUnasked(pair: Pair): boolean {
 }
 
 /**
- * What the model is told about the turn it is finishing.
+ * What the model is told about the turn it is finishing, and the ones before it.
  *
- * Only reached when the answer was not a plain yes or no, i.e. the user said
- * something the model has to read — "the one on Friday", "make it 3pm". Without
- * the question it asked, the reply is a fragment with no subject.
+ * Two different things arrive here and they used to be one. The **pending**
+ * pair is the question this turn is an answer to — reached only when the reply
+ * was not a plain yes or no, i.e. the user said something the model has to read
+ * ("the one on Friday", "make it 3pm"), which without the question is a
+ * fragment with no subject. The **recall** window is everything else said
+ * recently, and it is what makes an ordinary fragment work: "add flowers to my
+ * list" then "toilet paper" is one thought, and until this was wired the second
+ * half arrived as a brand new conversation. See `./recall`.
+ *
+ * Appended rather than prepended, and de-duplicated at the seam: a clarify turn
+ * is audited like any other, so the pending exchange is usually already the
+ * newest row in the window. Replaying it twice would show the model the user
+ * saying the same sentence in consecutive breaths.
  */
-function historyFor(pending: PendingState | null, raw: string | undefined): LlmMessage[] {
+function pendingPair(pending: PendingState): LlmMessage[] {
+  return [
+    { role: 'user', content: pending.transcript },
+    { role: 'model', content: pending.question },
+  ];
+}
+
+function appendPending(
+  recent: LlmMessage[],
+  pending: PendingState | null,
+  raw: string | undefined,
+): LlmMessage[] {
   if (pending) {
-    return [
-      { role: 'user', content: pending.transcript },
-      { role: 'model', content: pending.question },
-    ];
+    /*
+     * The pending pair replaces its own audit row rather than sitting after it.
+     *
+     * Both describe the same exchange, and each has half of it: the row has the
+     * transcript and the sentence that was *spoken* ("I need a time first."),
+     * while the envelope has the question that was actually *asked* ("Book it
+     * tomorrow at 10:00?") — which is the only one the reply is an answer to,
+     * and which is stored nowhere else. Appending both said the same thing
+     * twice; keeping only the row lost the question and left "make it Thursday"
+     * with no subject, which is what this function was written for in the first
+     * place. So the row is dropped and the envelope wins.
+     */
+    const said = pending.transcript.trim();
+    const duplicate = recent.findIndex(
+      (message) => message.role === 'user' && message.content === said,
+    );
+    const withoutRow = duplicate === -1 ? recent : recent.slice(0, duplicate);
+    return [...withoutRow, ...pendingPair(pending)];
   }
   // Not our envelope: the model's own free-text note to itself, which is still
   // the best description of what it was waiting for.
-  return raw ? [{ role: 'model', content: raw }] : [];
+  return raw ? [...recent, { role: 'model', content: raw }] : recent;
 }
 
 /**

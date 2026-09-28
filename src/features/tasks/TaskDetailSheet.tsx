@@ -2,14 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { truncate } from '@/core/format';
 import { normalise } from '@/core/match';
 import { toAppError } from '@/core/result';
-import { formatDuration } from '@/core/time';
 import type { Task } from '@/db/schema';
 import {
   useAddTaskDependencies,
-  useProjects,
   useRemoveTaskDependency,
   useTask,
   useTaskBlockers,
@@ -25,13 +22,12 @@ import { Badge, Chip, Input } from '@/ui/components/Controls';
 import { Section } from '@/ui/components/Screen';
 import { Spinner } from '@/ui/components/Spinner';
 import { Txt } from '@/ui/components/Text';
-import { colorForTag } from '@/ui/theme';
 import { useTheme } from '@/ui/ThemeProvider';
 import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
-import { bucketOf, dueLabel, PRIORITY_LABEL } from './buckets';
+import { bucketOf, dueLabel } from './buckets';
 import { InlineError } from './Feedback';
-import { dayAtDefaultHour, ESTIMATE_CHOICES } from './schedule';
+import { dayAtDefaultHour } from './schedule';
 import { Sheet } from './Sheet';
 import type { TaskActions } from './useTaskActions';
 
@@ -81,17 +77,14 @@ function DetailBody({
   onClose: () => void;
   onOpenTask: (task: Task) => void;
 }) {
-  const { colors, spacing } = useTheme();
-  const { data: projects = [] } = useProjects();
+  const { spacing } = useTheme();
   const [title, setTitle] = useState(task.title);
-  const [notes, setNotes] = useState(task.notes ?? '');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Re-seeded per task, never per cache write: an invalidation landing while the
   // user types would otherwise yank the field back to the stored value.
   useEffect(() => {
     setTitle(task.title);
-    setNotes(task.notes ?? '');
     setConfirmDelete(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id]);
@@ -166,76 +159,25 @@ function DetailBody({
         </View>
       </Section>
 
-      <Section compact title="Priority">
-        <View style={styles.chips}>
-          {[1, 2, 3].map((level) => (
-            <Chip
-              key={level}
-              label={PRIORITY_LABEL[level] ?? String(level)}
-              selected={task.priority === level}
-              color={level === 1 ? colors.accent : colors.textSecondary}
-              onPress={() => actions.setPriority(task, level)}
-            />
-          ))}
-        </View>
-      </Section>
-
-      <Section
-        compact
-        title="Estimate"
-        right={
-          <Txt variant="micro" tone="tertiary">
-            {task.estimatedMinutes != null ? formatDuration(task.estimatedMinutes) : 'None'}
-          </Txt>
-        }
-      >
-        <View style={styles.chips}>
-          {ESTIMATE_CHOICES.map((minutes) => (
-            <Chip
-              key={minutes}
-              label={formatDuration(minutes)}
-              selected={task.estimatedMinutes === minutes}
-              onPress={() => commit({ estimatedMinutes: minutes })}
-            />
-          ))}
-          {task.estimatedMinutes != null ? (
-            <Chip label="Clear" icon="close" onPress={() => commit({ estimatedMinutes: null })} />
-          ) : null}
-        </View>
-      </Section>
-
-      <Section compact title="Project">
-        <View style={styles.chips}>
-          <Chip
-            label="None"
-            selected={task.projectId == null}
-            color={colors.textSecondary}
-            onPress={() => commit({ projectId: null })}
-          />
-          {projects.map((project) => (
-            <Chip
-              key={project.id}
-              label={truncate(project.name, 22)}
-              selected={task.projectId === project.id}
-              color={project.color ?? colorForTag(project.name)}
-              onPress={() => commit({ projectId: project.id })}
-            />
-          ))}
-        </View>
-      </Section>
-
-      <Input
-        label="Notes"
-        value={notes}
-        onChangeText={setNotes}
-        multiline
-        placeholder="Anything you would otherwise forget…"
-        style={{ minHeight: 64, textAlignVertical: 'top' }}
-        onBlur={() => {
-          const next = notes.trim();
-          if (next !== (task.notes ?? '')) commit({ notes: next.length > 0 ? next : null });
-        }}
-      />
+      {/*
+        Priority, Estimate, Project and Notes used to live here, as four more
+        sections of chips and a text box, and they are gone.
+        
+        Not because the fields are gone — every one of them is still on the row
+        and still settable by voice, which is the whole split this app runs on:
+        **speech sets the rare field, the sheet holds only what a hand would
+        reach for.** "Make the frame task high priority" is one sentence; the
+        same thing as a picker is a screen of nine controls in front of a list
+        that had two useful actions on it.
+        
+        What that cost, stated because it is a real cost: a task's priority and
+        its estimate can no longer be changed by tapping. The priority bar in
+        `TaskRow` still colours the one row that changes what you do next, and
+        the estimate still shows in the row's meta line — they are just written
+        by the assistant now. If a field turns out to need a control after all,
+        the argument for adding it back is that somebody reached for one and
+        found nothing, not that the column exists in the table.
+      */}
 
       <Prerequisites task={task} />
       <Dependents task={task} onOpenTask={onOpenTask} />

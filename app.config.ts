@@ -6,6 +6,44 @@ import type { ExpoConfig, ConfigContext } from 'expo/config';
  * Dynamic config so secrets/ids can come from the environment at build time.
  * Nothing secret is committed; `extra` only carries public client identifiers.
  */
+/**
+ * A build that a **free Apple ID can sign**, for putting Ridik on somebody's
+ * iPhone without the $99 Developer Program.
+ *
+ * Set `RIDIK_FREE_SIGNING=1` for the prebuild. It is off by default and must
+ * stay that way: everything it removes is something a store build needs.
+ *
+ * ```bash
+ * RIDIK_FREE_SIGNING=1 npx expo prebuild --clean -p ios
+ * ```
+ *
+ * Then open `ios/Ridik.xcworkspace`, set the Ridik target's team to your
+ * personal team, plug the phone in and Run. It works for **seven days** and
+ * then stops launching, and re-signing needs the phone back on this Mac.
+ *
+ * **What it removes, and why it has to.** A personal team cannot be granted
+ * capabilities that are provisioned through the Developer portal, and Xcode
+ * fails to provision rather than warning:
+ *
+ *  - **App Groups.** `withRidikIosWidget` is what puts `group.ai.dby.ridik`
+ *    into both the app's and the extension's entitlements, so dropping that
+ *    one plugin removes the group *and* the WidgetKit target together — which
+ *    is correct, because a widget with no shared container is a blank tile
+ *    rather than a missing one. `RidikWidgetsModule` then finds no
+ *    `RidikAppGroup` key in Info.plist and throws, and `publish.ts` catches it
+ *    the same way it does on a build with no native module at all.
+ *  - **Time-sensitive notifications.** Reminders still fire; they just cannot
+ *    break through a Focus.
+ *
+ * So the tester gets the whole app — voice, calendar, notes, the ledger, local
+ * reminders — and no home-screen widgets. Say so when you hand it over, or the
+ * first thing they report is the thing you removed.
+ *
+ * Nothing here touches Android, which needs none of it: a release APK installs
+ * on any phone with no account, no fee and no expiry.
+ */
+const FREE_SIGNING = process.env.RIDIK_FREE_SIGNING === '1';
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: 'Ridik',
@@ -184,7 +222,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       ITSAppUsesNonExemptEncryption: false,
     },
     entitlements: {
-      'com.apple.developer.usernotifications.time-sensitive': true,
+      // Provisioned through the Developer portal, so a free personal team
+      // cannot have it and Xcode refuses the build rather than warning.
+      ...(FREE_SIGNING ? {} : { 'com.apple.developer.usernotifications.time-sensitive': true }),
       // The App Group the home-screen widget reads through is deliberately not
       // listed here. `withRidikIosWidget` adds it to this file *and* to the
       // extension's entitlements from one constant, because the two must be
@@ -260,6 +300,21 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     /*
+      **First in this list, which is what makes it run *last*.**
+
+      Expo's mods compose in reverse: each `withEntitlementsPlist` wraps the one
+      registered before it, so the plugin listed *last* has its action executed
+      *first*. Registered at the end, this saw an empty entitlements dict and
+      deleted nothing — verified by logging the keys it was handed, because the
+      failure is silent and the finished plist looked exactly as it had.
+
+      Only present under `RIDIK_FREE_SIGNING`, and it strips the entitlements a
+      personal team cannot be granted. It has to be a stripper rather than fewer
+      plugins because `expo-notifications` writes `aps-environment`
+      unconditionally, with no prop to stop it.
+    */
+    ...(FREE_SIGNING ? ['./plugins/withRidikFreeSigning'] : []),
+    /*
      * Crash reporting, and **only when there is a Sentry account behind it**.
      *
      * The plugin wires the native SDK in and adds a build phase that uploads
@@ -322,8 +377,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         calendarPermission:
           'Ridik reads and writes your calendar so it can schedule and adjust events by voice.',
-        remindersPermission:
-          'Ridik creates reminders that match the tasks you capture by voice.',
+        remindersPermission: 'Ridik creates reminders that match the tasks you capture by voice.',
       },
     ],
     [
@@ -333,8 +387,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
           'Ridik monitors places you choose so location reminders fire even when the app is closed.',
         locationAlwaysPermission:
           'Ridik monitors places you choose so location reminders fire even when the app is closed.',
-        locationWhenInUsePermission:
-          'Ridik uses your location to trigger place-based reminders.',
+        locationWhenInUsePermission: 'Ridik uses your location to trigger place-based reminders.',
         isIosBackgroundLocationEnabled: true,
         isAndroidBackgroundLocationEnabled: true,
         // Geofencing does not need one — the OS holds the regions. See the note
@@ -470,7 +523,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // The iOS WidgetKit extension: a second Xcode target that prebuild does not
     // create on its own, plus the App Group the app publishes snapshots into.
     // Its Swift lives in targets/RidikWidget/ and modules/ridik-widgets/ios/.
-    './plugins/withRidikIosWidget',
+    //
+    // Dropped entirely under `RIDIK_FREE_SIGNING`, because it is the only
+    // source of the App Group and a personal team cannot be granted one. The
+    // target and the entitlement have to go together — see the note above.
+    ...(FREE_SIGNING ? [] : ['./plugins/withRidikIosWidget']),
     // Signs release builds with credentials/android/upload.keystore instead of
     // the template's debug key, which Play rejects. Does nothing until
     // `npm run release keystore` has created one.

@@ -132,7 +132,13 @@ describe('notes screen', () => {
     expect(screen.getByText(/note under hardware/)).toBeTruthy();
   });
 
-  it('shows the tag, the first two bullets and the bullet count', async () => {
+  /*
+    This used to assert `+1 more` on a three-bullet note, which is the defect
+    written down as a requirement: the row showed two of three lines and spent
+    the third saying there was one it was not showing. A note that fits is now
+    shown whole, and "+N more" means something is genuinely being held back.
+  */
+  it('shows a short note in full, with no promise of more', async () => {
     setup({
       notes: [note('Robotics', 'hardware', ['M3 screws', '20mm standoffs', 'order Thursday'])],
       tags: [{ tag: 'hardware', count: 1 }],
@@ -140,8 +146,28 @@ describe('notes screen', () => {
     await wrap(<NotesScreen />);
 
     expect(screen.getByText('Robotics')).toBeTruthy();
+    // The filter strip above, which is where the tag is a control.
     expect(screen.getByText('hardware 1')).toBeTruthy();
     expect(screen.getByText('3')).toBeTruthy();
+    for (const bullet of ['M3 screws', '20mm standoffs', 'order Thursday']) {
+      expect(screen.getByText(bullet, { exact: false })).toBeTruthy();
+    }
+    expect(screen.queryByText(/more$/)).toBeNull();
+  });
+
+  it('says how much it is holding back when a note does not fit', async () => {
+    setup({
+      notes: [
+        note(
+          'Croissants',
+          'baking',
+          ['bread flour', 'butter', 'eggs', 'sugar', 'instant yeast', 'salt', 'milk'],
+        ),
+      ],
+      tags: [{ tag: 'baking', count: 1 }],
+    });
+    await wrap(<NotesScreen />);
+
     expect(screen.getByText('+1 more')).toBeTruthy();
   });
 

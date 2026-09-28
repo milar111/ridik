@@ -150,9 +150,26 @@ describe('ledger screen', () => {
 
   it('reports every currency separately instead of one merged total', async () => {
     const from = Date.now() - 86_400_000;
+    // The period holds three transactions and the recent window returns two of
+    // them. It used to hold two and return none, which no database can produce
+    // — and the assertion that came out of it was a "latest 0 of 2" readout
+    // over an empty Transactions section, i.e. the screen counting rows it was
+    // not drawing. A window is only worth reporting when something is in it.
+    // Categories that are not the breakdown group's, so "filament" below still
+    // identifies the breakdown rather than a row that happens to share a word.
+    mockRepos.ledger.listRecent.mockResolvedValue([
+      transaction({ id: 't1', amount: 12.5, currency: 'EUR', category: 'printer' }),
+      transaction({
+        id: 't2',
+        amount: 40,
+        currency: 'USD',
+        category: 'tools',
+        description: 'Nozzles',
+      }),
+    ]);
     mockRepos.ledger.query.mockResolvedValue(
       emptyLedger({
-        count: 2,
+        count: 3,
         from,
         to: Date.now() + 1,
         primaryCurrency: 'EUR',
@@ -174,14 +191,17 @@ describe('ledger screen', () => {
 
     await wrap(<LedgerScreen />);
 
-    // Two total cards, never one merged number.
+    // Two total cards, never one merged number. `findAll` because each amount
+    // now appears twice — once in its currency's total card and once in the
+    // transaction row it came from — which is the point: the two currencies are
+    // never added together anywhere on the screen.
     expect(await screen.findAllByText('€12.50')).not.toHaveLength(0);
-    expect(screen.getByText('$40.00')).toBeTruthy();
+    expect(screen.getAllByText('$40.00')).not.toHaveLength(0);
     // The breakdown belongs to the primary currency and says so.
     expect(screen.getByText('WHERE IT WENT · EUR')).toBeTruthy();
     expect(screen.getByText('filament')).toBeTruthy();
     // Recent rows are windowed; the count says how much of the period is shown.
-    expect(screen.getByText('latest 0 of 2')).toBeTruthy();
+    expect(screen.getByText('latest 2 of 3')).toBeTruthy();
   });
 
   /* Both fields are join keys: the category is what the breakdown groups on and

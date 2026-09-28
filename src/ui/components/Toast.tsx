@@ -65,7 +65,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       // Cap the stack: a multi-intent utterance can produce many results at once
       // and burying the screen defeats the purpose.
       setToasts((prev) => [...prev.slice(-2), { ...input, id }]);
-      const duration = input.durationMs ?? (input.action ? 6000 : 3200);
+      /*
+       * Two lengths, both shorter than they were (3200 / 6000).
+       *
+       * A toast with nothing to press is a receipt, and a receipt is read in a
+       * glance or not at all — 3.2s of it sitting over the screen after the
+       * thing already happened reads as the app being slow to get out of the
+       * way. One with an action is a *decision* and has to outlast reading the
+       * sentence plus reaching for it, so it keeps roughly two-thirds of what
+       * it had rather than being cut to match.
+       */
+      const duration = input.durationMs ?? (input.action ? 4000 : 1800);
       timers.current.set(
         id,
         setTimeout(() => dismiss(id), duration),

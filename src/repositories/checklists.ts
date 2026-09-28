@@ -150,12 +150,26 @@ export function createChecklistsRepository(db: RidikDatabase) {
     });
   }
 
-  async function toggle(input: ChecklistToggleInput): Promise<Result<ChecklistItem>> {
-    const completed = input.completed ?? true;
-    const query = input.itemQuery.trim();
+  /**
+   * The one row the user meant, or a question.
+   *
+   * Shared by `toggle` and `removeMatching` rather than written twice: the two
+   * differ only in what they do once the row is found, and a second copy of
+   * fuzzy resolution is a second place for "milk" to pick a different row.
+   *
+   * `wants` is the state the caller is heading for, used only as a tiebreaker —
+   * "tick off bread" prefers the open loaf over the one bought last week. A
+   * removal passes none: taking something off a list is as likely to be aimed
+   * at a ticked row as an open one, and a boost either way would be a guess.
+   */
+  async function resolveItem(
+    itemQuery: string,
+    options: { listName?: string; wants?: boolean } = {},
+  ): Promise<Result<ChecklistItem>> {
+    const query = itemQuery.trim();
     if (!query) throw new AppError('invalid_input', 'No item was named.');
 
-    const scope = input.listName?.trim();
+    const scope = options.listName?.trim();
     const rows = scope
       ? await db.select().from(checklists).where(sameList(scope))
       : await db.select().from(checklists);
@@ -173,9 +187,7 @@ export function createChecklistsRepository(db: RidikDatabase) {
       // Across lists the list name is worth matching ("milk on the shopping
       // list") but only at the discount `rank` already applies to aux text.
       aux: scope ? undefined : [`${row.itemText} ${row.listName}`],
-      // Nudge towards rows the request would actually change, so "tick off
-      // bread" prefers the open loaf over the one bought last week.
-      boost: Boolean(row.isCompleted) === completed ? 0 : 1,
+      boost: options.wants === undefined || Boolean(row.isCompleted) === options.wants ? 0 : 1,
     }));
 
     const outcome = resolveOne(query, candidates);
@@ -194,8 +206,18 @@ export function createChecklistsRepository(db: RidikDatabase) {
         },
       });
     }
+    return ok(outcome.match.item);
+  }
 
-    const row = outcome.match.item;
+  async function toggle(input: ChecklistToggleInput): Promise<Result<ChecklistItem>> {
+    const completed = input.completed ?? true;
+    const resolved = await resolveItem(input.itemQuery, {
+      ...(input.listName !== undefined ? { listName: input.listName } : {}),
+      wants: completed,
+    });
+    if (!resolved.ok) return resolved;
+
+    const row = resolved.value;
     if (Boolean(row.isCompleted) === completed) return ok(row);
 
     const [updated] = await db
@@ -229,9 +251,7 @@ export function createChecklistsRepository(db: RidikDatabase) {
     options: { includeCompleted?: boolean } = {},
   ): Promise<ChecklistItem[]> {
     const includeCompleted = options.includeCompleted ?? true;
-    const where = includeCompleted
-      ? sameList(listName)
-      : and(sameList(listName), IS_OPEN);
+    const where = includeCompleted ? sameList(listName) : and(sameList(listName), IS_OPEN);
 
     return db
       .select()
@@ -258,6 +278,41 @@ export function createChecklistsRepository(db: RidikDatabase) {
       .where(eq(checklists.id, id))
       .returning({ id: checklists.id });
     return rows.length > 0;
+  }
+
+  /** Take one named item off, wherever it is. The voice path's `removeItem`. */
+  async function removeMatching(input: {
+    listName?: string;
+    itemQuery: string;
+  }): Promise<Result<ChecklistItem>> {
+    const resolved = await resolveItem(input.itemQuery, {
+      ...(input.listName !== undefined ? { listName: input.listName } : {}),
+    });
+    if (!resolved.ok) return resolved;
+    await db.delete(checklists).where(eq(checklists.id, resolved.value.id));
+    return ok(resolved.value);
+  }
+
+  /**
+   * The whole list, by exact name.
+   *
+   * NOCASE and not fuzzy, deliberately: every other lookup in this file scores
+   * a transcript against stored words because the cost of a near miss is one
+   * item. Here it is every item, so a name that does not match is a refusal —
+   * the caller can list the names back — rather than the closest thing to it.
+   */
+  async function deleteList(listName: string): Promise<Result<{ name: string; removed: number }>> {
+    const name = listName.trim();
+    if (!name) throw new AppError('invalid_input', 'A checklist needs a name.');
+
+    const rows = await db
+      .delete(checklists)
+      .where(sameList(name))
+      .returning({ id: checklists.id, listName: checklists.listName });
+    if (rows.length === 0) return fail('not_found', `There is no ${name} list.`);
+    // The stored spelling, not the transcript's: "the SHOPPING list" reads back
+    // as the user wrote it the first time.
+    return ok({ name: rows[0]!.listName, removed: rows.length });
   }
 
   async function renameList(from: string, to: string): Promise<number> {
@@ -306,17 +361,16 @@ export function createChecklistsRepository(db: RidikDatabase) {
     }
     if (Object.keys(set).length === 0) return itemById(id);
 
-    const [row] = await db
-      .update(checklists)
-      .set(set)
-      .where(eq(checklists.id, id))
-      .returning();
+    const [row] = await db.update(checklists).set(set).where(eq(checklists.id, id)).returning();
     return row ?? null;
   }
 
   return {
     addItems,
     toggle,
+    resolveItem,
+    removeMatching,
+    deleteList,
     listNames,
     itemsForList,
     clearCompleted,

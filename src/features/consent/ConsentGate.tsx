@@ -79,13 +79,26 @@ export function ConsentGate() {
       // equivalent to set here — `app/_layout.tsx` hides the tree below
       // instead, which is why `useConsentGateOpen` is exported.
       accessibilityViewIsModal
-      // A View with no responder lets touches fall through to whatever is
-      // underneath it, which here is the microphone. Claiming the start of any
-      // gesture no child wanted is what makes this a lid rather than a picture
-      // of one; children negotiate first, so the buttons and the scroll still
-      // work.
-      onStartShouldSetResponder={() => true}
     >
+      {/*
+        The floor of the lid, and it is a *sibling* of the flow rather than its
+        parent — which is the whole point.
+
+        A View with no responder lets touches fall through to whatever is
+        underneath, which here is the microphone, so something in this overlay
+        has to claim the start of any gesture no child wanted. It used to be
+        the wrapper above, and that quietly broke the one step that scrolls: a
+        ScrollView deliberately does *not* claim on touch-start (or a tap on a
+        button inside it would never land) — it takes over on the first *move*.
+        An ancestor that has already become the responder never gives it back,
+        so the examples step could not be scrolled at all. Two of nine cards,
+        no error, and every test green, because a renderer with no viewport has
+        nothing to overflow.
+
+        Behind the flow it still catches anything the flow does not want, and
+        it is no longer between the ScrollView and the finger.
+      */}
+      <View style={StyleSheet.absoluteFill} onStartShouldSetResponder={() => true} />
       <View style={styles.fill}>
         <WelcomeFlow />
       </View>

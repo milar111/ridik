@@ -37,6 +37,7 @@ import { escapeMarkdown, shareAsFile, type ShareOutcome } from '@/features/expor
 // name the pipeline does not read is a key that silently does nothing.
 import {
   LLM_API_KEY_STORE_KEY,
+  ASSEMBLYAI_API_KEY_STORE_KEY,
   WHISPER_API_KEY_STORE_KEY,
 } from '@/features/voice/pipeline';
 import { clearKeptTranscript } from '@/features/voice/keep';
@@ -66,7 +67,7 @@ const SECURE_STORE_OPTIONS: SecureStore.SecureStoreOptions = {
 
 /* ------------------------------------------------------------------ secrets */
 
-export type SecretSlot = 'llm' | 'whisper';
+export type SecretSlot = 'llm' | 'whisper' | 'assemblyai';
 
 /**
  * A key never leaves the keychain whole. The screen only ever needs to answer
@@ -78,6 +79,7 @@ export type SecretState = { present: boolean; preview: string | null };
 const SECRET_KEYS: Record<SecretSlot, string> = {
   llm: LLM_API_KEY_STORE_KEY,
   whisper: WHISPER_API_KEY_STORE_KEY,
+  assemblyai: ASSEMBLYAI_API_KEY_STORE_KEY,
 };
 
 function maskSecret(value: string): string {

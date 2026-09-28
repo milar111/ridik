@@ -1,8 +1,8 @@
 /**
  * Which voice actions can be taken back, and by deleting what.
  *
- * Deliberately a short allow-list rather than a switch over all twenty-eight
- * tools. Undo here means "delete the single row that action created" — so a
+ * Deliberately a short allow-list rather than a switch over every tool in the
+ * contract. Undo here means "delete the single row that action created" — so a
  * tool only belongs on this list when it *always* creates exactly one row and
  * the id it reports *is* that row. Every entry was checked against the
  * executor; the exclusions below are the reason this is a list and not a rule.

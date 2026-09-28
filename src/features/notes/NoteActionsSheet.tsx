@@ -6,7 +6,6 @@ import { useArchiveNote, useDeleteNote, useNoteTags, useUpdateNote } from '@/hoo
 import type { NoteWithBullets } from '@/repositories/notes';
 import { Button, Chip, Input, SheetCard, Txt, useConfirm, useToast } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
-import { colorForTag } from '@/ui/theme';
 
 import { ActionSheet, type SheetAction } from './ActionSheet';
 import { errorMessage } from './errors';
@@ -227,7 +226,6 @@ export function ChangeTagSheet({
               <Chip
                 key={tag.tag}
                 label={tag.tag}
-                color={colorForTag(tag.tag)}
                 selected={tag.tag.toLowerCase() === note.categoryTag.toLowerCase()}
                 onPress={() => submit(tag.tag)}
               />

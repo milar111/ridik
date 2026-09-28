@@ -14,7 +14,7 @@ import { z } from 'zod';
 import { now } from '@/core/clock';
 import type { Logger } from '@/core/logger';
 import { AppError } from '@/core/result';
-import { currentZone } from '@/core/time';
+import { currentZone, type ClockFormat } from '@/core/time';
 import type { RidikDatabase } from '@/db/migrator';
 import { appSettings } from '@/db/schema';
 
@@ -70,6 +70,21 @@ export const SETTINGS = {
   ttsEnabled: define(z.boolean(), () => false),
   ttsRate: define(z.number().min(0.1).max(2), () => 1),
   primaryCurrency: define(z.string().regex(/^[A-Z]{3}$/), () => 'EUR'),
+  /**
+   * Twelve-hour or twenty-four, on every screen that renders a clock reading.
+   *
+   * `auto` by default, which reads the device — and is a good default rather
+   * than a guarantee, because `Intl` resolves from the locale and Android's
+   * "Use 24-hour format" system switch is not in it. That is the reason this
+   * is a row on Settings and not an inference: an American on an Android
+   * phone had no way to say so.
+   *
+   * A closed set for the same reason `ember` and `confirmMode` are, and it
+   * passes the screen's own test with room to spare — the worst value a
+   * stranger can pick is a working app whose times read in the other format.
+   * See `src/core/time.ts`, which holds the resolved answer as module state.
+   */
+  clockFormat: define<ClockFormat>(z.enum(['auto', '12h', '24h']), () => 'auto'),
   /**
    * Which ember the app and its home-screen widgets are drawn in.
    *
@@ -184,6 +199,33 @@ export const SETTINGS = {
     () => 'day',
   ),
   whisperFallbackEnabled: define(z.boolean(), () => true),
+  /**
+   * Which engine turns speech into text.
+   *
+   * `device` is the phone's own recogniser: instant, free, and the one that
+   * shows the words as you say them. The other two do not replace it — on
+   * Android 13+ they *read the audio it already heard* and write the transcript
+   * that commits, so the caption is never lost. See `upgrade` in
+   * `src/voice/index.ts`.
+   *
+   * `assemblyai` uploads that audio: the most accurate of the three on a real
+   * room, and it costs money, needs a signal, and is a third party named on the
+   * consent screen. `whisper-local` runs the same job on the phone — no
+   * recipient, no network, no per-utterance cost — and pays with a model
+   * download of tens of megabytes and seconds of CPU per turn.
+   *
+   * That is the whole content of this setting, and the screen says it in those
+   * terms: **who hears it** and **what it costs**, never engine names alone.
+   *
+   * `device` by default, and it stays the default even once a key is pasted:
+   * an engine that uploads audio must never become active because a *key*
+   * arrived, only because somebody chose it. A closed set for the same reason
+   * `ember` and `confirmMode` are.
+   */
+  sttEngine: define<'device' | 'assemblyai' | 'whisper-local'>(
+    z.union([z.literal('device'), z.literal('assemblyai'), z.literal('whisper-local')]),
+    () => 'device',
+  ),
 
   /**
    * The app's own spend ceiling, counted in assistant requests rather than
@@ -287,6 +329,19 @@ export const SETTINGS = {
    * them belongs in front of someone who just wants to talk to their phone.
    */
   developerMode: define(z.boolean(), () => false),
+  /**
+   * Whether the guided tour has been walked or dismissed.
+   *
+   * A setting rather than screen state because the tour runs on the real home
+   * screen, which is mounted from the moment the app opens and re-mounted on
+   * every cold launch — anything held in memory would run it again every time
+   * somebody force-quit the app.
+   *
+   * It is deliberately *not* on the Settings screen. "Show me around" is on
+   * `/examples`, where somebody who has forgotten how the app works is already
+   * looking; a switch called "Tour seen" is a developer's view of a flag.
+   */
+  tourSeen: define(z.boolean(), () => false),
   /**
    * The development billing provider's whole state, as JSON, on builds with no
    * real store compiled in. Null everywhere else — the App Store and Play own

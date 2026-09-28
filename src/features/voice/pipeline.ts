@@ -20,6 +20,7 @@
 
 import { createLogger } from '@/core/logger';
 import {
+  ASSEMBLYAI_API_KEY_STORE_KEY,
   ASSISTANT_TOKEN_STORE_KEY,
   LLM_API_KEY_STORE_KEY,
   WHISPER_API_KEY_STORE_KEY,
@@ -61,7 +62,9 @@ import { enableFor as enableGeofence, refresh as refreshGeofences } from '@/serv
 import { CHANNELS, cancelForEntity, scheduleAt } from '@/services/notifications';
 import { registerBootstrapStep } from '@/startup/bootstrap';
 import {
+  canCaptureAudio,
   captureUtterance,
+  prepareWhisper,
   speak as speakAloud,
   stopListening as stopStt,
   stopSpeaking as stopTts,
@@ -77,6 +80,7 @@ const log = createLogger('voice-pipeline');
 export {
   ASSISTANT_TOKEN_STORE_KEY,
   LLM_API_KEY_STORE_KEY,
+  ASSEMBLYAI_API_KEY_STORE_KEY,
   WHISPER_API_KEY_STORE_KEY,
   assistantApiUrl,
   assistantMode,
@@ -625,6 +629,54 @@ export function createVoicePipeline(): VoicePipeline {
         config?.whisperFallbackEnabled === true && mayReachProvider(config.assistantConsent);
       const whisperKey = whisperAllowed ? await readSecret(WHISPER_API_KEY_STORE_KEY) : null;
 
+      /*
+       * The same gate, for the engine that can *replace* the recogniser.
+       *
+       * Two conditions, and they are deliberately separate. The key is what
+       * makes the rung possible; `sttEngine` is what makes it *primary*. An
+       * engine that uploads audio must never become the default because a key
+       * arrived — only because somebody chose it on a screen that says what the
+       * trade is. So a pasted key alone buys a better rescue, and nothing more,
+       * until the setting says otherwise.
+       */
+      const assemblyKey = whisperAllowed
+        ? await readSecret(ASSEMBLYAI_API_KEY_STORE_KEY)
+        : null;
+      const assemblyChosen = Boolean(assemblyKey) && config?.sttEngine === 'assemblyai';
+
+      /*
+       * Two ways to honour that choice, and the better one wins where it runs.
+       *
+       * `upgrade` keeps the recogniser — and therefore the live caption, which
+       * is what makes sending on release safe — and hands the audio it already
+       * heard to AssemblyAI for the transcript that commits. It needs the
+       * recogniser to be able to keep a copy of that audio, which is Android
+       * 13+ only (`canCaptureAudio`).
+       *
+       * `primary` is the older, blunter shape: replace the recogniser outright
+       * and lose the caption for the length of an upload. It stays as the
+       * fallback for everywhere `upgrade` cannot run, because on those phones
+       * the choice the user made on the settings screen still has to mean
+       * something.
+       */
+      const assemblyUpgrade = assemblyChosen && canCaptureAudio();
+      const assemblyPrimary = assemblyChosen && !assemblyUpgrade;
+
+      /*
+       * And the same rung with nothing leaving the phone.
+       *
+       * No key, because there is nobody to authenticate to; no consent gate,
+       * because there is no recipient — which is the entire point of it, and
+       * why this is the one upgrade engine that still works with the assistant
+       * switched off, on a plane, or on a phone that has never had a signal.
+       *
+       * It needs the recogniser to have kept the audio, and it needs its model
+       * — which is fetched and opened at *bootstrap* rather than here. See
+       * `warmWhisperIfChosen` below: warming on this line would warm during the
+       * very first utterance, which is the one it exists to spare.
+       */
+      const whisperLocalUpgrade = config?.sttEngine === 'whisper-local' && canCaptureAudio();
+
       /**
        * And it covers the *recogniser* too, which is the rung nobody thought to
        * gate because it looks local from the call site.
@@ -661,9 +713,33 @@ export function createVoicePipeline(): VoicePipeline {
         ...(contextualStrings.length > 0 ? { contextualStrings } : {}),
         onPartial: handlers.onPartial,
         whisper: { enabled: Boolean(whisperKey), apiKey: whisperKey },
+        assemblyai: {
+          enabled: Boolean(assemblyKey),
+          primary: assemblyPrimary,
+          upgrade: assemblyUpgrade,
+          apiKey: assemblyKey,
+        },
+        whisperLocal: { upgrade: whisperLocalUpgrade },
       });
 
       if (capture.ok) {
+        /*
+         * Which engine actually answered, because nothing else says.
+         *
+         * There are four rungs now and three of them are silent about being
+         * used: an iPhone falls back from Apple's on-device analyzer to
+         * `SFSpeechRecognizer` whenever the model is not installed yet, and
+         * that is exactly the difference between 2% and 9% word errors. The
+         * next person asking "is it still mishearing me?" needs to know which
+         * one produced the sentence before they can answer, and `AGENTS.md` is
+         * explicit that a guard which silently degrades has to be able to say
+         * why. The transcript itself is deliberately not logged.
+         */
+        log.info('heard an utterance', {
+          source: capture.value.source,
+          confidence: capture.value.confidence,
+          chars: capture.value.transcript.length,
+        });
         lastCapture = { transcript: capture.value.transcript, confidence: capture.value.confidence };
         handlers.onFinal(capture.value.transcript, capture.value.confidence);
         return;
@@ -813,9 +889,35 @@ export function resetVoicePipeline(): void {
   hosted = null;
 }
 
+/**
+ * Fetches and opens the offline engine at launch, when it is the one chosen.
+ *
+ * It has to be here rather than on the capture path, and that distinction was
+ * a real bug before it was one: warming inside `startListening` warms during
+ * the **first utterance**, which is precisely the turn it exists to spare. A
+ * cold context costs 14.3 seconds against 1.6 warm, so that turn would sit in
+ * `sending` for a quarter of a minute.
+ *
+ * Fire and forget on every count. Nothing awaits it, a settings read that
+ * throws leaves the recogniser answering alone, and a phone that has not
+ * chosen this engine never reads a model file or spends the memory.
+ */
+function warmWhisperIfChosen(): void {
+  void (async () => {
+    try {
+      if (!canCaptureAudio()) return;
+      const engine = await getRepositories().settings.get('sttEngine');
+      if (engine === 'whisper-local') prepareWhisper();
+    } catch (error) {
+      log.warn('could not prepare the offline engine', { error });
+    }
+  })();
+}
+
 registerBootstrapStep({
   name: 'voice-pipeline',
   run: () => {
     installVoicePipeline();
+    warmWhisperIfChosen();
   },
 });

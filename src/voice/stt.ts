@@ -6,6 +6,19 @@
  * does not give us: a trailing-silence endpointer that works the same on both
  * OSes (the native endpointers differ wildly), and a confidence gate that knows
  * Android usually reports no confidence at all.
+ *
+ * ## Two engines behind one door
+ *
+ * On an iPhone with iOS 26 and the model downloaded, "the phone's recogniser"
+ * means Apple's `SpeechAnalyzer` (`./apple`) rather than `SFSpeechRecognizer`
+ * — four times fewer word errors, still local, still with a live caption, and
+ * it does not fall back to Apple's servers the way this one does. Everywhere
+ * else it means what it always did.
+ *
+ * The choice is made here rather than by the caller, and there is no setting
+ * for it: `captureUtterance` and the pipeline above it are unchanged, and
+ * `source` on the result is the only way to tell which one answered. A row
+ * offering a strictly worse local engine would be a question with no answer.
  */
 import {
   ExpoSpeechRecognitionModule,
@@ -17,13 +30,23 @@ import {
 import { now } from '@/core/clock';
 import { createLogger } from '@/core/logger';
 import { AppError, err, fail, ok, toAppError, type Result } from '@/core/result';
+import {
+  abortAppleListening,
+  appleAnalyzerFor,
+  getAppleState,
+  startAppleListening,
+  stopAppleListening,
+} from './apple';
 import { cleanTranscript, createSilenceDetector, evaluateTranscript, type SilenceDetector } from './vad';
 import {
   CONTEXTUAL_STRINGS_CAP,
   DEFAULT_LOCALE,
   DEFAULT_MIN_SPEECH_MS,
   DEFAULT_TRAILING_SILENCE_MS,
+  MAX_UTTERANCE_MS,
   NO_OFFLINE_VOICE_MESSAGE,
+  STOP_GRACE_MS,
+  TICK_INTERVAL_MS,
   type SttFinalResult,
   type SttListenOptions,
   type VoiceState,
@@ -31,11 +54,6 @@ import {
 
 const log = createLogger('stt');
 
-const TICK_INTERVAL_MS = 150;
-/** Nobody dictates a single command for a minute; stop before the battery does. */
-const MAX_UTTERANCE_MS = 60_000;
-/** How long we wait for the final result after asking the engine to stop. */
-const STOP_GRACE_MS = 2_500;
 /** Give the previous attempt time to emit its `end` before restarting. */
 const RESTART_DELAY_MS = 250;
 
@@ -61,14 +79,26 @@ type Session = {
   lastPartial: string;
   /** Lowest positive confidence seen; one bad segment should drag the whole down. */
   confidence: number | null;
+  /** Set from `audiostart`/`audioend` when `captureAudio` was asked for. */
+  audioUri: string | null;
 };
 
 let session: Session | null = null;
 let restartTimer: ReturnType<typeof setTimeout> | null = null;
 let state: VoiceState = 'idle';
 
+/**
+ * Which engine the last `startListening` handed the microphone to.
+ *
+ * Every exported function routes on it, so `stop` and `abort` reach whichever
+ * one is actually holding the microphone. It is deliberately not reset on
+ * settle: `startListening` aborts before it starts, and that abort has to find
+ * the engine the *previous* turn used.
+ */
+let engine: 'platform' | 'apple' = 'platform';
+
 export function getSttState(): VoiceState {
-  return state;
+  return engine === 'apple' ? getAppleState() : state;
 }
 
 /**
@@ -116,6 +146,35 @@ export async function startListening(options: SttListenOptions): Promise<Result<
   }
 
   const locale = options.locale ?? DEFAULT_LOCALE;
+
+  /*
+   * Apple's analyzer first, on a phone that has the model for this language.
+   *
+   * Ahead of `isRecognitionAvailable()` on purpose, and it rescues a case that
+   * used to be a dead end: dictation disabled in Screen Time makes the
+   * platform recogniser unavailable and says to type instead, while
+   * `SpeechAnalyzer` is a different framework and works regardless.
+   *
+   * A start failure falls through rather than being reported. `appleAnalyzerFor`
+   * having said yes and `start` then failing is rare, and the honest answer to
+   * it is the recogniser that has been serving this app all along — not an
+   * error over a microphone that could still hear them.
+   *
+   * `preferOnDevice: false` is honoured even though nothing in the app sets
+   * it. The option means "skip the on-device attempt", the analyzer *is* the
+   * on-device attempt, and an option that silently stopped meaning what it
+   * says is worse than one nobody uses.
+   */
+  const analyzerLocale =
+    options.preferOnDevice === false ? null : await appleAnalyzerFor(locale);
+  if (analyzerLocale !== null) {
+    engine = 'apple';
+    const started = await startAppleListening(options, analyzerLocale);
+    if (started.ok) return started;
+    log.warn('the analyzer would not start; using the platform recogniser', started.error);
+  }
+  engine = 'platform';
+
   const onDeviceOnly = options.onDeviceOnly === true;
   const onDevice =
     options.preferOnDevice === false && !onDeviceOnly ? false : await supportsOnDevice(locale);
@@ -137,6 +196,10 @@ export async function startListening(options: SttListenOptions): Promise<Result<
 
 /** Asks the engine for a final result and settles the session. */
 export function stopListening(): void {
+  if (engine === 'apple') {
+    stopAppleListening();
+    return;
+  }
   const current = session;
   if (!current || current.settled) return;
   current.stoppingAt = now();
@@ -152,6 +215,10 @@ export function stopListening(): void {
 
 /** Throws the utterance away. No callback fires. */
 export function abortListening(): void {
+  if (engine === 'apple') {
+    abortAppleListening();
+    return;
+  }
   if (restartTimer !== null) {
     clearTimeout(restartTimer);
     restartTimer = null;
@@ -163,6 +230,11 @@ export function abortListening(): void {
     return;
   }
   current.settled = true;
+  // A cancelled session reports nothing to anybody, so its recording has no
+  // owner but this line. `abortListening` is also what `startListening` calls
+  // on its way in, which makes this the sweep for a session the *previous*
+  // turn abandoned.
+  discardRecording(current);
   detach(current);
   session = null;
   abortEngine();
@@ -244,6 +316,7 @@ function beginSession(
     finalParts: [],
     lastPartial: '',
     confidence: null,
+    audioUri: null,
   };
 
   session = current;
@@ -251,7 +324,9 @@ function beginSession(
   attach(current);
 
   try {
-    ExpoSpeechRecognitionModule.start(recognitionOptions(locale, onDevice, options.contextualStrings));
+    ExpoSpeechRecognitionModule.start(
+      recognitionOptions(locale, onDevice, options.contextualStrings, options.captureAudio),
+    );
   } catch (error) {
     const appError = toAppError(error, 'Could not start listening.');
     current.settled = true;
@@ -268,6 +343,7 @@ function recognitionOptions(
   locale: string,
   onDevice: boolean,
   contextualStrings: readonly string[] | undefined,
+  captureAudio: SttListenOptions['captureAudio'],
 ): ExpoSpeechRecognitionOptions {
   // Sliced rather than trusted: the builder caps its own output, but this is
   // the boundary the native module sits behind, and an oversized bias list is
@@ -285,6 +361,11 @@ function recognitionOptions(
     // The user's own proper nouns. Omitted entirely when there are none, so a
     // fresh install sends exactly what it always did.
     ...(bias.length > 0 ? { contextualStrings: bias } : {}),
+    // Asked for only where it can be honoured — see `keptAudioOptions` in
+    // `./capability`, which is also what decides the format. On Android the
+    // library tees its own recorder into the recognition service rather than
+    // opening a second microphone, so this costs the session nothing.
+    ...(captureAudio ? { recordingOptions: captureAudio } : {}),
   };
 }
 
@@ -297,6 +378,15 @@ function attach(current: Session): void {
     ExpoSpeechRecognitionModule.addListener('nomatch', () => current.detector.noteSilence(now())),
     ExpoSpeechRecognitionModule.addListener('error', (event) => handleError(current, event)),
     ExpoSpeechRecognitionModule.addListener('end', () => settle(current)),
+    // Both carry the uri; `audioend` is the one that means the file is closed
+    // and safe to read, and `audiostart` is kept only so a session that dies
+    // before it still names the file somebody has to delete.
+    ExpoSpeechRecognitionModule.addListener('audiostart', (event) => {
+      current.audioUri = event?.uri ?? null;
+    }),
+    ExpoSpeechRecognitionModule.addListener('audioend', (event) => {
+      current.audioUri = event?.uri ?? current.audioUri;
+    }),
   );
 }
 
@@ -430,6 +520,10 @@ function handleError(current: Session, event: ExpoSpeechRecognitionErrorEvent): 
 
 function retryOnNetwork(current: Session): void {
   current.settled = true;
+  // This one is the reason the funnel above was not enough on its own: the
+  // retry does not `finish`, it abandons. Measured on a device — the
+  // on-device attempt and the retry each left a recording behind.
+  discardRecording(current);
   detach(current);
   if (session === current) session = null;
   try {
@@ -489,14 +583,34 @@ function settle(current: Session): void {
     source: current.onDevice ? 'ondevice' : 'network',
     accept: evaluation.accept,
     reason: evaluation.reason,
+    audioUri: current.audioUri,
   };
 
+  // Ownership travels with the result. Cleared before `finish` so the funnel
+  // there does not delete a file the caller is about to upload.
+  current.audioUri = null;
   finish(current, 'idle');
   // Fires last so the callback is free to start a fresh session.
   current.options.onFinal(result);
 }
 
+/**
+ * Drops a recording nobody is going to be handed.
+ *
+ * `settle` clears `audioUri` before it calls `finish`, because there the file
+ * has travelled out on the result and the caller owns it. Everything else —
+ * an error, a cancel, the network retry — reaches here still holding one, and
+ * the only correct thing to do with it is throw it away.
+ */
+function discardRecording(current: Session): void {
+  const uri = current.audioUri;
+  if (uri === null) return;
+  current.audioUri = null;
+  current.options.onDiscardAudio?.(uri);
+}
+
 function finish(current: Session, next: VoiceState): void {
+  discardRecording(current);
   detach(current);
   if (session === current) session = null;
   if (state !== next) {

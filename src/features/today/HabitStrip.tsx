@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { epochToLocal } from '@/core/time';
 import { invalidateKeys, qk, useLogHabit, type TodayHabit } from '@/hooks';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, useCheckPop, usePressScale , useStaggeredEntry } from '@/ui/motionHooks';
+import { AnimatedPressable, useCheckPop, usePressScale, useStaggeredEntry } from '@/ui/motionHooks';
 import { Chip, useToast } from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
 
@@ -16,13 +16,21 @@ type Pending = { streak: number };
  * One tap per habit, in one line.
  *
  * Streaks are the only place in the app where *not* acting has a cost, so the
- * strip has to be readable in the second it takes to walk past it: filled means
- * logged, amber means the run ends tonight, and the number is the streak the
- * tap is protecting. The optimistic streak is local rather than a cache patch —
+ * strip has to be readable in the second it takes to walk past it: a cool plate
+ * means logged, the ember means the run ends tonight, and the number is the
+ * streak the tap is protecting. The optimistic streak is local rather than a cache patch —
  * the real number comes back from the write, and guessing it into the shared
  * snapshot would be a lie the next screen repeats.
  */
-export function HabitStrip({ habits, at, zone }: { habits: readonly TodayHabit[]; at: number; zone: string }) {
+export function HabitStrip({
+  habits,
+  at,
+  zone,
+}: {
+  habits: readonly TodayHabit[];
+  at: number;
+  zone: string;
+}) {
   const client = useQueryClient();
   const toast = useToast();
   const { colors, spacing } = useTheme();
@@ -61,7 +69,11 @@ export function HabitStrip({ habits, at, zone }: { habits: readonly TodayHabit[]
               delete next[habit.id];
               return next;
             });
-            toast.show({ message: `Could not log ${habit.name}`, detail: error.message, tone: 'danger' });
+            toast.show({
+              message: `Could not log ${habit.name}`,
+              detail: error.message,
+              tone: 'danger',
+            });
           },
         },
       );
@@ -80,8 +92,7 @@ export function HabitStrip({ habits, at, zone }: { habits: readonly TodayHabit[]
         const optimistic = pending[entry.habit.id];
         const logged = entry.loggedToday || optimistic !== undefined;
         const streak = optimistic?.streak ?? entry.streak;
-        const atRisk =
-          !logged && yesterday != null && entry.habit.lastCompletedDate === yesterday;
+        const atRisk = !logged && yesterday != null && entry.habit.lastCompletedDate === yesterday;
 
         return (
           // Wrapped rather than animated in place: `Slot` owns the press
@@ -146,7 +157,9 @@ function Slot({
       accessibilityRole="checkbox"
       accessibilityState={{ checked: logged, disabled: logged }}
       accessibilityLabel={
-        logged ? `${name}, logged today, ${streak}-day streak` : `Log ${name}${atRisk ? ', streak at risk' : ''}`
+        logged
+          ? `${name}, logged today, ${streak}-day streak`
+          : `Log ${name}${atRisk ? ', streak at risk' : ''}`
       }
       disabled={logged}
       // The chip itself is 26pt tall; the slop is what makes it tappable
@@ -161,6 +174,11 @@ function Slot({
           label={label}
           icon={logged ? 'checkmark' : atRisk ? 'flame' : 'ellipse-outline'}
           selected={logged}
+          // A plate, not a fill. A logged habit is a *state* the chip reports
+          // about itself, and drawn solid it was a full-strength pale slate in a
+          // dark room — the brightest thing on the Today screen, spent on the
+          // one item that needs nothing from you.
+          fill="soft"
           color={tint}
         />
       </Animated.View>

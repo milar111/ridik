@@ -11,7 +11,7 @@ import { Card, Divider } from '@/ui/components/Card';
 import { Txt } from '@/ui/components/Text';
 import { inkOn } from '@/ui/ink';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry , AnimatedPressable, useCheckPop, usePressScale } from '@/ui/motionHooks';
+import { useStaggeredEntry, AnimatedPressable, useCheckPop, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
 
 import { bucketOf, dueLabel } from './buckets';
@@ -64,7 +64,13 @@ export function TaskRow({
   if (task.dueDate != null) {
     parts.push({
       text: dueLabel(task.dueDate),
-      tone: done ? 'tertiary' : bucket === 'overdue' ? 'danger' : bucket === 'today' ? 'warning' : 'tertiary',
+      tone: done
+        ? 'tertiary'
+        : bucket === 'overdue'
+          ? 'danger'
+          : bucket === 'today'
+            ? 'warning'
+            : 'tertiary',
     });
   }
   if (projectName) parts.push({ text: projectName, tone: 'tertiary' });
@@ -72,7 +78,14 @@ export function TaskRow({
     parts.push({ text: formatDuration(task.estimatedMinutes), tone: 'tertiary' });
   }
 
-  const boxColor = done ? colors.success : locked ? colors.borderStrong : colors.accent;
+  /* An empty box is not a state worth a colour. Every open task drew its box in
+     the accent, which put six identical ember squares down a list where nothing
+     distinguished one row from another — the exact thing the priority bar two
+     lines below is careful not to do. Warm is what needs you; a box you have not
+     ticked yet is the default condition of a task list, so it takes the same
+     neutral edge the shared `Checkbox` gives an unticked one, and the accent is
+     left free to mean the one priority that changes what you do next. */
+  const boxColor = done ? colors.success : colors.borderStrong;
 
   return (
     <AnimatedPressable

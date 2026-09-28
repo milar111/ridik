@@ -1,238 +1,86 @@
-<!--
-  IMAGES ARE NOT IN YET.
+<p align="center">
+  <img src="docs/media/banner.png" alt="Ridik — say it once" width="100%">
+</p>
 
-  Every picture below is written out and commented out, waiting for a
-  screenshot. The interface is still moving and a screenshot of a screen that
-  is about to change is worse than none.
+<h3 align="center">Say it once. Ridik files it.</h3>
 
-  docs/media/SHOTS.md is the shot list: what each image must contain, how to
-  set the simulator up, and which pairs have to be shot at matching sizes.
-  When a shot exists, save it at the path in the image line and delete the two
-  comment markers around it. Nothing else needs editing.
--->
-
-# Ridik
-
-**Say it once. Ridik files it.**
-
-A voice organiser for iPhone and Android that turns what you say into calendar
-events, reminders, tasks, notes and lists — without an account, and without
-your life leaving your phone.
-
-<!-- SHOT: hero
-![Ridik's home screen: a single microphone on a warm ember field](docs/media/hero.png)
--->
-
-> **"Remind me to call Ivo at 4, cancel my Math homework reminder for Sunday,
-> and note down that the robotics lab needs 10k resistors."**
-
-Three things, one breath:
-
-- **Call Ivo** goes in your calendar at 16:00
-- **Math homework** on Sunday is cancelled
-- **10k resistors** is added to your robotics lab note
-
-Each one is reported separately, and if one of them does not work the other two
-still happen.
+<p align="center">
+  A voice-first organiser for iPhone and Android.<br>
+  One sentence becomes a calendar event, a task, a note, a list item or an expense —<br>
+  with no account, and your life kept on your phone.
+</p>
 
 ---
 
-## The whole app is one screen
+## The idea
 
-A microphone, the next thing on your calendar, and a receipt for the last thing it did. Everything
-else is behind the hamburger. There is no tab bar, no feed, and nothing to scroll on the screen you
-open forty times a day.
+Organiser apps make you do the organising: pick the app, find the screen, fill the form.
+Ridik is **one microphone**. You talk the way you'd talk to a friend, and it works out
+where everything goes.
 
-| Listening | The receipt |
+> *"Remind me to call Ivo at 4, cancel my Math homework for Sunday, and note that the
+> robotics lab needs 10k resistors."*
+
+→ **three** separate actions, each reported back, each one tap to undo.
+
+<table>
+  <tr>
+    <td><img src="docs/media/01-say.png" alt="Just say it"></td>
+    <td><img src="docs/media/02-today.png" alt="Your whole day, answered"></td>
+    <td><img src="docs/media/03-tasks.png" alt="Tasks with due dates and blockers"></td>
+    <td><img src="docs/media/04-timetable.png" alt="Weekly timetable"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/05-money.png" alt="Money, by the sentence"></td>
+    <td><img src="docs/media/06-habits.png" alt="Habit streaks"></td>
+    <td><img src="docs/media/07-notes.png" alt="Searchable notes and lists"></td>
+    <td><img src="docs/media/08-private.png" alt="It stays on your phone"></td>
+  </tr>
+</table>
+
+## What it does
+
+| You say | Ridik does |
 | --- | --- |
-| <!-- SHOT: home-listening ![The mic listening, caption replaced by a live partial transcript](docs/media/home-listening.png) --> | <!-- SHOT: receipt ![One sentence, three actions, three separate results, each undoable](docs/media/receipt.png) --> |
+| "dentist Tuesday at three" | Adds it to your calendar, and warns you if it clashes with something |
+| "what does my day look like" | Reads back what's next, what's late and what you promised |
+| "I can't solder the board until the bearings arrive" | Links the two tasks; the blocked one waits until it's unblocked |
+| "homework for Math, page 42" | Due the day before your next Math class — it knows your timetable |
+| "spent fifteen forty on lunch" | Logs €15.40 under Food |
+| "log my reading" | Keeps your streak going |
+| "find the wifi password" | Searches your notes |
 
-**The receipt is the safety model.** Speaking is fast because you do not have to look — which is
-exactly why a misheard word would otherwise land silently and stay wrong. Every turn reports what it
-actually wrote, and anything that created exactly one row can be undone from the card.
+Plus a daily spoken briefing, location reminders, focus timers, people & promises, and
+**home-screen widgets on both platforms** with a mic button that starts recording directly.
 
-Speaking is not always possible, so holding the microphone opens a keyboard instead. The hold draws
-its own progress, and the sheet squares off against the keyboard so the two read as one surface.
+## Built to be trusted
 
-| Hold to type | Typing |
-| --- | --- |
-| <!-- SHOT: hold-to-type ![A ring closing onto the mic disc partway through a long press](docs/media/hold-to-type.png) --> | <!-- SHOT: sheet-typing ![The compose sheet flush against the keyboard](docs/media/sheet-typing.png) --> |
+- **It shows its work.** Every turn ends with a receipt of exactly what changed, with Undo.
+  Anything irreversible asks first — and if it isn't sure what it heard, it asks rather than guesses.
+- **No account. One file on your phone.** Export it any time; restoring a backup only ever
+  *adds*, never overwrites.
+- **Honest about the network.** Before anything leaves the phone, a first-run screen names every
+  company that could receive data and what they get. Say no and the app still works — an
+  offline engine files simple sentences on-device.
+- **On-device speech where possible.** Apple's `SpeechAnalyzer` on iOS 26, and a local
+  whisper.cpp model as an upgrade that transcribes without uploading audio.
+- **Free where it's free.** Everything local is free forever. Only requests to the AI model are
+  metered — 25 free to try, then a small monthly plan.
 
----
+## Under the hood
 
-## It knows enough to be useful
+**Expo SDK 57 · React Native · TypeScript · SQLite + Drizzle · Gemini (behind a swappable
+provider) · native Swift & Kotlin widgets · RevenueCat**
 
-<!-- SHOT: today
-![The day as one scroll: classes, calendar, a travel block sitting in front of an event, what is due](docs/media/today.png)
--->
+- The model never touches the database directly — it proposes typed actions (validated with Zod)
+  and a local executor applies them.
+- Ambiguous matches return *"I don't know"* instead of a best guess, so a misheard name can't
+  silently edit the wrong thing.
+- 150+ test files, with the data layer tested against real SQLite rather than mocks.
 
-**Travel time is blocked before anything you have to get to.** Anything with a location — or
-classified as an exam — gets a 20-minute block in front of it. The block follows the event when it
-moves and disappears when it is cancelled.
-
-**Your timetable is context.** "Homework for Math, page 42" lands the day before your next Math
-class, without being told when that is.
-
-**Double-booking asks first.** Booking or moving onto an occupied slot offers the next free one
-rather than quietly stacking two things at 15:00.
-
-<!-- SHOT: tasks-graph
-![A dependency chain: blocked work hidden behind what unlocks it](docs/media/tasks-graph.png)
--->
-
-**Work that depends on other work.** "I can't start assembly until the frame is printed and the
-servos arrive" builds a real graph. Blocked tasks stay out of today's list until they unlock, and a
-cycle is refused rather than deadlocked.
-
-<!-- SHOT: notes
-![Structured notes with a checklist section, tags, and full-text search](docs/media/notes.png)
--->
-
-Notes, lists and checklists you can search by typing or by asking. Somewhere to
-track what you spend. Habits with streaks. The people you know and the things
-you promised them. Reminders that go off when you *arrive* somewhere rather than
-at a time. And focus timers that keep counting even if the app gets closed.
-
-<!-- SHOT: menu
-![Every destination in the app, on one page](docs/media/menu.png)
--->
-
----
-
-## A briefing, spoken
-
-<!-- SHOT: briefing
-![Today, tomorrow and this week, with a fifteen-second spoken summary](docs/media/briefing.png)
--->
-
-Fifteen seconds, built from everything above, waiting the first time you open the app each day.
-
----
-
-## On your home screen
-
-Five widget faces per platform — Today, Agenda, Tasks, Habits and a List — and a microphone on the
-medium and large ones that starts a recording without opening the app.
-
-| iOS | Android |
-| --- | --- |
-| <!-- SHOT: widgets-ios ![WidgetKit faces on an iOS home screen](docs/media/widgets-ios.png) --> | <!-- SHOT: widgets-android ![The same faces on an Android home screen](docs/media/widgets-android.png) --> |
-
-They update themselves as your day changes, and they work without opening the
-app at all.
-
----
-
-## Your data stays yours
-
-<!-- SHOT: consent
-![The first-run screen naming every service that receives anything](docs/media/consent.png)
--->
-
-Everything lives in **one file on your phone**. No account, nothing to sign in
-to, no advertising identifiers, no profile of you and no tracking across apps.
-
-Understanding a sentence needs help from a computer that is not your phone, so
-the words you said — and a short list of your own labels, like the names of your
-lists and the people you know — go to Google. **What is written inside a note
-never does.** Neither does what anything cost, a phone number, an address, or
-where you have been.
-
-Ridik shows you that screen before it sends anything, ever, and it names the
-companies your words reach. The [privacy policy](docs/privacy.md) names every
-recipient there is and says what each one gets. Saying no leaves a working app.
-
-**It counts how it is used, and shows you the ledger.** A fixed list of things
-like "a request was made, it took a second or two, it worked" — never a
-transcript, a title, a name or an amount, because there is no free-text field
-anywhere in the shape (`src/services/analytics/events.ts` is the whole
-vocabulary). It stays on the phone: Menu → Usage is all of it, with an export and
-a Clear. Sending it, and crash reports with it, is one switch in Settings that is
-off until you turn it on.
-
-**A backup that can actually come back.** Your whole app, as one file you can
-keep anywhere. Putting it back *adds* what is missing and never deletes or
-overwrites what is already there — and it tells you which before it starts.
-
----
-
-## Plans
-
-| The paywall | Once you have one |
-| --- | --- |
-| <!-- SHOT: paywall ![Two tiers, a billing toggle, and the per-month price of each](docs/media/paywall.png) --> | <!-- SHOT: plan-active ![The subscribed screen, stating the allowance the plan buys](docs/media/plan-active.png) --> |
-
-Everything local is free and unlimited — notes, tasks, timers, the timetable, the widgets. What is
-metered is the part that costs money to run: a request to the model.
-
-| | Monthly | Yearly | Included |
-| --- | --- | --- | --- |
-| **Ridik** | $5 | $4.17/mo | 250 requests a month |
-| **Ridik Pro** | $10 | $8.33/mo | 1,000 requests a month |
-
-A $3 top-up adds 100 requests that never expire and are spent only after your plan or trial has run
-out. Prices come from the store, in your own currency; the numbers above are the US ones.
-
----
-
-## Dark mode is designed, not inverted
-
-| Light | Dark |
-| --- | --- |
-| <!-- SHOT: hero-light ![The home screen in light mode](docs/media/hero.png) --> | <!-- SHOT: dark ![The same screen in dark mode, re-solved rather than flipped](docs/media/dark.png) --> |
-
-The screen is lit as though the microphone were warming it. Nothing in Ridik is
-plain grey — every dark is a warm brown, every light a soft linen — and the dark
-mode is drawn from scratch rather than flipped, so it stays warm at night
-instead of turning into a black rectangle.
-
----
-
-## Questions people ask
-
-**Do I need an account?**
-No. There is no sign-up, no email, no password. Open it and talk.
-
-**Where does my stuff live?**
-In one file on your phone. It is included in your phone's own backup, so if you
-have iCloud or Google backup switched on there is a copy in your account — and
-it comes back when you set up a new phone.
-
-**Does anything leave my phone?**
-To turn what you say into filed things, the words of your request and a short
-list of your own labels — the names of your lists, projects and people — go to
-Google. What is *inside* a note never does. Neither does what anything cost, a
-phone number, an address, or where you have been. Ridik asks before it sends
-anything the first time you open it, and tells you exactly what goes.
-
-**What if I say no?**
-The app still works. It hears you and files plain sentences on its own —
-"spent 12 on lunch", "remind me to call Ivo at four", "add milk to my shopping
-list" — with nothing leaving the phone at all. It just cannot understand the
-complicated ones.
-
-**Can I get my data out?**
-Yes, whenever you like, as one file you can read. Putting it back merges: it
-adds what is missing and never deletes or overwrites what is already there, and
-it tells you which before it does anything.
-
-**What if it mishears me?**
-It shows you what it did, every time, and one tap undoes it. Before it does
-anything it cannot take back, it asks first.
-
-**Is it free?**
-Everything on the phone is — notes, tasks, timers, your timetable, the widgets,
-for ever. What costs money is the part that listens and understands, because
-that runs on somebody else's computer. You get 25 free requests to try it.
-
----
-
-## For developers
-
-The stack, the architecture and how to run it are in **[DEVELOPING.md](DEVELOPING.md)**.
-`AGENTS.md` has the invariants and every trap that has already cost a debugging
-session; `WIDGETS.md` is the widget contract.
+Running it, the architecture and the design rules: **[DEVELOPING.md](DEVELOPING.md)** ·
+[AGENTS.md](AGENTS.md) · [WIDGETS.md](WIDGETS.md) · [Privacy policy](docs/privacy.md)
 
 ## Licence
 
-MIT. See `LICENSE`.
+MIT — see [LICENSE](LICENSE).

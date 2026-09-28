@@ -16,3 +16,4 @@ export { useDebounced } from './useDebounced';
 
 // `./markdown` is deliberately not re-exported: it pulls in the native export
 // stack (print, sharing, mail), and only the detail screen ever shares a note.
+export { previewBullets, linesFor, PREVIEW_LINE_BUDGET } from './preview';

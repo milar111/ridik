@@ -35,11 +35,10 @@ describe('settings repository', () => {
   });
 
   const writeRaw = (key: string, value: string) =>
-    t.client.runSync('INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?,?,?)', [
-      key,
-      value,
-      NOW,
-    ]);
+    t.client.runSync(
+      'INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?,?,?)',
+      [key, value, NOW],
+    );
 
   describe('defaults', () => {
     it('returns the documented default for every key on a fresh database', async () => {
@@ -55,6 +54,7 @@ describe('settings repository', () => {
         llmCreditsUsed: 0,
         simulateStoreBuild: false,
         developerMode: false,
+        tourSeen: false,
         sandboxSubscription: null,
         voiceConfidenceThreshold: 0.7,
         silenceTimeoutMs: 1500,
@@ -63,6 +63,8 @@ describe('settings repository', () => {
         ttsEnabled: false,
         ttsRate: 1,
         primaryCurrency: 'EUR',
+        clockFormat: 'auto',
+        sttEngine: 'device',
         googleCalendarId: null,
         googleAccountEmail: null,
         onboardingComplete: false,

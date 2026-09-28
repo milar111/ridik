@@ -10,13 +10,17 @@ import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { epochToLocal } from '@/core/time';
+import { formatTime } from '@/core/time';
 import { useTheme } from '@/ui/ThemeProvider';
 import { Txt } from '@/ui/components/Text';
 import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import type { NextUp } from './next';
 
-const clock = (epoch: number, zone?: string): string => epochToLocal(epoch, zone).toFormat('HH:mm');
+// One formatter for the whole app: this line had its own copy of `HH:mm`,
+// which is how the biggest clock reading on the home screen would have been
+// the one place left on 24-hour after the setting shipped.
+const clock = (epoch: number, zone?: string): string =>
+  zone === undefined ? formatTime(epoch) : formatTime(epoch, zone);
 
 export function NextUpLine({ next, zone }: { next: NextUp | null; zone?: string }) {
   const { colors, spacing } = useTheme();

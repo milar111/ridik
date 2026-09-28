@@ -130,7 +130,16 @@ function BulletRow({ bullet }: { bullet: BriefingBullet }) {
   return (
     <View style={styles.bullet}>
       <Ionicons name={style.icon} size={14} color={tint} style={styles.bulletIcon} />
-      <Txt variant="caption" style={{ flex: 1 }} numberOfLines={1}>
+      {/* Two, not one. A bullet is a whole sentence and the useful half is at
+          the end of it — "Leave at 10:40 AM for Project meeting with Ivo at
+          11:00 AM." truncated to one line loses the time you leave *for*,
+          which is the only reason that bullet exists. It fit on one line for
+          as long as the clock was 24-hour and stopped the day it could be
+          twelve; a row that only fits its content in one of two formats was
+          never really fitting. The row is already `alignItems: 'flex-start'`
+          with the icon nudged 2pt, so a second line grows downwards and the
+          glyph stays on the first. */}
+      <Txt variant="caption" style={{ flex: 1 }} numberOfLines={2}>
         {bullet.text}
       </Txt>
     </View>

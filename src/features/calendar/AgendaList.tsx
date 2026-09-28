@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { now } from '@/core/clock';
 import { countLabel } from '@/core/format';
 import {
+  clockColumnWidth,
   epochToLocal,
   formatDayHeading,
   formatDuration,
@@ -21,7 +22,7 @@ import { Button, Card, Divider, EmptyState, MIC_CLEARANCE, Txt } from '@/ui/comp
 import { REFLOW_MS } from '@/ui/motion';
 import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
-import { colorForTag, type Colors } from '@/ui/theme';
+import { colorForTag, type Colors, type ColorScheme } from '@/ui/theme';
 
 import {
   buildAgenda,
@@ -39,6 +40,16 @@ import {
  * own band above the day now.
  */
 const GUTTER_WIDTH = 46;
+
+/**
+ * The gutter is sized from the *format*, not from a number.
+ *
+ * 46 is `21:00` in this face at this size, to the point. "12:00 AM" is 72.0,
+ * and a column with room for one line and content for two does not truncate —
+ * it wraps, so a 12-hour install read "3:00" over "PM" down the whole spine.
+ * See `clockColumnWidth`.
+ */
+const gutterWidth = (): number => Math.max(GUTTER_WIDTH, clockColumnWidth());
 
 /**
  * The spine: one continuous rule from the first item to the last, with a node
@@ -237,8 +248,18 @@ function Spine({
   const line = tint ?? colors.border;
   return (
     <View style={styles.spine} pointerEvents="none">
-      <View style={[styles.spineRail, { top: 0, height: SPINE_NODE_TOP, opacity: top ? 1 : 0, backgroundColor: line }]} />
-      <View style={[styles.spineRail, { top: SPINE_NODE_TOP + NODE, bottom: 0, opacity: bottom ? 1 : 0, backgroundColor: line }]} />
+      <View
+        style={[
+          styles.spineRail,
+          { top: 0, height: SPINE_NODE_TOP, opacity: top ? 1 : 0, backgroundColor: line },
+        ]}
+      />
+      <View
+        style={[
+          styles.spineRail,
+          { top: SPINE_NODE_TOP + NODE, bottom: 0, opacity: bottom ? 1 : 0, backgroundColor: line },
+        ]}
+      />
       <View
         style={[
           styles.spineNode,
@@ -264,7 +285,7 @@ function Join({ join }: { join: AgendaJoin }) {
   if (join.kind === 'butt') {
     return (
       <View style={styles.joinRow}>
-        <View style={styles.gutter} />
+        <View style={[styles.gutter, { width: gutterWidth() }]} />
         <View style={styles.spineFill}>
           <View style={[styles.spineRailStatic, { backgroundColor: colors.border }]} />
         </View>
@@ -276,7 +297,7 @@ function Join({ join }: { join: AgendaJoin }) {
   const tint = clash ? colors.warning : colors.textTertiary;
   return (
     <View style={styles.joinRow} accessibilityLabel={joinLabel(join)}>
-      <View style={styles.gutter} />
+      <View style={[styles.gutter, { width: gutterWidth() }]} />
       <View style={styles.spineFill}>
         <View
           style={[
@@ -288,9 +309,7 @@ function Join({ join }: { join: AgendaJoin }) {
         />
       </View>
       <View style={styles.joinLabel}>
-        {clash ? (
-          <Ionicons name="alert-circle-outline" size={12} color={colors.warning} />
-        ) : null}
+        {clash ? <Ionicons name="alert-circle-outline" size={12} color={colors.warning} /> : null}
         <Txt variant="micro" style={{ color: tint }} numberOfLines={1}>
           {joinLabel(join)}
         </Txt>
@@ -321,7 +340,7 @@ function AllDayBand({
   const { colors, spacing } = useTheme();
   return (
     <View style={styles.row}>
-      <View style={styles.gutter}>
+      <View style={[styles.gutter, { width: gutterWidth() }]}>
         <Txt variant="micro" tone="tertiary" style={styles.gutterTime}>
           all day
         </Txt>
@@ -369,11 +388,11 @@ function EventRow({
   first: boolean;
   last: boolean;
 }) {
-  const { colors, spacing } = useTheme();
+  const { colors, spacing, scheme } = useTheme();
   const { event, buffer } = item;
   const past = event.endsAt <= nowMs;
   const running = event.startsAt <= nowMs && nowMs < event.endsAt;
-  const rule = ruleColor(event, colors);
+  const rule = ruleColor(event, colors, scheme);
 
   return (
     <View>
@@ -448,11 +467,11 @@ function ClassRow({
   first: boolean;
   last: boolean;
 }) {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
   const { entry } = item.slot;
   const past = item.endsAt <= nowMs;
   const running = item.startsAt <= nowMs && nowMs < item.endsAt;
-  const tint = entry.color ?? colorForTag(entry.subjectName);
+  const tint = entry.color ?? colorForTag(entry.subjectName, scheme);
   const meta = [entry.location, entry.teacher].filter(Boolean).join(' · ');
 
   return (
@@ -510,9 +529,7 @@ function Meta({
   const { colors } = useTheme();
   return (
     <View style={styles.metaRow}>
-      {running ? (
-        <View style={[styles.livePip, { backgroundColor: colors.accent }]} />
-      ) : null}
+      {running ? <View style={[styles.livePip, { backgroundColor: colors.accent }]} /> : null}
       <Txt variant="caption" tone={running ? 'accent' : 'tertiary'} numberOfLines={1}>
         {running ? 'Now · ' : ''}
         {duration} · until {until}
@@ -534,7 +551,7 @@ function Meta({
 
 function Gutter({ top, muted }: { top: string; muted?: boolean }) {
   return (
-    <View style={styles.gutter}>
+    <View style={[styles.gutter, { width: gutterWidth() }]}>
       <Txt variant="mono" tone={muted ? 'tertiary' : 'secondary'} style={styles.gutterTime}>
         {top}
       </Txt>
@@ -559,7 +576,7 @@ function NowLine({
   const { colors } = useTheme();
   return (
     <View style={[styles.row, styles.nowRow]} accessibilityLabel="Now">
-      <View style={styles.gutter}>
+      <View style={[styles.gutter, { width: gutterWidth() }]}>
         <Txt variant="micro" style={{ color: colors.accent, textAlign: 'right' }}>
           {formatTime(at, zone)}
         </Txt>
@@ -578,10 +595,16 @@ function SyncDot({ status }: { status: CalendarEvent['syncStatus'] }) {
   const map = {
     pending: { icon: 'cloud-upload-outline', color: colors.textTertiary, label: 'Waiting to sync' },
     failed: { icon: 'alert-circle-outline', color: colors.danger, label: 'Sync failed' },
-    local_only: { icon: 'phone-portrait-outline', color: colors.textTertiary, label: 'On this device only' },
+    local_only: {
+      icon: 'phone-portrait-outline',
+      color: colors.textTertiary,
+      label: 'On this device only',
+    },
   } as const;
   const entry = map[status];
-  return <Ionicons name={entry.icon} size={13} color={entry.color} accessibilityLabel={entry.label} />;
+  return (
+    <Ionicons name={entry.icon} size={13} color={entry.color} accessibilityLabel={entry.label} />
+  );
 }
 
 function AgendaSkeleton() {
@@ -590,8 +613,18 @@ function AgendaSkeleton() {
     <View style={{ gap: spacing.sm }} accessibilityLabel="Loading day">
       {[0, 1, 2].map((i) => (
         <View key={i} style={styles.row}>
-          <View style={[styles.gutter, { paddingTop: 4 }]}>
-            <View style={[styles.bone, { width: 34, height: 10, backgroundColor: colors.surfaceRaised, borderRadius: radius.sm }]} />
+          <View style={[styles.gutter, { width: gutterWidth(), paddingTop: 4 }]}>
+            <View
+              style={[
+                styles.bone,
+                {
+                  width: 34,
+                  height: 10,
+                  backgroundColor: colors.surfaceRaised,
+                  borderRadius: radius.sm,
+                },
+              ]}
+            />
           </View>
           <View
             style={{
@@ -609,10 +642,10 @@ function AgendaSkeleton() {
 }
 
 /** Colour carries the event's kind; a plain event stays uncoloured on purpose. */
-function ruleColor(event: CalendarEvent, colors: Colors): string | undefined {
+function ruleColor(event: CalendarEvent, colors: Colors, scheme: ColorScheme): string | undefined {
   if (event.kind === 'exam') return colors.danger;
   if (event.kind === 'event') return undefined;
-  return colorForTag(event.kind);
+  return colorForTag(event.kind, scheme);
 }
 
 const styles = StyleSheet.create({

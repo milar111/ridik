@@ -22,6 +22,7 @@ import { useTheme } from '@/ui/ThemeProvider';
 import { useAnnounceOnIOS } from '@/ui/a11y';
 import { Txt } from '@/ui/components/Text';
 import { useToast } from '@/ui/components';
+import { isWrite } from '@/llm/confirm';
 import { useVoiceStore } from '@/features/voice/store';
 import { useVoiceUndo } from '@/hooks/useVoiceUndo';
 import { SPRING_ENTER } from '@/ui/motion';
@@ -94,16 +95,34 @@ export function LastAction() {
    * Computed above the `return null`, with the press hooks, or the hook order
    * changes the moment the receipt has nothing to show.
    */
+  /*
+   * An answer is not a receipt, and drawing it as one is why "what does my day
+   * look like" arrived in a small box at the foot of the screen with the word
+   * **Done.** in front of it.
+   *
+   * A receipt reports a *change*: it is short by construction ("Added “Dentist”
+   * — Tue 15:00"), it wants a tick, and it wants an Undo. An answer is the
+   * thing that was asked for. It has no tick to earn, nothing to take back, and
+   * it is as long as the day is — a briefing is three or four lines and the two
+   * of them were sharing one two-line clamp.
+   *
+   * `isWrite` already draws this line for the confirmation gate, so it is the
+   * same list rather than a second one that can drift from it.
+   */
+  const isAnswer = headline !== null && !isWrite(headline.toolName);
+
   const receipt = headline
-    ? isUndone
+    ? isAnswer
+      ? headline.summary
+      : isUndone
       ? // What was actually taken back, which is not always the headline. The
         // sentence used to read "Undone. Started \"Focus\" — 25m in 1 block."
         // after undoing a *task* in the same batch, leaving the timer running
         // and telling the one person who cannot see the card that the wrong
         // thing had been reversed.
         `Undone. ${undoable.summary}`
-      : `Done. ${headline.summary}` +
-        (applied.length > 1 ? `, and ${applied.length - 1} more` : '')
+        : `Done. ${headline.summary}` +
+          (applied.length > 1 ? `, and ${applied.length - 1} more` : '')
     : null;
   // Android hears the card itself: it is an `accessibilityLiveRegion` below.
   useAnnounceOnIOS(receipt);
@@ -174,16 +193,29 @@ export function LastAction() {
           openPress.style,
         ]}
       >
+        {/* No tick on an answer. A checkmark means "this was applied", and
+            nothing was: the user asked a question and this is the reply. The
+            glyph that belongs there is the one for having spoken. */}
         <Ionicons
-          name={isUndone ? 'arrow-undo' : 'checkmark-circle'}
+          name={isAnswer ? 'chatbubble-ellipses' : isUndone ? 'arrow-undo' : 'checkmark-circle'}
           size={17}
-          color={isUndone ? colors.textTertiary : colors.success}
+          color={isAnswer ? colors.accent : isUndone ? colors.textTertiary : colors.success}
         />
         <View style={{ flex: 1, gap: 1 }}>
-          <Txt variant="caption" weight="600" numberOfLines={2} tone={isUndone ? 'tertiary' : undefined}>
+          {/* An answer is set larger and given room to be an answer. Six lines
+              rather than two, because a day briefing is three or four and the
+              two-line clamp a receipt wants was cutting it mid-sentence — which
+              is the one thing a reply may not do. Past six it scrolls in the
+              sheet, which the chevron opens. */}
+          <Txt
+            variant={isAnswer ? 'body' : 'caption'}
+            weight={isAnswer ? undefined : '600'}
+            numberOfLines={isAnswer ? 6 : 2}
+            tone={isUndone ? 'tertiary' : undefined}
+          >
             {headline.summary}
           </Txt>
-          {applied.length > 1 ? (
+          {applied.length > 1 && !isAnswer ? (
             <Txt variant="micro" tone="tertiary">
               and {applied.length - 1} more
             </Txt>

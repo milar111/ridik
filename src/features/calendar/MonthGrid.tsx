@@ -30,16 +30,10 @@ import { Txt } from '@/ui/components';
 import { inkOn } from '@/ui/ink';
 import { useTheme } from '@/ui/ThemeProvider';
 import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
-import { colorForTag, type Colors } from '@/ui/theme';
+import { colorForTag, type Colors, type ColorScheme } from '@/ui/theme';
 
 import type { AgendaItem } from './agenda';
-import {
-  DAYS_IN_WEEK,
-  dayNumberOf,
-  isSameMonth,
-  weekdayInitials,
-  type WeekStart,
-} from './dates';
+import { DAYS_IN_WEEK, dayNumberOf, isSameMonth, weekdayInitials, type WeekStart } from './dates';
 import { monthCell, titleOf } from './grid';
 
 /**
@@ -156,7 +150,7 @@ function Cell({
   onPress: () => void;
   rank: number;
 }) {
-  const { colors, radius } = useTheme();
+  const { colors, radius, scheme } = useTheme();
   const press = usePressScale({ scale: 0.94 });
   const shown = items.slice(0, BARS);
 
@@ -203,7 +197,7 @@ function Cell({
             entering={FadeIn.duration(160).delay(rank * 20 + index * 6)}
             style={[
               styles.bar,
-              { backgroundColor: tintOf(item, colors), opacity: inMonth ? 0.85 : 0.28 },
+              { backgroundColor: tintOf(item, colors, scheme), opacity: inMonth ? 0.85 : 0.28 },
             ]}
           />
         ))}
@@ -218,19 +212,21 @@ function label(date: LocalDate, zone: string, items: readonly AgendaItem[]): str
   if (items.length === 0) return `${day}, nothing on`;
   const first = items
     .slice(0, 3)
-    .map((item) => (item.allDay ? titleOf(item) : `${formatTime(item.startsAt, zone)} ${titleOf(item)}`))
+    .map((item) =>
+      item.allDay ? titleOf(item) : `${formatTime(item.startsAt, zone)} ${titleOf(item)}`,
+    )
     .join(', ');
   return `${day}, ${items.length === 1 ? '1 thing' : `${items.length} things`}: ${first}`;
 }
 
 /** The same rule the agenda and the week grid use. One thing, one colour. */
-function tintOf(item: AgendaItem, colors: Colors): string {
+function tintOf(item: AgendaItem, colors: Colors, scheme: ColorScheme): string {
   if (item.type === 'class') {
-    return item.slot.entry.color ?? colorForTag(item.slot.entry.subjectName);
+    return item.slot.entry.color ?? colorForTag(item.slot.entry.subjectName, scheme);
   }
   if (item.event.kind === 'exam') return colors.danger;
   if (item.event.kind === 'event') return colors.accent;
-  return colorForTag(item.event.kind);
+  return colorForTag(item.event.kind, scheme);
 }
 
 const styles = StyleSheet.create({

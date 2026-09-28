@@ -150,6 +150,7 @@ describe('Tasks screen', () => {
     expect(screen.getByText('Nothing to do right now')).toBeTruthy();
     expect(screen.getByText('0 tasks ready · 0 blocked')).toBeTruthy();
 
+    // Empty database, so the tab carries no count.
     await fireEvent.press(screen.getByText('Blocked'));
     expect(screen.getByText('Nothing is blocked')).toBeTruthy();
 
@@ -203,7 +204,11 @@ describe('Tasks screen', () => {
     });
     await wrap();
 
-    await fireEvent.press(screen.getByText('Blocked'));
+    // The tab carries its own count now: a blocked task leaves Active, and a
+    // third segment that says nothing is one nobody presses to find out where
+    // the task went — which is exactly the question the dependency feature got
+    // back from a real user.
+    await fireEvent.press(screen.getByText('Blocked 1'));
     expect(screen.getByText('Assemble the robot')).toBeTruthy();
     expect(screen.getByText('Waiting on:')).toBeTruthy();
     expect(screen.getByText('1/2 done')).toBeTruthy();
@@ -252,13 +257,26 @@ describe('Tasks screen', () => {
     expect(screen.getByText('Snooze to tomorrow')).toBeTruthy();
     expect(screen.getByText('Open details')).toBeTruthy();
     expect(screen.queryByText('Delete')).toBeNull();
-    expect(screen.queryByText('PRIORITY')).toBeNull();
+    expect(screen.queryByText('DUE')).toBeNull();
 
-    // The menu lost the controls, not the app: this is the tap that still
-    // reaches both, and it is the only one left that does.
+    /*
+     * The menu lost the controls, not the app: this is the tap that still
+     * reaches them, and it is the only one left that does.
+     *
+     * It used to check for PRIORITY, which the sheet no longer has — priority,
+     * estimate, project and notes are all set by voice now and none of them
+     * earns a control. What has to survive that cut is asserted instead: the
+     * deadline, which is what the whole screen buckets by, and the delete,
+     * which is the one destructive act with nowhere else to live.
+     */
     await fireEvent.press(screen.getByLabelText('Open details'));
-    expect(screen.getByText('PRIORITY')).toBeTruthy();
+    expect(screen.getByText('DUE')).toBeTruthy();
     expect(screen.getByText('Delete task')).toBeTruthy();
+    // And the four that went, stay gone.
+    expect(screen.queryByText('PRIORITY')).toBeNull();
+    expect(screen.queryByText('ESTIMATE')).toBeNull();
+    expect(screen.queryByText('PROJECT')).toBeNull();
+    expect(screen.queryByText('Notes')).toBeNull();
   });
 
   /**

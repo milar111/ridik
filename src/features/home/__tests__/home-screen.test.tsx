@@ -50,6 +50,10 @@ jest.mock('expo-router', () => ({
 /* What the cold-start examples are built from. Empty by default: most of this
    file is about a screen that already has data, and the generic pool is what a
    fresh install actually sees. */
+/* What the conversation window holds. Empty by default: most of this file is
+   about one utterance, and a resting home screen draws no trail at all. */
+let mockTurns: unknown[] = [];
+let mockNotes: unknown[] = [];
 let mockLists: { name: string }[] = [];
 let mockHabits: { name: string }[] = [];
 
@@ -60,7 +64,15 @@ jest.mock('@/hooks', () => ({
   // does not navigate out from under every other assertion), and the consent
   // answer is what a speak intent waits for.
   useSetting: (key: string) => ({
-    value: key === 'assistantConsent' ? mockConsent : mockLastBriefingShown,
+    // Keyed three ways now. `tourSeen` is true here for the same reason the
+    // `@/hooks/useSettings` mock below says so: this file is about the screen
+    // after the first run, and the briefing waits for the tour.
+    value:
+      key === 'assistantConsent'
+        ? mockConsent
+        : key === 'tourSeen'
+          ? mockTourSeen
+          : mockLastBriefingShown,
     isLoading: false,
     error: null,
     set: mockSetSetting,
@@ -69,7 +81,53 @@ jest.mock('@/hooks', () => ({
   // reads `.data`, and both are allowed to be undefined.
   useChecklistNames: () => ({ data: mockLists }),
   useHabits: () => ({ data: mockHabits }),
+  /* `RecentTurns` reads the audit trail to draw the conversation still inside
+     the recall window. Mocked *as a hook* — see the `useSetting` note above and
+     the rule in AGENTS.md: a mock that calls no hook of its own makes the hook
+     counts match and hides the very crash these boundaries would swallow. */
+  useInteractionHistory: () => {
+    const { useRef } = jest.requireActual('react') as typeof import('react');
+    useRef(null);
+    return { data: mockTurns };
+  },
+  /* The other half of `HomePanel`. Empty by default, like the trail: a resting
+     home screen on a fresh install draws neither side. */
+  useNotes: () => {
+    const { useRef } = jest.requireActual('react') as typeof import('react');
+    useRef(null);
+    return { data: mockNotes };
+  },
 }));
+
+/*
+ * The guided tour runs on this screen, and it is `accessibilityViewIsModal` —
+ * so while it is up, RNTL treats every other element on home as hidden and
+ * every query in this file returns nothing. That is the tour behaving
+ * correctly: it *is* a modal, and a person walking it is not meant to be able
+ * to press the microphone underneath.
+ *
+ * `tourSeen: true` is therefore the state this file is about — the screen after
+ * the first run. The tour has its own file. Mocked *as a hook* (it calls one),
+ * because a mock that calls none makes the render counts match and hides
+ * exactly the crash a hook below an early return produces on a device.
+ */
+let mockTourSeen = true;
+jest.mock('@/hooks/useSettings', () => {
+  const { useRef } = jest.requireActual('react') as typeof import('react');
+  return {
+    useSetting: () => {
+      useRef(null);
+      return {
+        value: mockTourSeen,
+        isLoading: false,
+        error: null,
+        set: jest.fn(),
+        setAsync: jest.fn(),
+        isSaving: false,
+      };
+    },
+  };
+});
 
 /* The undo goes through the same mutations the screens use, so the whole
    repository graph would come with them. What matters here is which one is
@@ -94,7 +152,8 @@ const ZONE = 'Europe/Sofia';
 const NOW = DateTime.fromISO('2026-08-11T12:00', { zone: ZONE }).toMillis();
 const mockNow = NOW;
 const { start: DAY_START, end: DAY_END } = dayRange('2026-08-11', ZONE);
-const at = (hhmm: string): number => DateTime.fromISO(`2026-08-11T${hhmm}`, { zone: ZONE }).toMillis();
+const at = (hhmm: string): number =>
+  DateTime.fromISO(`2026-08-11T${hhmm}`, { zone: ZONE }).toMillis();
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -119,7 +178,12 @@ const snapshot = (over: Record<string, unknown> = {}): any => ({
   ...over,
 });
 
-const event = (id: string, title: string, startsAt: number, over: Record<string, unknown> = {}): any => ({
+const event = (
+  id: string,
+  title: string,
+  startsAt: number,
+  over: Record<string, unknown> = {},
+): any => ({
   id,
   title,
   description: null,
@@ -132,7 +196,6 @@ const event = (id: string, title: string, startsAt: number, over: Record<string,
   bufferForId: null,
   ...over,
 });
- 
 
 function wrap() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -159,8 +222,11 @@ beforeEach(() => {
   mockSetSetting.mockReset();
   mockLastBriefingShown = '2026-08-11';
   mockConsent = 'granted';
+  mockTourSeen = true;
   mockLists = [];
   mockHabits = [];
+  mockTurns = [];
+  mockNotes = [];
   useVoiceStore.getState().reset();
   hooks.useToday.mockReturnValue({ data: snapshot(), isPending: false, isError: false });
 });
@@ -173,6 +239,26 @@ describe('home screen', () => {
     expect(screen.getByTestId('home-menu')).toBeTruthy();
     expect(screen.getByTestId('home-profile')).toBeTruthy();
     expect(screen.getByText('TAP TO SPEAK · HOLD TO TYPE')).toBeTruthy();
+  });
+
+  /*
+    Every section of this screen is wrapped in a `SectionBoundary`, which turns
+    a crash into a small inline card and lets the rest of the screen render —
+    the right behaviour live, and a trap in a test, because the suite goes green
+    over a home screen that is showing an error where a component should be.
+    That is exactly what happened when `RecentTurns` was added: it reads a hook
+    this file mocks wholesale, the mock did not have it, and all 32 tests passed
+    over `recent turns could not be shown. useInteractionHistory is not a
+    function`.
+
+    So the boundaries are asserted empty. The message is `InlineError`'s, and
+    the match is on the shape every `SectionBoundary` fallback produces rather
+    than on any one label, so a section added later is covered without anybody
+    remembering to add it here.
+  */
+  it('renders no section as a failure card', async () => {
+    await wrap();
+    expect(screen.queryByText(/could not be shown/)).toBeNull();
   });
 
   it('shows what is next and when to leave for it', async () => {
@@ -218,7 +304,12 @@ describe('home screen', () => {
       outcome: {
         transcript: 'remind me to call Dad tomorrow',
         items: [
-          { toolName: 'task_add', ok: true, summary: 'Task added: “call Dad”.', entityId: 'task-1' },
+          {
+            toolName: 'task_add',
+            ok: true,
+            summary: 'Task added: “call Dad”.',
+            entityId: 'task-1',
+          },
         ],
       },
     });
@@ -420,6 +511,26 @@ describe('home screen', () => {
     expect(mockPush).not.toHaveBeenCalledWith('/briefing');
   });
 
+  /**
+   * The same race, one step further on.
+   *
+   * Answering the disclosure lifts the lid onto home with `GuidedTour` on it —
+   * and the briefing, being a modal route, is presented above that too. So the
+   * first thing a brand-new install saw was a day summary sliding up over the
+   * tour that was about to explain what the microphone underneath it was for.
+   * Found on an emulator, thirty seconds after the consent guard above was
+   * verified, which is the argument for walking a fresh install end to end
+   * rather than testing each guard on its own.
+   */
+  it('waits for the tour, which is what a new install sees first', async () => {
+    mockLastBriefingShown = null;
+    mockTourSeen = false;
+
+    await wrap();
+
+    expect(mockPush).not.toHaveBeenCalledWith('/briefing');
+  });
+
   /* Declining is an answer. Someone who said no still gets the briefing: it is
      composed from local data and calls no model, which is exactly why it is
      one of the things that keeps working without the assistant. */
@@ -595,7 +706,12 @@ describe('undo names what it will actually take back', () => {
         outcome: {
           transcript: 'remind me to call Dad',
           items: [
-            { toolName: 'task_add', ok: true, summary: 'Task added: “call Dad”.', entityId: 'task-1' },
+            {
+              toolName: 'task_add',
+              ok: true,
+              summary: 'Task added: “call Dad”.',
+              entityId: 'task-1',
+            },
           ],
         } as never,
       });

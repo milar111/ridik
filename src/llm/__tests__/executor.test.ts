@@ -188,7 +188,13 @@ describe('executor', () => {
     // for the on-device handle inside `getRepositories()`, which this never hits.
     repos = createRepositories(t.db);
     fx = recorder();
-    executor = createExecutor({ repos, zone: ZONE, now: NOW, effects: fx.effects , confirmMode: 'never' });
+    executor = createExecutor({
+      repos,
+      zone: ZONE,
+      now: NOW,
+      effects: fx.effects,
+      confirmMode: 'never',
+    });
   });
 
   afterEach(() => {
@@ -270,7 +276,11 @@ describe('executor', () => {
         repos,
         zone: ZONE,
         now: NOW,
-        effects: { async scheduleReminder() { return null; } },
+        effects: {
+          async scheduleReminder() {
+            return null;
+          },
+        },
       });
 
       const result = await denied.execute(
@@ -388,6 +398,48 @@ describe('executor', () => {
   });
 
   describe('calendar_update / calendar_delete', () => {
+    /*
+     * The bug this pair exists for: "move the physio fifteen minutes later"
+     * produced a brand new event fifteen minutes from *now*, beside the one
+     * that never moved. A relative instruction had no field to land in, so the
+     * model either invented an absolute time or reached for `calendar_add` —
+     * and it can only compute an absolute time for the events the context
+     * window happened to carry.
+     */
+    it('moves an existing event by a signed delta, taking the length with it', async () => {
+      await repos.calendar.createEvent({
+        title: 'Physio',
+        startsAt: at(`${MONDAY}T14:00`),
+        endsAt: at(`${MONDAY}T15:00`),
+      });
+
+      const result = await executor.execute(
+        act('calendar_update', { target: { query: 'physio' }, shift_minutes: 15 }),
+      );
+
+      expect(result.ok).toBe(true);
+      const [event] = await repos.calendar.listForLocalDate(MONDAY, ZONE);
+      expect(event!.startsAt).toBe(at(`${MONDAY}T14:15`));
+      expect(event!.endsAt).toBe(at(`${MONDAY}T15:15`));
+      // And exactly one event: the whole failure was a second row appearing.
+      expect(await repos.calendar.listForLocalDate(MONDAY, ZONE)).toHaveLength(1);
+    });
+
+    it('shifts earlier on a negative delta', async () => {
+      await repos.calendar.createEvent({
+        title: 'Physio',
+        startsAt: at(`${MONDAY}T14:00`),
+        endsAt: at(`${MONDAY}T15:00`),
+      });
+
+      await executor.execute(
+        act('calendar_update', { target: { query: 'physio' }, shift_minutes: -30 }),
+      );
+
+      const [event] = await repos.calendar.listForLocalDate(MONDAY, ZONE);
+      expect(event!.startsAt).toBe(at(`${MONDAY}T13:30`));
+    });
+
     it('keeps the original length when only the start moves', async () => {
       await repos.calendar.createEvent({
         title: 'Meeting with Ivo',
@@ -437,7 +489,10 @@ describe('executor', () => {
 
     it('says so plainly when there is nothing matching to update', async () => {
       const result = await executor.execute(
-        act('calendar_update', { target: { query: 'the thing on Friday' }, start: `${MONDAY}T15:00` }),
+        act('calendar_update', {
+          target: { query: 'the thing on Friday' },
+          start: `${MONDAY}T15:00`,
+        }),
       );
 
       expect(result.ok).toBe(false);
@@ -654,6 +709,80 @@ describe('executor', () => {
       expect((await repos.tasks.getTask(result.entityId!))!.dueDate).toBeNull();
       expect(result.detail).toBeUndefined();
     });
+
+    /* The deadline is what this tool is nearly always used for, so the receipt
+       reads the new one back — "Updated “X”." makes the user open the screen to
+       find out whether it landed on the right day. */
+    it('moves a deadline and says where it landed', async () => {
+      await executor.execute(act('task_add', { title: 'Renew the car insurance' }));
+
+      const result = await executor.execute(
+        act('task_update', {
+          target: { query: 'car insurance' },
+          due: `${WEDNESDAY}T17:00`,
+        }),
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.summary).toContain('is now due');
+      const task = await repos.tasks.getTask(result.entityId!);
+      expect(task!.dueDate).toBe(at(`${WEDNESDAY}T17:00`));
+    });
+
+    /* An omitted `due` means "leave it alone" everywhere else in the contract,
+       so without an explicit clear there is no way to say "take the deadline
+       off" — and the only alternative is deleting the task and dictating it
+       again, which loses everything hanging off it. */
+    it('can take a deadline off entirely', async () => {
+      await executor.execute(
+        act('task_add', { title: 'Renew the car insurance', due: `${TUESDAY}T09:00` }),
+      );
+
+      const result = await executor.execute(
+        act('task_update', { target: { query: 'car insurance' }, clear_due: true }),
+      );
+
+      expect(result.ok).toBe(true);
+      expect((await repos.tasks.getTask(result.entityId!))!.dueDate).toBeNull();
+    });
+
+    /*
+     * Deleting is not completing, and the difference is a claim about whether
+     * the work happened: a completed task feeds the day's counts and unlocks
+     * what was waiting on it. Before this tool the only way to say "I am not
+     * doing that" out loud was the tool that says "I did it".
+     */
+    it('asks before deleting a task, and names what it would unblock', async () => {
+      await executor.execute(
+        act('task_add', { title: 'Assemble the frame', depends_on: ['Print the brackets'] }),
+      );
+
+      const asked = await executor.execute(
+        act('task_delete', { target: { query: 'print the brackets' } }),
+      );
+      expect(asked.ok).toBe(false);
+      expect(asked.summary).toContain('Assemble the frame');
+      expect(await repos.tasks.listTasks()).toHaveLength(2);
+
+      const removed = await executor.execute(
+        act('task_delete', { target: { query: 'print the brackets' } }),
+        { confirmed: true },
+      );
+      expect(removed.ok).toBe(true);
+      expect(removed.detail).toContain('Assemble the frame');
+      expect(await repos.tasks.listTasks()).toHaveLength(1);
+    });
+
+    it('does not count a deleted task as one that was done', async () => {
+      await executor.execute(act('task_add', { title: 'Buy paint' }));
+
+      await executor.execute(act('task_delete', { target: { query: 'buy paint' } }), {
+        confirmed: true,
+      });
+
+      expect(await repos.tasks.listTasks({ completed: true })).toHaveLength(0);
+      expect(await repos.tasks.listTasks()).toHaveLength(0);
+    });
   });
 
   /* ------------------------------------------------------------- projects -- */
@@ -732,9 +861,19 @@ describe('executor', () => {
   describe('ledger', () => {
     it('reads a spending total back the way a person would say it', async () => {
       for (const amount of [100, 48]) {
-        await repos.ledger.addTransaction({ amount, category: 'hardware', currency: 'EUR', zone: ZONE });
+        await repos.ledger.addTransaction({
+          amount,
+          category: 'hardware',
+          currency: 'EUR',
+          zone: ZONE,
+        });
       }
-      await repos.ledger.addTransaction({ amount: 9, category: 'food', currency: 'EUR', zone: ZONE });
+      await repos.ledger.addTransaction({
+        amount: 9,
+        category: 'food',
+        currency: 'EUR',
+        zone: ZONE,
+      });
 
       const result = await executor.execute(
         act('ledger_query', { category: 'hardware', period: 'month' }),
@@ -763,6 +902,60 @@ describe('executor', () => {
       expect(result.summary).toContain('12.00');
       const [row] = await repos.ledger.listRecent();
       expect(row!.currency).toBe('BGN');
+    });
+
+    /*
+     * The other half of the guard on `ledger_add`.
+     *
+     * That tool asks before it writes because "fifteen" and "fifty" are one
+     * phoneme apart, and for a long time a yes to a mis-heard amount was
+     * final — the receipt's undo covers the turn it happened on and nothing
+     * after it. A guard against a mistake nobody can then correct out loud is
+     * half a guard.
+     */
+    it('takes back the last entry when no words say which one', async () => {
+      await executor.execute(act('ledger_add', { amount: 40, category: 'hardware' }));
+      await executor.execute(act('ledger_add', { amount: 50, category: 'groceries' }));
+
+      const asked = await executor.execute(act('ledger_delete', {}));
+      expect(asked.ok).toBe(false);
+      expect(asked.summary).toContain('50');
+      expect(await repos.ledger.listRecent()).toHaveLength(2);
+
+      const removed = await executor.execute(act('ledger_delete', {}), { confirmed: true });
+      expect(removed.ok).toBe(true);
+      const left = await repos.ledger.listRecent();
+      expect(left).toHaveLength(1);
+      expect(left[0]!.category).toBe('hardware');
+    });
+
+    /* The number is the thing the user remembers being wrong, so it narrows
+       before the words score — two lunches read identically on words alone. */
+    it('uses the amount to pick between two entries that sound the same', async () => {
+      await executor.execute(act('ledger_add', { amount: 15, category: 'lunch' }));
+      await executor.execute(act('ledger_add', { amount: 50, category: 'lunch' }));
+
+      const removed = await executor.execute(act('ledger_delete', { query: 'lunch', amount: 50 }), {
+        confirmed: true,
+      });
+
+      expect(removed.ok).toBe(true);
+      const left = await repos.ledger.listRecent();
+      expect(left).toHaveLength(1);
+      expect(left[0]!.amount).toBe(15);
+    });
+
+    it('asks which one rather than guessing between two equal matches', async () => {
+      await executor.execute(act('ledger_add', { amount: 15, category: 'lunch' }));
+      await executor.execute(act('ledger_add', { amount: 50, category: 'lunch' }));
+
+      const result = await executor.execute(act('ledger_delete', { query: 'lunch' }), {
+        confirmed: true,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.needsConfirmation?.ambiguous).toBe(true);
+      expect(await repos.ledger.listRecent()).toHaveLength(2);
     });
   });
 
@@ -797,6 +990,93 @@ describe('executor', () => {
       expect(
         (await repos.checklists.itemsForList('shopping')).every((row) => !row.isCompleted),
       ).toBe(true);
+    });
+
+    /*
+     * Taking something off is not ticking it off, and the receipt is the only
+     * place the user finds out which happened. "Done" over a row that was
+     * removed because it was never wanted is the app reporting a purchase.
+     */
+    it('takes an item off the list rather than marking it bought', async () => {
+      await repos.checklists.addItems('shopping', ['Milk', 'Bread']);
+
+      const result = await executor.execute(
+        act('checklist_remove', { list_name: 'shopping', item_query: 'bread' }),
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.summary).toContain('off the shopping list');
+      const left = await repos.checklists.itemsForList('shopping');
+      expect(left.map((row) => row.itemText)).toEqual(['Milk']);
+    });
+
+    /*
+     * The ordering bug, in the words it happened in: "take the matches off"
+     * removed them, "tick off the matches" asked to confirm, the user said
+     * yes, and only then was told there are no matches. A question whose
+     * answer cannot matter is worse than no question — it teaches the user
+     * that saying yes means nothing.
+     */
+    it('says a row is missing instead of asking about it first', async () => {
+      await repos.checklists.addItems('camping', ['Stove', 'Tarp']);
+      const asking = createExecutor({ confirmMode: 'always', repos, zone: ZONE, now: NOW });
+
+      const result = await asking.execute(
+        act('checklist_toggle', { list_name: 'camping', item_query: 'matches' }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.needsConfirmation).toBeUndefined();
+      expect(result.summary).toMatch(/could not find/i);
+    });
+
+    it('still asks before ticking off something that is actually there', async () => {
+      await repos.checklists.addItems('camping', ['Matches']);
+      const asking = createExecutor({ confirmMode: 'always', repos, zone: ZONE, now: NOW });
+
+      const result = await asking.execute(
+        act('checklist_toggle', { list_name: 'camping', item_query: 'matches' }),
+      );
+
+      expect(result.needsConfirmation?.scope).toBe('review');
+    });
+
+    it('refuses to guess which item to remove', async () => {
+      await repos.checklists.addItems('shopping', ['Almond milk', 'Oat milk']);
+
+      const result = await executor.execute(
+        act('checklist_remove', { list_name: 'shopping', item_query: 'milk' }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(await repos.checklists.itemsForList('shopping')).toHaveLength(2);
+    });
+
+    /* The name is not the thing worth checking — "delete the shopping list" is
+       a reasonable sentence right up to the moment it had eleven things on it. */
+    it('says how much a list deletion costs before it does it', async () => {
+      await repos.checklists.addItems('shopping', ['Milk', 'Bread', 'Coffee']);
+
+      const asked = await executor.execute(act('checklist_delete', { list_name: 'shopping' }));
+      expect(asked.ok).toBe(false);
+      expect(asked.summary).toContain('3 items');
+      expect(await repos.checklists.itemsForList('shopping')).toHaveLength(3);
+
+      const removed = await executor.execute(act('checklist_delete', { list_name: 'shopping' }), {
+        confirmed: true,
+      });
+      expect(removed.ok).toBe(true);
+      expect(await repos.checklists.itemsForList('shopping')).toHaveLength(0);
+    });
+
+    /* Nothing there is not a confirmation and not a delete. Asking somebody to
+       approve emptying an empty list is a question with no answer worth giving. */
+    it('says there is no such list rather than asking about nothing', async () => {
+      const result = await executor.execute(act('checklist_delete', { list_name: 'packing' }));
+
+      expect(result.ok).toBe(false);
+      expect(result.needsConfirmation).toBeUndefined();
+      expect(result.summary).toContain('no packing list');
     });
 
     it('logs a habit and reports the streak', async () => {
@@ -923,7 +1203,7 @@ describe('executor', () => {
       });
       await repos.tasks.createTask({ title: 'Finish the report', dueDate: at(`${MONDAY}T20:00`) });
 
-      const bare = createExecutor({ repos, zone: ZONE, now: NOW , confirmMode: 'never' });
+      const bare = createExecutor({ repos, zone: ZONE, now: NOW, confirmMode: 'never' });
       const result = await bare.execute(act('briefing_generate', { scope: 'today' }));
 
       expect(result.ok).toBe(true);
@@ -938,7 +1218,11 @@ describe('executor', () => {
         repos,
         zone: ZONE,
         now: NOW,
-        effects: { async generateBriefing() { return 'Your day is wide open.'; } },
+        effects: {
+          async generateBriefing() {
+            return 'Your day is wide open.';
+          },
+        },
       });
 
       const result = await custom.execute(act('briefing_generate', { scope: 'today' }));
@@ -1032,7 +1316,7 @@ describe('executor', () => {
       ]);
       expect(results.every((r) => r.ok)).toBe(true);
 
-      expect((await repos.crm.listOpenCommitments())).toHaveLength(1);
+      expect(await repos.crm.listOpenCommitments()).toHaveLength(1);
       expect(await repos.calendar.listForLocalDate(TUESDAY, ZONE)).toHaveLength(0);
       expect(await repos.notes.listNotes()).toHaveLength(1);
     });
@@ -1040,7 +1324,10 @@ describe('executor', () => {
     it('carries on after a failure and reports one result per action', async () => {
       const results = await executor.executeAll([
         act('note_create', { title_summary: 'First', category_tag: 'misc', bullets: ['one'] }),
-        act('calendar_update', { target: { query: 'a meeting that does not exist' }, start: `${MONDAY}T15:00` }),
+        act('calendar_update', {
+          target: { query: 'a meeting that does not exist' },
+          start: `${MONDAY}T15:00`,
+        }),
         act('habit_log', { habit_name: 'Running' }),
       ]);
 

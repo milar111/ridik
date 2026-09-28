@@ -552,6 +552,32 @@ describe('settings screen', () => {
     }
   });
 
+  /**
+   * `confirmMode` and `clockFormat` are both settings that existed before any
+   * way to set them did — `confirmMode` for as long as the executor has, with a
+   * documented default and no row anywhere in the app, which is a preference
+   * that shipped inert rather than one deliberately withheld. Both pass the
+   * screen's own test at every value, so the only question was whether they
+   * were reachable, and for one of them the answer was no.
+   */
+  it('lets the confirmation gate be turned down, which nothing used to', async () => {
+    await wrap(<SettingsScreen />);
+
+    expect(await screen.findByText('BEFORE IT WRITES')).toBeTruthy();
+    expect(screen.getByText('Just do it')).toBeTruthy();
+    expect(screen.getByText('Ask about what cannot be undone')).toBeTruthy();
+    expect(screen.getByText('Ask every time')).toBeTruthy();
+  });
+
+  it('offers the clock in both formats, and says what each one looks like', async () => {
+    await wrap(<SettingsScreen />);
+
+    expect(await screen.findByText('CLOCK')).toBeTruthy();
+    expect(screen.getByText('Match this phone')).toBeTruthy();
+    expect(screen.getByText('24-hour')).toBeTruthy();
+    expect(screen.getByText('12-hour')).toBeTruthy();
+  });
+
   it('starts on the one the app already draws, and says which it is', async () => {
     await wrap(<SettingsScreen />);
 
@@ -664,5 +690,45 @@ describe('settings screen', () => {
 
     expect(await screen.findByText('Free')).toBeTruthy();
     expect(screen.queryByText(/could not be shown|went wrong/i)).toBeNull();
+  });
+});
+
+/*
+  Which engines the "How it listens" group offers, and on what grounds.
+
+  The rule is that an option appears only when it can actually run — never as
+  an advertisement for something the phone cannot do. Two conditions, and they
+  are separate on purpose: AssemblyAI needs a key in the keychain, the offline
+  model needs a recogniser that can hand over the audio it heard. With neither
+  there is one option, which is not a choice, so the group goes entirely.
+
+  This project renders as iOS, which is the case worth pinning: the offline
+  engine reached iOS after Android, and the thing that let it is the recogniser
+  keeping a 16 kHz copy there too.
+*/
+describe('how it listens', () => {
+  it('offers the offline engine with no key of any kind', async () => {
+    mockSecret = { present: false, preview: null };
+
+    await wrap(<SettingsScreen />);
+
+    expect(await screen.findByText('This phone, more carefully')).toBeTruthy();
+    expect(screen.getByText('This phone')).toBeTruthy();
+    // The upload engine is the one that needs a credential, and it has none.
+    expect(screen.queryByText('AssemblyAI')).toBeNull();
+  });
+
+  /*
+    And the notes are the substance of the row: who hears it, and what it
+    costs. Never the engine's name alone — "AssemblyAI" tells the person
+    deciding nothing about the decision.
+  */
+  it('says that nothing is sent anywhere, and what that costs', async () => {
+    await wrap(<SettingsScreen />);
+
+    const note = await screen.findByText(/nothing sent anywhere/i);
+    expect(note).toBeTruthy();
+    expect(screen.getByText(/57 MB/)).toBeTruthy();
+    expect(screen.getByText(/no signal/i)).toBeTruthy();
   });
 });

@@ -11,7 +11,7 @@
  */
 import { and, asc, desc, eq, gte, inArray, lt, type SQL } from 'drizzle-orm';
 import { now } from '@/core/clock';
-import { editDistance, normalise, rank, tokenize } from '@/core/match';
+import { editDistance, normalise, rank, resolveOne, tokenize, type Candidate } from '@/core/match';
 import { AppError, fail, ok, type Result } from '@/core/result';
 import {
   currentZone,
@@ -183,6 +183,17 @@ function expand(query: string, values: string[]): string[] {
     .map((s) => s.item)
     .filter((value) => sharesWord(query, value));
 }
+
+/**
+ * How far back a spoken "delete that" can reach.
+ *
+ * Not unbounded, and not a day. A correction follows its mistake within a
+ * sentence or two, so a wide window buys nothing and costs the case this must
+ * never get wrong: "delete the coffee" finding a coffee from March. Fifty rows
+ * is weeks for most people and still bounded on the phone of somebody who logs
+ * every bus fare.
+ */
+const RESOLVE_WINDOW = 50;
 
 /** `normaliseCurrency('')` returns '', which would open a nameless currency bucket. */
 function currencyOf(input: string | undefined, fallback = 'EUR'): string {
@@ -420,6 +431,63 @@ export function createLedgerRepository(db: RidikDatabase) {
       .limit(Math.max(1, Math.floor(limit)));
   }
 
+  /**
+   * The transaction the user just referred to, or a question.
+   *
+   * The window matters more than the scoring here. What follows a wrong amount
+   * is "no, delete that", said seconds later, so an empty query means the most
+   * recent row rather than a search over everything — and a search over
+   * everything is what would make "delete the coffee" reach a coffee from
+   * March. `RESOLVE_WINDOW` is the recent past this looks over; older rows are
+   * corrected on the Spending screen, where they can be seen.
+   *
+   * `amount` filters before the words score, never after: a user who says the
+   * number is telling us which of two identical-sounding rows they mean, and
+   * letting words outrank it would delete the one they were happy with.
+   */
+  async function resolveTransaction(
+    input: { query?: string; amount?: number } = {},
+  ): Promise<Result<Transaction>> {
+    const recent = await listRecent(RESOLVE_WINDOW);
+    if (recent.length === 0) return fail('not_found', 'You have not recorded any spending yet.');
+
+    const pool =
+      input.amount === undefined
+        ? recent
+        : recent.filter((row) => Math.abs(row.amount - input.amount!) < 0.005);
+    if (pool.length === 0) {
+      return fail('not_found', `I could not find a recent entry for ${input.amount}.`);
+    }
+
+    const query = input.query?.trim();
+    // No words at all is not a failed match — it is "that one", and the last
+    // thing recorded is the only thing it can mean.
+    if (!query) return ok(pool[0]!);
+
+    const candidates: Candidate<Transaction>[] = pool.map((row) => ({
+      item: row,
+      text: row.category,
+      aux: [row.description, row.entityName].filter((v): v is string => Boolean(v)),
+    }));
+
+    const outcome = resolveOne(query, candidates);
+    if (outcome.kind === 'none') {
+      return fail('not_found', `I could not find a recent entry for "${query}".`);
+    }
+    if (outcome.kind === 'ambiguous') {
+      return fail('ambiguous', `"${query}" matches more than one entry.`, {
+        details: {
+          matches: outcome.matches.map((m) => ({
+            id: m.item.id,
+            label: `${m.item.amount} ${m.item.currency} — ${m.item.category}`,
+            score: m.score,
+          })),
+        },
+      });
+    }
+    return ok(outcome.match.item);
+  }
+
   async function deleteTransaction(id: string): Promise<Result<Transaction>> {
     const existing = await findById(id);
     if (!existing) return fail('not_found', 'I could not find that transaction.');
@@ -515,7 +583,9 @@ export function createLedgerRepository(db: RidikDatabase) {
     const rows = await db
       .select()
       .from(transactions)
-      .where(and(gte(transactions.createdAt, firstStart.toMillis()), lt(transactions.createdAt, end)))
+      .where(
+        and(gte(transactions.createdAt, firstStart.toMillis()), lt(transactions.createdAt, end)),
+      )
       .orderBy(asc(transactions.createdAt));
 
     for (const row of rows) {
@@ -540,6 +610,7 @@ export function createLedgerRepository(db: RidikDatabase) {
     query,
     listRecent,
     listForEntity,
+    resolveTransaction,
     deleteTransaction,
     updateTransaction,
     distinctCategories,

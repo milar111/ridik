@@ -1,5 +1,5 @@
 /**
- * Which of the 28 tools this utterance could possibly need.
+ * Which of the contract’s tools this utterance could possibly need.
  *
  * Every call currently offers the model all of them across sixteen domains,
  * while a real utterance touches one domain of two or three. Google's own
@@ -59,11 +59,11 @@ export type ToolDomain =
 export const DOMAIN_TOOLS: Record<ToolDomain, readonly ToolName[]> = {
   calendar: ['calendar_add', 'calendar_update', 'calendar_delete'],
   notes: ['note_create', 'note_update', 'note_delete'],
-  tasks: ['task_add', 'task_add_dependency', 'task_complete'],
+  tasks: ['task_add', 'task_add_dependency', 'task_complete', 'task_update', 'task_delete'],
   habits: ['habit_log', 'activity_log'],
   timer: ['timer_start', 'timer_control'],
-  ledger: ['ledger_add', 'ledger_query'],
-  checklists: ['checklist_add', 'checklist_toggle'],
+  ledger: ['ledger_add', 'ledger_query', 'ledger_delete'],
+  checklists: ['checklist_add', 'checklist_toggle', 'checklist_remove', 'checklist_delete'],
   places: ['geofence_add', 'place_save'],
   crm: ['crm_add_commitment', 'crm_log_interaction'],
   curriculum: ['curriculum_add'],
@@ -83,12 +83,20 @@ export const ALWAYS_OFFERED: readonly ToolName[] = ['note_create'];
 /**
  * The point at which narrowing stops being worth its own risk.
  *
- * Google's guidance is 10–20 active tools. Getting from 28 to 20 buys little
- * and still risks dropping the one that mattered, so a set that does not come
- * in under this is abandoned in favour of the full surface — the honest answer
- * when an utterance really does span half the app.
+ * Google's guidance is 10–20 active tools. A set that does not come in under
+ * this is abandoned in favour of the full surface — the honest answer when an
+ * utterance really does span half the app.
+ *
+ * It was 12 against a 28-tool contract and moved when the removal tools landed.
+ * Three domains own a "that one is done now" tool and the user says the same
+ * words for all three, so "mark the frame as printed" legitimately takes tasks,
+ * checklists and projects — 13 tools once each of those domains gained its own
+ * opposite, one over the old ceiling, and the whole utterance fell back to all
+ * 33. A cap tuned to one contract size silently stops narrowing the moment the
+ * contract grows, which is the opposite of what it is for. 15 is still inside
+ * the guidance band and still more than halves the surface.
  */
-export const MAX_NARROWED_TOOLS = 12;
+export const MAX_NARROWED_TOOLS = 15;
 
 export type PickReason =
   /** Nothing in the utterance named a domain. */
@@ -149,9 +157,10 @@ const TIME_OF_DAY =
 const TRIGGERS: Record<ToolDomain, RegExp> = {
   calendar:
     /\b(?:remind|reminder|reminders|appointment|appointments|meeting|meetings|calendar|event|events|exam|exams|schedule|scheduled|reschedule|book|booked|booking|cancel|cancelled|postpone|move|moved|push back|homework|due|deadline|all day|busy)\b|__TIME__/,
-  notes: /\b(?:note|notes|noted|jot|memo|write down|wrote down|writing down|remember that|make a note)\b/,
+  notes:
+    /\b(?:note|notes|noted|jot|memo|write down|wrote down|writing down|remember that|make a note)\b/,
   tasks:
-    /\b(?:task|tasks|todo|todos|to do|deadline|due|blocked|blocking|blocks|depends|depend|dependency|prerequisite|until|need to|needs to|have to|has to|got to|must|finish|finished|complete|completed|done with|tick off|cross off|mark)\b/,
+    /\b(?:task|tasks|todo|todos|to do|deadline|due|blocked|blocking|blocks|depends|depend|dependency|prerequisite|until|need to|needs to|have to|has to|got to|must|finish|finished|complete|completed|done with|tick off|cross off|mark|delete|remove|get rid of|forget|drop|scrap|dont need|no longer|rename|reschedule|move|push)\b/,
   // `activity_log` lives here, and it is the "I did a thing" catch-all — so a
   // duration counts as evidence. Without it "spent two hours on the firmware"
   // matches only the money domain, and a report of *time* is decoded against a
@@ -162,7 +171,7 @@ const TRIGGERS: Record<ToolDomain, RegExp> = {
   // `today`, which narrowed to the calendar alone and *deleted* `activity_log`
   // from the enum — leaving `calendar_add` as the only write the decoder could
   // reach and a future agenda event titled "Vacuumed the flat" as the receipt.
-  // The same three words without "today" offered all 28 tools and filed it
+  // The same three words without "today" offered the full surface and filed it
   // correctly. Whatever a bare time word is evidence of, it is at least as much
   // evidence of a thing that happened at that time as of a thing scheduled for
   // it, so both domains answer to it and the model picks between them.
@@ -177,7 +186,7 @@ const TRIGGERS: Record<ToolDomain, RegExp> = {
   // therefore all answer to the same verbs; whichever row it is, the model can
   // reach the right tool for it.
   checklists:
-    /\b(?:list|lists|shopping|groceries|grocery|basket|trolley|cart|check off|tick off|cross off|pack|packing|mark|done|complete|completed|finished|got)\b/,
+    /\b(?:list|lists|shopping|groceries|grocery|basket|trolley|cart|check off|tick off|cross off|pack|packing|mark|done|complete|completed|finished|got|take off|off the|delete|remove|get rid of|dont need|no longer need|scrap|clear)\b/,
   places:
     /\b(?:geofence|place|places|location|address|coordinates|latitude|longitude|when i (?:get to|arrive|reach|leave|am at|get home)|when im (?:at|near)|next time im)\b/,
   crm: /\b(?:promised|promise|promises|owe|owes|owed|call|called|calling|text|texted|email|emailed|met|meet with|meeting with|spoke|speak to|talked|talk to|told|birthday|contact|contacts|catch up with|introduce)\b/,
@@ -191,8 +200,10 @@ const TRIGGERS: Record<ToolDomain, RegExp> = {
     /\b(?:project|projects|trip|trips|for my|milestone|milestones|section|sprint|initiative|mark|done|complete|completed|finished)\b/,
   briefing:
     /\b(?:briefing|brief me|rundown|agenda|whats on|what is on|whats my day|what do i have|what have i got|catch me up|whats next|read me)\b/,
-  summary: /\b(?:summary|summarise|summarize|summarised|recap|report|export|how did (?:my|the) (?:day|week|month) go|review of)\b/,
-  search: /\b(?:search|find|look up|looking for|where is|where did|do i have|did i|whens my|when is my)\b/,
+  summary:
+    /\b(?:summary|summarise|summarize|summarised|recap|report|export|how did (?:my|the) (?:day|week|month) go|review of)\b/,
+  search:
+    /\b(?:search|find|look up|looking for|where is|where did|do i have|did i|whens my|when is my)\b/,
 };
 
 const DOMAINS = Object.keys(TRIGGERS) as ToolDomain[];
@@ -219,13 +230,15 @@ const CLAUSE_BREAK =
   /\s*(?:,|;|\band\b|\bthen\b|\balso\b|\bplus\b)\s+(?=(?:i|we|you|he|she|they)\s+\w|(?:add|remind|note|log|start|stop|book|schedule|cancel|delete|remove|move|create|make|put|set|call|text|email|find|search|show|tell|check|mark|pay|buy|spend|track|plan|log)\b)/;
 
 export function splitClauses(text: string): string[] {
-  return text
-    .split(CLAUSE_BREAK)
-    // A break taken on a conjunction can leave the comma that preceded it
-    // hanging off the end of the clause before ("remind me at 4, and call
-    // ivo"). Harmless to the triggers, ugly in a log line.
-    .map((clause) => clause.replace(/^[,;\s]+|[,;\s]+$/g, ''))
-    .filter((clause) => clause.length > 0);
+  return (
+    text
+      .split(CLAUSE_BREAK)
+      // A break taken on a conjunction can leave the comma that preceded it
+      // hanging off the end of the clause before ("remind me at 4, and call
+      // ivo"). Harmless to the triggers, ugly in a log line.
+      .map((clause) => clause.replace(/^[,;\s]+|[,;\s]+$/g, ''))
+      .filter((clause) => clause.length > 0)
+  );
 }
 
 /* ------------------------------------------------------------------- picker -- */

@@ -109,12 +109,12 @@ export const currencySchema = z
 
 const SYMBOL_TO_ISO: Record<string, string> = {
   '€': 'EUR',
-  '$': 'USD',
+  $: 'USD',
   '£': 'GBP',
   '¥': 'JPY',
   '₽': 'RUB',
   '₹': 'INR',
-  'лв': 'BGN',
+  лв: 'BGN',
   'лв.': 'BGN',
 };
 
@@ -206,7 +206,12 @@ export const calendarAddSchema = z
     title: nonEmpty(200),
     start: localDateTimeSchema,
     end: localDateTimeSchema.optional(),
-    duration_minutes: z.number().int().min(1).max(60 * 24).optional(),
+    duration_minutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(60 * 24)
+      .optional(),
     location: z.string().trim().max(300).optional(),
     description: z.string().trim().max(2000).optional(),
     all_day: z.boolean().optional(),
@@ -214,7 +219,12 @@ export const calendarAddSchema = z
     /** Set when the model believes travel/prep time is warranted. */
     needs_buffer: z.boolean().optional(),
     buffer_minutes: z.number().int().min(0).max(240).optional(),
-    reminder_minutes_before: z.number().int().min(0).max(60 * 24 * 7).optional(),
+    reminder_minutes_before: z
+      .number()
+      .int()
+      .min(0)
+      .max(60 * 24 * 7)
+      .optional(),
     project: z.string().trim().max(120).optional(),
     /** Audit trail: why the model picked this slot ("day before next Math class"). */
     schedule_reason: z.string().trim().max(300).optional(),
@@ -233,20 +243,61 @@ export const calendarUpdateSchema = z
     target: entityQuerySchema,
     title: nonEmpty(200).optional(),
     start: localDateTimeSchema.optional(),
+    /**
+     * Move it by this many minutes, signed. Negative is earlier.
+     *
+     * The field exists because "move the physio fifteen minutes later" had no
+     * representation at all: `start` is an absolute wall clock, so the model
+     * could only answer that sentence by *knowing* the current start and doing
+     * the arithmetic itself — and it only knows the events the context window
+     * happened to include. Asked about anything outside it, the model has two
+     * bad options and took the worse one: invent an absolute time, or file a
+     * `calendar_add`. That is what "move it 15 minutes later" creating a brand
+     * new event fifteen minutes from *now* actually was.
+     *
+     * A delta needs no knowledge. The executor resolves the target row, reads
+     * the start it really has, and adds this — so the arithmetic happens where
+     * the true value lives, which is the same reason `task_update` takes one.
+     */
+    shift_minutes: z
+      .number()
+      .int()
+      .min(-60 * 24 * 365)
+      .max(60 * 24 * 365)
+      .optional(),
     end: localDateTimeSchema.optional(),
-    duration_minutes: z.number().int().min(1).max(60 * 24).optional(),
+    duration_minutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(60 * 24)
+      .optional(),
     location: z.string().trim().max(300).optional(),
     description: z.string().trim().max(2000).optional(),
   })
   .superRefine((value, ctx) => {
-    if (value.start !== undefined && value.end !== undefined && endsBeforeStart(value.start, value.end)) {
+    if (
+      value.start !== undefined &&
+      value.end !== undefined &&
+      endsBeforeStart(value.start, value.end)
+    ) {
       reject(ctx, ['end'], ORDER_MESSAGE);
+    }
+    // Two ways to say when, and they contradict each other. Sending both is a
+    // model that has not decided, and silently preferring one would make which
+    // one it obeyed invisible.
+    if (value.start !== undefined && value.shift_minutes !== undefined) {
+      reject(ctx, ['shift_minutes'], 'Send start or shift_minutes, never both');
+    }
+    if (value.shift_minutes === 0) {
+      reject(ctx, ['shift_minutes'], 'A shift of 0 moves nothing');
     }
     // An update with nothing to update still reports "Moved …" to the user,
     // which is a lie about their data rather than a harmless no-op.
     const changes = [
       value.title,
       value.start,
+      value.shift_minutes,
       value.end,
       value.duration_minutes,
       value.location,
@@ -294,7 +345,12 @@ export const noteDeleteSchema = z.strictObject({
 
 export const habitLogSchema = z.strictObject({
   habit_name: nonEmpty(80),
-  duration_minutes: z.number().int().min(0).max(60 * 24).optional(),
+  duration_minutes: z
+    .number()
+    .int()
+    .min(0)
+    .max(60 * 24)
+    .optional(),
   note: z.string().trim().max(500).optional(),
   /** Defaults to today; lets "I worked out yesterday" backfill a streak. */
   on_date: localDateSchema.optional(),
@@ -302,7 +358,12 @@ export const habitLogSchema = z.strictObject({
 
 export const activityLogSchema = z.strictObject({
   description: nonEmpty(1000),
-  duration_minutes: z.number().int().min(0).max(60 * 24).optional(),
+  duration_minutes: z
+    .number()
+    .int()
+    .min(0)
+    .max(60 * 24)
+    .optional(),
   habit_name: z.string().trim().max(80).optional(),
   project: z.string().trim().max(120).optional(),
   at: localDateTimeSchema.optional(),
@@ -311,8 +372,18 @@ export const activityLogSchema = z.strictObject({
 export const timerStartSchema = z.strictObject({
   label: nonEmpty(80),
   subject: z.string().trim().max(80).optional(),
-  total_minutes: z.number().int().min(1).max(60 * 12).optional(),
-  focus_minutes: z.number().int().min(1).max(60 * 6).default(25),
+  total_minutes: z
+    .number()
+    .int()
+    .min(1)
+    .max(60 * 12)
+    .optional(),
+  focus_minutes: z
+    .number()
+    .int()
+    .min(1)
+    .max(60 * 6)
+    .default(25),
   break_minutes: z.number().int().min(0).max(120).default(5),
   long_break_minutes: z.number().int().min(0).max(120).optional(),
   cycles_before_long_break: z.number().int().min(1).max(12).optional(),
@@ -360,6 +431,33 @@ export const ledgerQuerySchema = z
   })
   .superRefine(dateRangeRules);
 
+/**
+ * Taking a transaction back out.
+ *
+ * The one write in this contract with no opposite until now, which made a
+ * mis-heard "fifty" for "fifteen" permanent unless the user found the row on
+ * the Spending screen — and `ledger_add` is on `ALWAYS_ASKS` precisely because
+ * a wrong amount is the mistake nobody notices. A guard against a mistake that
+ * cannot then be corrected by the same means is half a guard.
+ *
+ * `query` is optional and its absence is the common case: what somebody says
+ * after hearing the wrong amount read back is "no, delete that", so an omitted
+ * query means the entry most recently recorded. `amount` narrows rather than
+ * selects — two lunches in a week resolve identically on words alone, and the
+ * number is the thing the user remembers being wrong.
+ */
+export const ledgerDeleteSchema = z.strictObject({
+  query: z
+    .string()
+    .trim()
+    .max(200)
+    .optional()
+    .describe(
+      'Words from the entry — its category, who it was with. Omit for the last one recorded',
+    ),
+  amount: z.number().positive().max(1_000_000).optional(),
+});
+
 export const checklistAddSchema = z.strictObject({
   list_name: nonEmpty(80),
   items: z
@@ -372,7 +470,9 @@ export const checklistAddSchema = z.strictObject({
         // A failed union reports "Invalid input" and nothing else, which is the
         // one kind of complaint the repair loop cannot act on. Spell out the two
         // shapes instead.
-        { error: 'Each item is either a plain string or an object with text and optional quantity' },
+        {
+          error: 'Each item is either a plain string or an object with text and optional quantity',
+        },
       ),
     )
     .min(1)
@@ -384,6 +484,35 @@ export const checklistToggleSchema = z.strictObject({
   list_name: z.string().trim().max(80).optional(),
   item_query: nonEmpty(200),
   completed: z.boolean().default(true),
+});
+
+/**
+ * Taking something off a list, as opposed to ticking it off.
+ *
+ * A separate tool from `checklist_toggle` rather than a flag on it, because
+ * they are opposite answers to opposite mistakes and the user says them
+ * differently: "tick off the milk" means it is in the bag, "take the milk off
+ * the list" means it should never have been on it. Ticked items stay on the
+ * screen and can be un-ticked; this row is gone. Folding the two into one
+ * parameter is how "I do not need that any more" quietly becomes "I bought it".
+ */
+export const checklistRemoveSchema = z.strictObject({
+  list_name: z.string().trim().max(80).optional(),
+  item_query: nonEmpty(200),
+});
+
+/**
+ * The whole list and everything on it.
+ *
+ * Named exactly rather than resolved fuzzily, and that is the point: every
+ * other reference in this contract is a `query` the executor scores, because a
+ * near miss there costs one row. A near miss here costs a list. The name is
+ * matched case-insensitively — it is the same string the user said when they
+ * created it — and a name that matches nothing is a "there is no such list",
+ * never the closest thing to it.
+ */
+export const checklistDeleteSchema = z.strictObject({
+  list_name: nonEmpty(80),
 });
 
 export const geofenceAddSchema = z
@@ -441,7 +570,12 @@ export const taskAddSchema = z
     title: nonEmpty(200),
     due: localDateTimeSchema.optional(),
     notes: z.string().trim().max(2000).optional(),
-    estimated_minutes: z.number().int().min(1).max(60 * 24).optional(),
+    estimated_minutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(60 * 24)
+      .optional(),
     priority: z.number().int().min(1).max(3).default(2),
     project: z.string().trim().max(120).optional(),
     /** Titles of prerequisite tasks, created on demand if they do not exist. */
@@ -473,6 +607,80 @@ export const taskAddDependencySchema = z
 export const taskCompleteSchema = z.strictObject({
   target: entityQuerySchema,
   completed: z.boolean().default(true),
+});
+
+/**
+ * Moving a deadline, renaming, re-prioritising.
+ *
+ * `clear_due` exists because "take the deadline off that" has no other shape:
+ * an omitted `due` means "leave it alone" everywhere else in this contract, so
+ * without an explicit clear there is no way to say the field should be empty —
+ * and the only alternative the user has is to delete the task and dictate it
+ * again, losing its dependencies.
+ */
+export const taskUpdateSchema = z
+  .strictObject({
+    target: entityQuerySchema,
+    title: nonEmpty(200).optional(),
+    due: localDateTimeSchema.optional(),
+    /** Shift the existing deadline, signed. See `calendar_update.shift_minutes`. */
+    shift_minutes: z
+      .number()
+      .int()
+      .min(-60 * 24 * 365)
+      .max(60 * 24 * 365)
+      .optional(),
+    /** Removes the deadline entirely. Mutually exclusive with `due`. */
+    clear_due: z.boolean().optional(),
+    priority: z.number().int().min(1).max(3).optional(),
+    notes: z.string().trim().max(2000).optional(),
+    estimated_minutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(60 * 24)
+      .optional(),
+    project: z.string().trim().max(120).optional(),
+  })
+  .superRefine((value, ctx) => {
+    // Both at once is a model that has not decided, and either reading changes
+    // the user's data in a way the other does not.
+    if (value.clear_due === true && value.due !== undefined) {
+      reject(ctx, ['clear_due'], 'Send either due or clear_due, not both');
+    }
+    if (value.shift_minutes !== undefined && (value.due !== undefined || value.clear_due === true)) {
+      reject(ctx, ['shift_minutes'], 'Send due, clear_due or shift_minutes — only one');
+    }
+    if (value.shift_minutes === 0) {
+      reject(ctx, ['shift_minutes'], 'A shift of 0 moves nothing');
+    }
+    const changes = [
+      value.title,
+      value.due,
+      value.shift_minutes,
+      value.clear_due,
+      value.priority,
+      value.notes,
+      value.estimated_minutes,
+      value.project,
+    ];
+    // An update with nothing in it still reports "Updated …", which is a claim
+    // about the user's data rather than a harmless no-op.
+    if (changes.every((field) => field === undefined)) {
+      reject(ctx, ['target'], 'Nothing to change: send at least one field besides target');
+    }
+  });
+
+/**
+ * Deleting a task outright, as opposed to completing it.
+ *
+ * Both are how a task leaves the list and only one of them is a claim that the
+ * work happened — a completed task feeds the day's counts and its dependants
+ * unlock behind it. "I do not need to do that any more" is not "I did it", and
+ * before this tool existed the only way to say it by voice was the wrong one.
+ */
+export const taskDeleteSchema = z.strictObject({
+  target: entityQuerySchema,
 });
 
 export const curriculumAddSchema = z.strictObject({
@@ -582,19 +790,36 @@ export const actionSchema = z.discriminatedUnion('tool_name', [
   z.strictObject({ tool_name: z.literal('timer_control'), parameters: timerControlSchema }),
   z.strictObject({ tool_name: z.literal('ledger_add'), parameters: ledgerAddSchema }),
   z.strictObject({ tool_name: z.literal('ledger_query'), parameters: ledgerQuerySchema }),
+  z.strictObject({ tool_name: z.literal('ledger_delete'), parameters: ledgerDeleteSchema }),
   z.strictObject({ tool_name: z.literal('checklist_add'), parameters: checklistAddSchema }),
   z.strictObject({ tool_name: z.literal('checklist_toggle'), parameters: checklistToggleSchema }),
+  z.strictObject({ tool_name: z.literal('checklist_remove'), parameters: checklistRemoveSchema }),
+  z.strictObject({ tool_name: z.literal('checklist_delete'), parameters: checklistDeleteSchema }),
   z.strictObject({ tool_name: z.literal('geofence_add'), parameters: geofenceAddSchema }),
   z.strictObject({ tool_name: z.literal('place_save'), parameters: placeSaveSchema }),
-  z.strictObject({ tool_name: z.literal('crm_add_commitment'), parameters: crmAddCommitmentSchema }),
-  z.strictObject({ tool_name: z.literal('crm_log_interaction'), parameters: crmLogInteractionSchema }),
+  z.strictObject({
+    tool_name: z.literal('crm_add_commitment'),
+    parameters: crmAddCommitmentSchema,
+  }),
+  z.strictObject({
+    tool_name: z.literal('crm_log_interaction'),
+    parameters: crmLogInteractionSchema,
+  }),
   z.strictObject({ tool_name: z.literal('task_add'), parameters: taskAddSchema }),
-  z.strictObject({ tool_name: z.literal('task_add_dependency'), parameters: taskAddDependencySchema }),
+  z.strictObject({
+    tool_name: z.literal('task_add_dependency'),
+    parameters: taskAddDependencySchema,
+  }),
   z.strictObject({ tool_name: z.literal('task_complete'), parameters: taskCompleteSchema }),
+  z.strictObject({ tool_name: z.literal('task_update'), parameters: taskUpdateSchema }),
+  z.strictObject({ tool_name: z.literal('task_delete'), parameters: taskDeleteSchema }),
   z.strictObject({ tool_name: z.literal('curriculum_add'), parameters: curriculumAddSchema }),
   z.strictObject({ tool_name: z.literal('project_create'), parameters: projectCreateSchema }),
   z.strictObject({ tool_name: z.literal('project_add_item'), parameters: projectAddItemSchema }),
-  z.strictObject({ tool_name: z.literal('project_item_toggle'), parameters: projectItemToggleSchema }),
+  z.strictObject({
+    tool_name: z.literal('project_item_toggle'),
+    parameters: projectItemToggleSchema,
+  }),
   z.strictObject({ tool_name: z.literal('briefing_generate'), parameters: briefingGenerateSchema }),
   z.strictObject({ tool_name: z.literal('summary_generate'), parameters: summaryGenerateSchema }),
   z.strictObject({ tool_name: z.literal('search'), parameters: searchSchema }),
@@ -686,8 +911,11 @@ export const TOOL_NAMES = [
   'timer_control',
   'ledger_add',
   'ledger_query',
+  'ledger_delete',
   'checklist_add',
   'checklist_toggle',
+  'checklist_remove',
+  'checklist_delete',
   'geofence_add',
   'place_save',
   'crm_add_commitment',
@@ -695,6 +923,8 @@ export const TOOL_NAMES = [
   'task_add',
   'task_add_dependency',
   'task_complete',
+  'task_update',
+  'task_delete',
   'curriculum_add',
   'project_create',
   'project_add_item',

@@ -13,8 +13,9 @@ import type { CrmEntitySummary } from '@/repositories/crm';
 import { Badge, Button, Card, Divider, EmptyState, Input, Screen, Txt } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry , AnimatedPressable, usePressScale } from '@/ui/motionHooks';
+import { useStaggeredEntry, AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
+import { inkOn } from '@/ui/ink';
 import { colorForTag } from '@/ui/theme';
 
 /** What to say to fill this screen — the empty state is the tutorial. */
@@ -192,11 +193,23 @@ function PersonRow({
 
 /* ------------------------------------------------------------------ pieces -- */
 
+/**
+ * A person's initials, on a disc of their own colour.
+ *
+ * The disc used to be that colour at 18% over the card, which on a set of tints
+ * tuned to be *text* — low chroma by design, because they have to clear 4.5:1 on
+ * a near-white ground — composited to a grey. Two discs, one warm grey and one
+ * cool grey, in a palette whose first rule is that nothing is neutral. A tint
+ * cannot be both a readable ink and a visible wash at a fifth of its strength;
+ * this is the one place the ramp is a *fill*, so it is drawn at full strength
+ * with `inkOn` picking the linen or the soot that reads on it.
+ */
 function Monogram({ name }: { name: string }) {
-  const tint = colorForTag(name);
+  const { scheme } = useTheme();
+  const tint = colorForTag(name, scheme);
   return (
-    <View style={[styles.monogram, { backgroundColor: withAlpha(tint, 0.18) }]}>
-      <Txt variant="caption" weight="700" style={{ color: tint }}>
+    <View style={[styles.monogram, { backgroundColor: tint }]}>
+      <Txt variant="caption" weight="700" style={{ color: inkOn(tint) }}>
         {initialsOf(name)}
       </Txt>
     </View>
@@ -214,10 +227,20 @@ function SkeletonRows({ count = 5 }: { count?: number }) {
             <View style={[styles.monogram, { backgroundColor: colors.surfaceSunken }]} />
             <View style={{ flex: 1, gap: 6 }}>
               <View
-                style={{ height: 10, width: '52%', borderRadius: radius.sm, backgroundColor: colors.surfaceSunken }}
+                style={{
+                  height: 10,
+                  width: '52%',
+                  borderRadius: radius.sm,
+                  backgroundColor: colors.surfaceSunken,
+                }}
               />
               <View
-                style={{ height: 8, width: '30%', borderRadius: radius.sm, backgroundColor: colors.surfaceSunken }}
+                style={{
+                  height: 8,
+                  width: '30%',
+                  borderRadius: radius.sm,
+                  backgroundColor: colors.surfaceSunken,
+                }}
               />
             </View>
           </View>
@@ -252,15 +275,15 @@ function initialsOf(name: string): string {
   return (first + last).toUpperCase();
 }
 
-/** colorForTag returns #RRGGBB; the same hue at low alpha is the plate behind it. */
-function withAlpha(hex: string, alpha: number): string {
-  const value = Number.parseInt(hex.slice(1), 16);
-  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
-}
-
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', minHeight: 56 },
   rowText: { flex: 1, gap: 1 },
   rowRight: { alignItems: 'flex-end', gap: 3 },
-  monogram: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  monogram: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

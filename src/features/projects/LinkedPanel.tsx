@@ -14,8 +14,7 @@ import { formatDayHeading } from '@/core/time';
 import type { ProjectOverview } from '@/repositories/projects';
 import { Card, Chip, Divider, EmptyState, Section, Txt } from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry , AnimatedPressable, usePressScale } from '@/ui/motionHooks';
-import { colorForTag } from '@/ui/theme';
+import { useStaggeredEntry, AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
 
 import { DueChip } from './Bits';
@@ -192,8 +191,16 @@ export function LinkedPanel({
             {linked.tasks.map((task) => (
               <LinkRow
                 key={task.id}
-                icon={task.isCompleted ? 'checkmark-circle' : task.isLocked ? 'lock-closed-outline' : 'ellipse-outline'}
-                iconColor={task.isCompleted ? colors.success : task.isLocked ? colors.warning : undefined}
+                icon={
+                  task.isCompleted
+                    ? 'checkmark-circle'
+                    : task.isLocked
+                      ? 'lock-closed-outline'
+                      : 'ellipse-outline'
+                }
+                iconColor={
+                  task.isCompleted ? colors.success : task.isLocked ? colors.warning : undefined
+                }
                 title={task.title}
                 struck={!!task.isCompleted}
                 right={
@@ -216,9 +223,7 @@ export function LinkedPanel({
                 key={note.id}
                 icon={note.isPinned ? 'bookmark' : 'document-text-outline'}
                 title={note.titleSummary}
-                right={
-                  <Chip label={note.categoryTag} color={colorForTag(note.categoryTag)} size="sm" />
-                }
+                right={<Chip label={note.categoryTag} size="sm" />}
                 onPress={() => onOpen(`/note/${note.id}`)}
               />
             ))}
@@ -237,9 +242,7 @@ export function LinkedPanel({
                 title={row.quantity ? `${row.itemText} ×${row.quantity}` : row.itemText}
                 subtitle={row.listName}
                 struck={!!row.isCompleted}
-                onPress={() =>
-                  onOpen(`/notes?pane=lists&list=${encodeURIComponent(row.listName)}`)
-                }
+                onPress={() => onOpen(`/notes?pane=lists&list=${encodeURIComponent(row.listName)}`)}
               />
             ))}
           </Group>
@@ -252,12 +255,19 @@ export function LinkedPanel({
             {linked.transactions.map((row) => (
               <LinkRow
                 key={row.id}
-                icon={row.direction === 'income' ? 'arrow-down-circle-outline' : 'arrow-up-circle-outline'}
+                icon={
+                  row.direction === 'income'
+                    ? 'arrow-down-circle-outline'
+                    : 'arrow-up-circle-outline'
+                }
                 iconColor={row.direction === 'income' ? colors.success : undefined}
                 title={row.description ?? row.category}
                 subtitle={`${row.category} · ${formatDayHeading(row.createdAt)}`}
                 right={
-                  <Txt variant="caption" tone={row.direction === 'income' ? 'success' : 'secondary'}>
+                  <Txt
+                    variant="caption"
+                    tone={row.direction === 'income' ? 'success' : 'secondary'}
+                  >
                     {row.direction === 'income' ? '+' : '−'}
                     {formatMoney(row.amount, row.currency)}
                   </Txt>

@@ -5,7 +5,13 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { countLabel } from '@/core/format';
-import { formatClock, formatDayHeading, formatDuration, formatTime } from '@/core/time';
+import {
+  clockColumnWidth,
+  formatClock,
+  formatDayHeading,
+  formatDuration,
+  formatTime,
+} from '@/core/time';
 import type {
   BriefingCommitment,
   BriefingData,
@@ -451,7 +457,16 @@ function Row({
           <Ionicons name={icon} size={17} color={tint[tone]} />
           {/* Drawn even when empty: a row with no time keeps the column, so
               every title down the card starts at the same place. */}
-          <Txt variant="mono" tone="tertiary" style={styles.lead} numberOfLines={1}>
+          <Txt
+            variant="mono"
+            tone="tertiary"
+            // Never narrower than it was, and wide enough for "12:00 AM" when
+            // the clock is set to twelve hours — this column is the one
+            // `AGENTS.md` records having silently truncated `Overdue` to
+            // `Over…` for exactly this reason.
+            style={[styles.lead, { width: Math.max(52, clockColumnWidth()) }]}
+            numberOfLines={1}
+          >
             {lead ?? ''}
           </Txt>
           <View style={{ flex: 1, gap: 1 }}>

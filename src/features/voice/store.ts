@@ -4,9 +4,22 @@ import type { LlmAction } from '@/llm/contract';
 // Type-only, so nothing of the executor is loaded here: the dock renders the
 // rows a search found and has to name their shape, not build one.
 import type { ResultHit } from '@/llm/executor';
+import { wasPoorlyHeard } from '@/llm/confirm';
+import type { ActionPreview } from '@/llm/confirm';
 import type { ClarificationAnswers } from '@/llm/orchestrator';
 
-export type VoiceStatus = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error';
+/**
+ * `sending` is the gap between the user finishing and the turn starting, and it
+ * exists because that gap used to be drawn as `idle`.
+ *
+ * The recogniser is allowed up to `STOP_GRACE_MS` (2.5s) to return a final
+ * result after being asked to stop, and for all of it the store used to say
+ * `idle` — so releasing the microphone put the resting caption back, dropped
+ * the words the user had just watched appear, and cooled the field, and then a
+ * receipt arrived out of nowhere seconds later. It read as the app having
+ * thrown the sentence away. Nothing was wrong except what the screen said.
+ */
+export type VoiceStatus = 'idle' | 'listening' | 'sending' | 'thinking' | 'speaking' | 'error';
 
 /**
  * Something the user said (or typed) that never got an answer.
@@ -98,7 +111,12 @@ export type VoiceOutcome = {
    * type the word "yes" at a keyboard, on the screen of an app whose entire
    * premise is not having to.
    */
-  clarification?: { question: string; pending?: string; answers?: ClarificationAnswers };
+  clarification?: {
+    question: string;
+    pending?: string;
+    answers?: ClarificationAnswers;
+    preview?: ActionPreview;
+  };
   /**
    * The turn never ran — a transport failure, a 401, a timeout, an internal
    * throw. See `TurnOutcome.failed`.
@@ -201,7 +219,12 @@ type VoiceState = {
    */
   heardNothing: boolean;
   outcome: VoiceOutcome | null;
-  pendingClarification: { question: string; pending?: string; answers?: ClarificationAnswers } | null;
+  pendingClarification: {
+    question: string;
+    pending?: string;
+    answers?: ClarificationAnswers;
+    preview?: ActionPreview;
+  } | null;
   /** See `RecoveredTranscript`. Outlives `close()` and `reset()` by design. */
   recovered: RecoveredTranscript | null;
   /**
@@ -377,30 +400,63 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
           set({ partial: text });
         },
         /*
-          A finished utterance is *shown*, never sent.
+          A finished utterance is sent, unless the recogniser says it may have
+          got it wrong.
 
-          Not a preference, and deliberately not one. It was built as a switch
-          and the switch was removed the same day, because the two halves of the
-          app it sits between are not symmetrical: sending is one tap and
-          unsending is not a thing that exists. There is no "rewind my last
-          request" — `LastAction` undoes a *single* row through an allow-list
-          (see `src/features/home/undo.ts`), so a mis-heard sentence that filed
-          three actions is three separate corrections, some of which cannot be
-          made at all. Against that, one look at one line of text is nothing.
+          ## What this was, and why it changed
 
-          It is also the only check in this app that happens before the model is
-          called. `confirmMode`, the executor's review gate and the handlers'
-          own questions all read a *reply*, so by the time any of them can ask,
-          the request has been made and billed. Here nothing has been spent yet,
-          which is what makes fixing "doctor" to "tutor" free.
+          Every utterance used to stop here and seed the composer, so the words
+          landed in a text box behind a full-screen scrim and the user pressed
+          Send. The reasoning was sound and is kept below; what it missed is
+          that it charged *every* sentence for the mistakes of a few, on the one
+          screen whose whole premise is not having to look.
 
-          Not `submitText`, not an error, and emphatically not `recovered`:
-          nothing has gone wrong and nothing has been lost. The words go into
-          the composer wearing the review label, and the user presses Send — or
-          fixes the one word the recogniser missed first.
+          That reasoning: sending is one tap and unsending is not a thing that
+          exists. There is no "rewind my last request" — `LastAction` undoes a
+          *single* row through an allow-list (`src/features/home/undo.ts`), so a
+          mis-heard sentence that filed three actions is three separate
+          corrections, some of which cannot be made at all. And this is the only
+          check in the app that fires before the model is called: `confirmMode`,
+          the executor's review gate and the handlers' own questions all read a
+          *reply*, so by the time any of them can ask, the turn is already spent.
+
+          ## What replaces it
+
+          All of that is still true, and none of it argues for asking about a
+          sentence the recogniser is confident about. The check was never really
+          "may I spend a turn" — it was "are these the words you said".
+          `wasPoorlyHeard` is this app's own existing answer to exactly that
+          question, at a documented 0.85, already used by the confirmation gate,
+          and already careful about the platforms that measure nothing: Android
+          reports 0 or -1, and those read as *unknown* rather than as bad, or
+          every write on that fleet would stop here for ever.
+
+          So the review survives where it was earning its place and gets out of
+          the way where it was not.
+
+          The other half of the argument is that the words are no longer unseen
+          when they go: the caption under the microphone *is* the live
+          transcript, and what commits is releasing a button the user is already
+          holding while reading it. The look happens during the utterance rather
+          than after it — the same trade the Stream ring makes by having no
+          screen to put a draft on at all.
+
+          `submitText` is the only path out of here, so a spoken answer to a
+          pending question still carries its token: that function reads
+          `pendingClarification` itself.
         */
-        onFinal: (text) => {
+        onFinal: (text, confidence) => {
           if (ticket !== session) return;
+
+          if (!wasPoorlyHeard(confidence)) {
+            // Not `status: 'idle'` on the way past — `submitText` sets
+            // `thinking` itself, and an idle frame in between is the blink this
+            // whole path was rewritten to remove.
+            set({ partial: '', error: null, needsRetry: false, heardNothing: false });
+            void get().submitText(text);
+            return;
+          }
+
           set({
             partial: '',
             status: 'idle',
@@ -437,8 +493,12 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   },
 
   stopListening: async () => {
+    // Set before the await, not after: this is the frame the finger lifts on,
+    // and the recogniser can take another 2.5s to hand the words over. The
+    // partial is deliberately left alone so the sentence stays on screen the
+    // whole way through rather than blinking out and coming back.
+    if (get().status === 'listening') set({ status: 'sending' });
     await pipeline?.stopListening().catch(() => {});
-    if (get().status === 'listening') set({ status: 'idle' });
   },
 
   submitText: async (text: string) => {

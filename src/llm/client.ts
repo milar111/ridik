@@ -115,7 +115,7 @@ export type LlmClientOptions = {
   /** Overrides the provider's own structured-output schema. */
   responseSchema?: unknown;
   /**
-   * Whether a self-contained utterance may be offered fewer than all 28 tools.
+   * Whether a self-contained utterance may be offered fewer than every tool.
    *
    * On by default. Off is for measuring the difference and for a caller that
    * would rather pay for the full surface every time; `pickTools` already
@@ -264,7 +264,10 @@ export function createLlmClient(options: LlmClientOptions) {
   async function interpret(input: InterpretInput): Promise<Result<Interpretation>> {
     try {
       if (!provider.isConfigured()) {
-        return fail('permission_denied', 'The assistant is not set up yet. Add an API key in Settings.');
+        return fail(
+          'permission_denied',
+          'The assistant is not set up yet. Add an API key in Settings.',
+        );
       }
 
       const messages: LlmMessage[] = [
@@ -471,8 +474,14 @@ function asProviderError(error: unknown): LlmProviderError {
 }
 
 const USER_FACING: Record<LlmProviderError['code'], { code: AppErrorCode; message?: string }> = {
-  rate_limited: { code: 'rate_limited', message: 'The assistant is busy right now. Try again in a moment.' },
-  unauthorized: { code: 'permission_denied', message: 'The assistant rejected our API key. Check it in Settings.' },
+  rate_limited: {
+    code: 'rate_limited',
+    message: 'The assistant is busy right now. Try again in a moment.',
+  },
+  unauthorized: {
+    code: 'permission_denied',
+    message: 'The assistant rejected our API key. Check it in Settings.',
+  },
   network: { code: 'offline', message: "I couldn't reach the assistant. Check your connection." },
   // bad_request already carries a specific, readable reason from the provider.
   bad_request: { code: 'upstream' },

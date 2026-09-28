@@ -359,6 +359,7 @@ function RecognitionGroup() {
   const rate = useSetting('ttsRate');
   const whisper = useSetting('whisperFallbackEnabled');
   const whisperKey = useSecret('whisper');
+  const assemblyKey = useSecret('assemblyai');
 
   return (
     <Group title="Recognition">
@@ -421,6 +422,24 @@ function RecognitionGroup() {
           label="Whisper key"
           hint="Needed before any audio is ever uploaded."
           state={whisperKey.data}
+        />
+      ) : null}
+      {/*
+        The key is here and the *choice* is on Settings, deliberately.
+        
+        A key is a developer act — pasting a credential — and choosing to upload
+        your voice is not. So this unlocks the engine and changes nothing on its
+        own: with a key and the setting untouched, AssemblyAI is only a better
+        rescue than Whisper when the recogniser fails outright. Making it the
+        engine that runs every time is a decision taken on a screen that says
+        what it costs, which is the live caption.
+      */}
+      {whisper.value ? (
+        <SecretRow
+          slot="assemblyai"
+          label="AssemblyAI key"
+          hint="Unlocks the better engine. Choosing it is on Profile → How it listens."
+          state={assemblyKey.data}
         />
       ) : null}
     </Group>

@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useTheme } from '../ThemeProvider';
-import { inkOn } from '../ink';
+import { inkOn, plateOf } from '../ink';
 import { fade } from '../motion';
 import { AnimatedPressable, useCheckPop, usePressScale } from '../motionHooks';
 import { Txt } from './Text';
@@ -76,17 +76,22 @@ export function Checkbox({
       style={[styles.checkRow, { paddingVertical: spacing.sm }, press.style]}
       hitSlop={6}
     >
+      {/* A ticked box is cool, not warm — the same slate `TaskRow` fills with,
+          and the same thing the palette means by cool everywhere else: settled,
+          kept, done. It was the accent, which made the two controls that both
+          tick something off disagree about what "done" looks like, and spent the
+          brand colour on the one row that is asking nothing of anybody. */}
       <Animated.View
         style={[
           styles.box,
           {
-            borderColor: checked ? colors.accent : colors.borderStrong,
-            backgroundColor: checked ? colors.accent : 'transparent',
+            borderColor: checked ? colors.success : colors.borderStrong,
+            backgroundColor: checked ? colors.success : 'transparent',
           },
           pop,
         ]}
       >
-        {checked ? <Ionicons name="checkmark" size={14} color={inkOn(colors.accent)} /> : null}
+        {checked ? <Ionicons name="checkmark" size={14} color={inkOn(colors.success)} /> : null}
       </Animated.View>
       <View style={{ flex: 1, gap: 1 }}>
         {label ? (
@@ -115,6 +120,7 @@ export function Chip({
   label,
   color,
   selected,
+  fill = 'solid',
   onPress,
   icon,
   size = 'md',
@@ -123,18 +129,41 @@ export function Chip({
   label: string;
   color?: string;
   selected?: boolean;
+  /**
+   * What a selected chip looks like, and it is a question about *meaning*.
+   *
+   * `solid` is a **choice** — one of these is on and the others are off, and the
+   * fill is the answer to "which". It is the loudest thing a chip can be and
+   * that is right when the row is a picker.
+   *
+   * `soft` is a **state** the chip is reporting about itself: logged, done,
+   * finished. It draws the colour as a plate with the colour as ink, the same
+   * treatment `Badge` uses. The distinction is not decoration — a done habit
+   * rendered `solid` put a full-strength pale fill in a dark room, which made
+   * "you already did this" the brightest thing on the screen and the ember it
+   * sat beside the second brightest. Completion should recede.
+   */
+  fill?: 'solid' | 'soft';
   onPress?: () => void;
   icon?: keyof typeof Ionicons.glyphMap;
   size?: 'sm' | 'md';
   /** For a chip whose label alone does not say what tapping it does. */
   accessibilityHint?: string;
 }) {
-  const { colors, radius } = useTheme();
-  const tint = color ?? colors.accent;
-  // A selected chip is the one fill in the app whose colour does not follow the
-  // scheme — `colorForTag()` answers the same dark hue in dark mode, where the
-  // accent has gone pale. One constant ink cannot serve both, so the fill picks.
-  const onTint = inkOn(tint);
+  const { colors, radius, scheme } = useTheme();
+  /* A chip with no colour of its own is quiet until it is the chosen one.
+     The default used to be the accent in both states, which drew a row of
+     identical ember outlines where nothing was chosen yet — every tag, every
+     category, every project kind the same brand colour, saying nothing. Colour
+     here answers one question, "which of these is on", and a row where the
+     answer is "none" should be able to say so. */
+  const tint = color ?? (selected ? colors.accent : colors.textSecondary);
+  // A solid chip is the one fill in the app whose colour does not follow the
+  // scheme — `colorForTag()` answers a scheme-appropriate hue, but an ember
+  // chosen in Settings does not. One constant ink cannot serve both, so it picks.
+  const solid = selected && fill === 'solid';
+  const plate = selected && fill === 'soft';
+  const ink = solid ? inkOn(tint) : tint;
   // A chip is small, so it takes the full press travel.
   const press = usePressScale();
   const body = (
@@ -143,15 +172,18 @@ export function Chip({
         styles.chip,
         {
           borderRadius: radius.pill,
-          backgroundColor: selected ? tint : 'transparent',
-          borderColor: selected ? tint : colors.border,
+          backgroundColor: solid ? tint : plate ? plateOf(tint, scheme) : 'transparent',
+          // A plate carries its own edge. Keeping `colors.border` there would
+          // draw a neutral hairline around a tinted shape, which reads as the
+          // outline chip it is meant to be distinguishable from.
+          borderColor: solid ? tint : plate ? 'transparent' : colors.border,
           paddingVertical: size === 'sm' ? 2 : 5,
           paddingHorizontal: size === 'sm' ? 8 : 11,
         },
       ]}
     >
-      {icon ? <Ionicons name={icon} size={size === 'sm' ? 11 : 13} color={selected ? onTint : tint} /> : null}
-      <Txt variant={size === 'sm' ? 'micro' : 'caption'} style={{ color: selected ? onTint : tint }}>
+      {icon ? <Ionicons name={icon} size={size === 'sm' ? 11 : 13} color={ink} /> : null}
+      <Txt variant={size === 'sm' ? 'micro' : 'caption'} style={{ color: ink }}>
         {label}
       </Txt>
     </View>
@@ -252,7 +284,11 @@ export function Segmented<T extends string>({
     <View
       style={[
         styles.segmented,
-        { backgroundColor: colors.surfaceSunken, borderRadius: radius.sm, borderColor: colors.border },
+        {
+          backgroundColor: colors.surfaceSunken,
+          borderRadius: radius.sm,
+          borderColor: colors.border,
+        },
       ]}
     >
       {options.map((o) => (
@@ -278,7 +314,15 @@ export function Segmented<T extends string>({
  * without a whole geometry to keep in step. The label's tone changes with it —
  * its `weight` cannot be animated, because that swaps the font family.
  */
-function Segment({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function Segment({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
   const { colors, radius } = useTheme();
   const lit = useLit(active);
   const press = usePressScale({ scale: 0.97 });
@@ -334,7 +378,13 @@ export function EmptyState({
 
 /* ---------------------------------------------------------------- Badge --- */
 
-export function Badge({ label, tone = 'accent' }: { label: string; tone?: 'accent' | 'success' | 'warning' | 'danger' | 'info' | 'neutral' }) {
+export function Badge({
+  label,
+  tone = 'accent',
+}: {
+  label: string;
+  tone?: 'accent' | 'success' | 'warning' | 'danger' | 'info' | 'neutral';
+}) {
   const { colors, radius } = useTheme();
   const map = {
     accent: [colors.accentMuted, colors.accent],
@@ -346,7 +396,14 @@ export function Badge({ label, tone = 'accent' }: { label: string; tone?: 'accen
   } as const;
   const [bg, fg] = map[tone];
   return (
-    <View style={{ backgroundColor: bg, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 }}>
+    <View
+      style={{
+        backgroundColor: bg,
+        borderRadius: radius.sm,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+      }}
+    >
       <Txt variant="micro" style={{ color: fg }}>
         {label}
       </Txt>
@@ -365,7 +422,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   struck: { textDecorationLine: 'line-through' },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: StyleSheet.hairlineWidth },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   segmented: { flexDirection: 'row', padding: 2, borderWidth: StyleSheet.hairlineWidth },
   segment: { flex: 1, alignItems: 'center', paddingVertical: 6 },
 });

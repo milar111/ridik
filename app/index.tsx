@@ -16,7 +16,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn, useReducedMotion } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
-import { HomeMic, LastAction, NextUpLine, nextUp, useDailyBriefing } from '@/features/home';
+import {
+  HomeMic,
+  HomePanel,
+  LastAction,
+  NextUpLine,
+  nextUp,
+  useDailyBriefing,
+} from '@/features/home';
 // Imported from the modules rather than `@/features/today`: that barrel pulls
 // in every section of the old Today screen, and with them the briefing's
 // text-to-speech and the focus runtime. Home needs three pure things from it,
@@ -24,6 +31,7 @@ import { HomeMic, LastAction, NextUpLine, nextUp, useDailyBriefing } from '@/fea
 import { buildAgenda } from '@/features/today/agenda';
 import { SectionBoundary } from '@/features/today/Fallbacks';
 import { useNow } from '@/features/today/useNow';
+import { useTourTarget } from '@/features/tour';
 import { useSpeakIntent } from '@/features/voice/speakIntent';
 import { useVoiceStore } from '@/features/voice/store';
 // The one component, not the dock: `VoiceDock` hides its whole floating column
@@ -41,15 +49,33 @@ import { STAGGER_MS } from '@/ui/motion';
 import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useNavigateOnce } from '@/ui/useNavigateOnce';
 
-/** The field answers to the voice session; speaking and thinking look alike. */
+/**
+ * The field answers to the voice session; speaking and thinking look alike.
+ *
+ * `sending` is `thinking` and must never fall through to the `idle` default:
+ * that state covers the couple of seconds between the user finishing and the
+ * turn starting, and cooling the field there made the screen go quiet at the
+ * exact moment the app had just been handed a sentence — which reads as the
+ * words having been dropped.
+ */
 const FIELD_STATE: Record<string, HeatState> = {
   idle: 'idle',
   listening: 'listening',
+  sending: 'thinking',
   thinking: 'thinking',
   speaking: 'thinking',
   error: 'error',
 };
 
+/*
+ * The tour's provider and overlay are in `app/_layout.tsx`, not here.
+ *
+ * They lived on this screen while the tour was four steps and all four were on
+ * it. The tour now walks the calendar, the lists, the money screen and five
+ * more, and a provider inside home unmounts the moment it navigates off —
+ * taking the step it was on with it. What stays here is the *targets*: this
+ * screen is the only one with controls worth ringing.
+ */
 export default function HomeScreen() {
   const { colors, spacing } = useTheme();
   const insets = useSafeAreaInsets();
@@ -75,7 +101,12 @@ export default function HomeScreen() {
   // the safe end here. The gate needs the guard for the opposite reason — for
   // it, `unset` is the value that draws a lid over every launch.
   const consent = useSetting('assistantConsent');
+  const tourSeen = useSetting('tourSeen');
   useSpeakIntent({ consentAnswered: hasAnsweredConsent(consent.value) });
+
+  const menuTarget = useTourTarget('menu');
+  const nextUpTarget = useTourTarget('next-up');
+  const receiptTarget = useTourTarget('receipt');
 
   const snapshot = today.data;
 
@@ -94,8 +125,18 @@ export default function HomeScreen() {
    * so this is a first-run defect rather than a bypass. It is still the one
    * screen that has to come first, and it is what an app reviewer doing a
    * clean install sees.
+   *
+   * And it waits for the tour for the same reason one step further on. The
+   * briefing is a modal route, so it is presented above `GuidedTour` too: on a
+   * fresh install the disclosure was answered and a day summary slid up over
+   * the tour that was about to explain what the microphone underneath it was
+   * for. `tourSeen` reads `false` while the row is still being read, which is
+   * the safe end of that guard — a briefing held for a second is nothing, and
+   * a briefing over the tour is the first thing a new user sees.
    */
-  useDailyBriefing(snapshot != null && hasAnsweredConsent(consent.value));
+  useDailyBriefing(
+    snapshot != null && hasAnsweredConsent(consent.value) && tourSeen.value === true,
+  );
 
   const next = useMemo(() => {
     if (!snapshot) return null;
@@ -131,7 +172,16 @@ export default function HomeScreen() {
         }}
       >
         <Animated.View entering={arrive(0)} style={styles.corners}>
-          <CornerButton icon="menu" label="Menu" testID="home-menu" onPress={() => nav.push('/menu')} />
+          {/* Wrapped rather than measured through `CornerButton`: the wrapper
+              has the same box, and this keeps the button ignorant of the tour. */}
+          <View {...menuTarget}>
+            <CornerButton
+              icon="menu"
+              label="Menu"
+              testID="home-menu"
+              onPress={() => nav.push('/menu')}
+            />
+          </View>
           <CornerButton
             icon="person"
             label="Profile and settings"
@@ -144,7 +194,7 @@ export default function HomeScreen() {
             turns into a 15:00 meeting a moment later is worse than a blank. */}
         <View style={{ paddingTop: spacing.xl, minHeight: 132 }}>
           {snapshot ? (
-            <Animated.View entering={arrive(1)}>
+            <Animated.View entering={arrive(1)} {...nextUpTarget}>
               <SectionBoundary label="next up">
                 <NextUpLine next={next} zone={snapshot.zone} />
               </SectionBoundary>
@@ -156,12 +206,24 @@ export default function HomeScreen() {
           <HomeMic />
         </Animated.View>
 
-        {/* The two things the bottom of this screen can say: what the last
-            utterance did, and what it failed to do and still has. In the flow
-            rather than floating, so neither can land on top of the other —
-            they are not mutually exclusive, a typed turn can fail over a
-            receipt that is still on screen. */}
-        <View style={{ gap: spacing.sm }}>
+        {/* What the bottom of this screen can say: the conversation so far,
+            what the last utterance did, and what it failed to do and still
+            has. In the flow rather than floating, so none of them can land on
+            top of another — they are not mutually exclusive, a typed turn can
+            fail over a receipt that is still on screen.
+
+            `HomePanel` is above the receipt and has two sides: the
+            conversation, which reads downwards into the receipt below it and
+            is working from the same ten minutes the model is, and the notes,
+            which are what this app mostly produces and were two taps away
+            behind the menu. The receipt is outside the panel and is never
+            hidden by either side, which is what lets the panel open on
+            whichever one is useful. Nothing at all on an install with neither,
+            so a first run is still a microphone. */}
+        <View style={{ gap: spacing.sm }} {...receiptTarget}>
+          <SectionBoundary label="panel">
+            <HomePanel />
+          </SectionBoundary>
           <SectionBoundary label="unsent">
             <UnsentTranscript />
           </SectionBoundary>
@@ -217,6 +279,12 @@ function CornerButton({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   corners: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  corner: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  corner: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   stage: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });

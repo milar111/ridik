@@ -26,6 +26,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ConsentScreen } from '@/features/consent/ConsentScreen';
+import { PreferenceStep } from './PreferenceStep';
+
 import { usePermissions, useRequestPermission, type PermissionId } from '@/hooks/useSystem';
 import { useFontsReady } from '@/ui/fonts';
 import { HeatField } from '@/ui/HeatField';
@@ -136,10 +138,31 @@ export function WelcomeFlow() {
   // paragraph measured in the fallback face stays wrong for the whole session.
   if (!fontsReady) return <View style={[styles.root, { backgroundColor: colors.bg }]} />;
 
-  // The disclosure ends the flow, and answering it is what closes the gate.
-  if (step > PANELS.length) return <ConsentScreen />;
+  /*
+   * The disclosure ends the flow, and answering it is what closes the gate.
+   *
+   * One step further along than it was: the preferences sit between the
+   * permission asks and the disclosure. Deliberately *after* permissions,
+   * because until the microphone is granted there is no app to have
+   * preferences about, and deliberately *before* the disclosure, because the
+   * disclosure is the one screen that must be the last thing read before
+   * anything can be sent — putting a page of switches after it would put three
+   * more decisions between reading the promise and living under it.
+   */
+  if (step > PANELS.length + 1) return <ConsentScreen />;
 
   const panel = step < PANELS.length ? PANELS[step] : null;
+  /*
+   * Three panels and the permission asks. There is deliberately no fourth
+   * panel of examples.
+   *
+   * There was for a day, and it was the wrong answer to the right problem: a
+   * voice app has no menu, so somebody has to be shown what to say — but shown
+   * it *in the app*, over the real microphone, not read a page of quotations on
+   * a screen where nothing is real yet. `GuidedTour` does it on home the moment
+   * this flow ends, and `/examples` is the list for when they forget.
+   */
+  const showing = panel ? 'panel' : step === PANELS.length ? 'permissions' : 'preferences';
 
   return (
     <View style={styles.root} testID="welcome-flow">
@@ -148,17 +171,26 @@ export function WelcomeFlow() {
           about to become. */}
       <HeatField state="idle" originY={0.42} />
 
+      {/* `flex: 1` is not decoration. A ScrollView in a column with no flex of
+          its own is measured at its *content* height, so it never has anything
+          to scroll — which is how a nine-card examples step shipped showing two.
+          The examples have gone to the guided tour and `/examples`, but the
+          permission step is three rows and a heading and a small phone in a
+          large font is where that stops fitting. */}
       <ScrollView
+        testID="welcome-scroll"
+        style={styles.scroll}
         contentContainerStyle={[
           styles.content,
           {
             paddingTop: insets.top + spacing.xl,
             paddingBottom: insets.bottom + spacing.lg,
             paddingHorizontal: spacing.lg,
+            justifyContent: 'center',
           },
         ]}
       >
-        <Progress step={step} total={PANELS.length + 1} />
+        <Progress step={step} total={PANELS.length + 2} />
 
         {panel ? (
           <Animated.View
@@ -178,8 +210,10 @@ export function WelcomeFlow() {
               {panel.body}
             </Txt>
           </Animated.View>
-        ) : (
+        ) : showing === 'permissions' ? (
           <PermissionStep permissions={permissions} request={request} />
+        ) : (
+          <PreferenceStep />
         )}
       </ScrollView>
 
@@ -199,12 +233,12 @@ export function WelcomeFlow() {
           needs no words because the three rows above it are the explanation.
         */}
         <Button
-          label={panel ? 'Next' : 'Continue'}
+          label={showing === 'permissions' ? 'Continue' : 'Next'}
           variant="primary"
           icon="arrow-forward"
-          disabled={!panel && !ready}
+          disabled={showing === 'permissions' && !ready}
           accessibilityLabel={
-            panel || ready
+            showing !== 'permissions' || ready
               ? undefined
               : // A dim button says nothing to a screen reader, and this is the
                 // one control on the screen. `disabled` is announced; *why* is
@@ -260,7 +294,10 @@ function Progress({ step, total }: { step: number; total: number }) {
   );
 }
 
-function PermissionStep({ permissions, request }: {
+function PermissionStep({
+  permissions,
+  request,
+}: {
   permissions: ReturnType<typeof usePermissions>;
   request: ReturnType<typeof useRequestPermission>;
 }) {
@@ -276,8 +313,8 @@ function PermissionStep({ permissions, request }: {
       </Txt>
       <Txt variant="display">Three permissions.</Txt>
       <Txt variant="body" tone="secondary">
-        Ridik needs all three to do what it does: hear you, reach you when the app is closed,
-        and put what you say beside what is already on your day.
+        Ridik needs all three to do what it does: hear you, reach you when the app is closed, and
+        put what you say beside what is already on your day.
       </Txt>
 
       <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
@@ -397,7 +434,8 @@ function AskRow({
 
 const styles = StyleSheet.create({
   root: { ...StyleSheet.absoluteFill },
-  content: { flexGrow: 1, justifyContent: 'center' },
+  scroll: { flex: 1 },
+  content: { flexGrow: 1 },
   footer: {},
   mark: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center' },
   progress: { flexDirection: 'row', gap: 5, alignItems: 'center' },

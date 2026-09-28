@@ -8,6 +8,7 @@ import {
   FEW_SHOT_EXAMPLES,
   type LlmContext,
 } from '@/llm/prompt';
+import { estimateTextTokens } from '@/llm/usage';
 
 const ZONE = 'Europe/Sofia';
 const NOW = localToEpoch('2026-03-04T18:05', ZONE); // a Wednesday
@@ -162,9 +163,25 @@ describe('buildSystemPrompt', () => {
 });
 
 describe('few-shot examples', () => {
-  it('has between 6 and 10 of them', () => {
+  /*
+    The ceiling used to be a bare 10 with no reason attached, which made it a
+    number rather than a budget — and the thing actually worth bounding is not
+    how many examples there are but what they cost, since every one of them is
+    billed on every single turn. A short example that teaches a shape is nearly
+    free; a long one that restates a rule is not.
+
+    So the count is bounded loosely and the *size* is bounded for real. 1,200
+    tokens is roughly a seventh of a turn's input at the contract's current
+    width, which is what teaching by example is worth here and not more.
+  */
+  it('stays a handful, and a cheap one', () => {
     expect(FEW_SHOT_EXAMPLES.length).toBeGreaterThanOrEqual(6);
-    expect(FEW_SHOT_EXAMPLES.length).toBeLessThanOrEqual(10);
+    expect(FEW_SHOT_EXAMPLES.length).toBeLessThanOrEqual(14);
+
+    const rendered = FEW_SHOT_EXAMPLES.map(
+      (ex) => (ex.earlier ?? '') + ex.input + JSON.stringify(ex.output),
+    ).join('\n');
+    expect(estimateTextTokens(rendered)).toBeLessThan(1_200);
   });
 
   it('every example output validates against the contract', () => {
@@ -173,6 +190,34 @@ describe('few-shot examples', () => {
       if (!parsed.ok) throw new Error(`${example.input} -> ${parsed.issues.join('; ')}`);
       expect(parsed.ok).toBe(true);
     }
+  });
+
+  /*
+    The three shapes free speech is actually made of, each taught by exactly
+    one example — and each of them the kind of thing that gets dropped by
+    somebody trimming this list for size, because none of them looks like a
+    feature. A continuation cannot be taught by a lone input/output pair at
+    all, which is what `earlier` is for.
+  */
+  it('covers the shapes a person actually speaks in', () => {
+    const continuation = FEW_SHOT_EXAMPLES.find((e) => e.earlier !== undefined);
+    expect(continuation).toBeDefined();
+    // The fragment lands on the row the earlier turn NAMED, not on the words
+    // the user said — that is the whole lesson, and a rename would lose it.
+    expect(continuation!.earlier).toContain('Shopping');
+    expect(JSON.stringify(continuation!.output)).toContain('"list_name":"Shopping"');
+
+    // The instruction is stripped: it must not survive into any saved string.
+    const stripped = FEW_SHOT_EXAMPLES.find((e) => /write that down/i.test(e.input));
+    expect(stripped).toBeDefined();
+    expect(JSON.stringify(stripped!.output)).not.toMatch(/write that down/i);
+
+    // And thinking out loud is kept rather than refused.
+    const thought = FEW_SHOT_EXAMPLES.find(
+      (e) => !/\?$/.test(e.input) && /Sofia job/.test(e.input),
+    );
+    expect(thought).toBeDefined();
+    expect((thought!.output.actions ?? [])[0]?.tool_name).toBe('note_create');
   });
 
   it('covers multi-intent, curriculum inference, buffers and clarification', () => {

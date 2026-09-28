@@ -66,10 +66,15 @@ const WRITES: ReadonlySet<ToolName> = new Set<ToolName>([
   'activity_log',
   'task_add',
   'task_complete',
+  'task_update',
+  'task_delete',
   'task_add_dependency',
   'ledger_add',
+  'ledger_delete',
   'checklist_add',
   'checklist_toggle',
+  'checklist_remove',
+  'checklist_delete',
   'crm_add_commitment',
   'crm_log_interaction',
   'curriculum_add',
@@ -123,7 +128,23 @@ const REVERSIBLE: ReadonlySet<ToolName> = new Set<ToolName>([
  * `never` still means never — see the note there. This raises the floor inside
  * a policy the user chose, it does not overrule the policy.
  */
-const ALWAYS_ASKS: ReadonlySet<ToolName> = new Set<ToolName>(['ledger_add']);
+/*
+ * The deletes are here for the *other* half of what this set does.
+ *
+ * They already ask under `irreversible` — nothing on `REVERSIBLE` can undo a
+ * delete — so membership changes nothing about whether they are shown. What it
+ * changes is which question gets spoken when one utterance blocks several: the
+ * dock has room for one, and "add milk and delete the shopping list" read as
+ * source order asks about the milk and empties the list unseen. That is the
+ * same failure the ledger note above describes, with a larger blast radius.
+ */
+const ALWAYS_ASKS: ReadonlySet<ToolName> = new Set<ToolName>([
+  'ledger_add',
+  'ledger_delete',
+  'checklist_delete',
+  'checklist_remove',
+  'task_delete',
+]);
 
 /**
  * Below this, a write is shown before it lands even when undo could take it
@@ -279,11 +300,24 @@ export function needsConfirmation(
  * What has to survive into this string is every value the recogniser could
  * have got wrong — the name, the time, the amount.
  */
+/**
+ * One value worth checking, kept as a pair rather than as `"Title: Gym"`.
+ *
+ * It was the joined string, and the card rendered the *sentence* — so what a
+ * user actually met before a write was one run-on line, "Add to calendar —
+ * Title: Gym, Starts: Tue 10 Mar, 15:00?", which is a data dump with a question
+ * mark on it. A confirmation has to be checkable at a glance and that is not,
+ * so the pair survives to the screen and the card draws it as a column of
+ * label and value. `previewSentence` still flattens it, because the question is
+ * also *spoken* and a sheet may be shut.
+ */
+export type PreviewLine = { label?: string; value: string };
+
 export type ActionPreview = {
   /** "Add to calendar", "Log a habit" — what kind of change this is. */
   title: string;
   /** The values worth checking, in reading order. */
-  lines: string[];
+  lines: PreviewLine[];
 };
 
 /**
@@ -300,7 +334,9 @@ export type ActionPreview = {
  * aloud, and the card is there for the rest.
  */
 export function previewSentence(preview: ActionPreview): string {
-  const shown = preview.lines.slice(0, 2);
+  const shown = preview.lines
+    .slice(0, 2)
+    .map((entry) => (entry.label ? `${entry.label}: ${entry.value}` : entry.value));
   if (shown.length === 0) return `${preview.title}?`;
   return `${preview.title} — ${shown.join(', ')}?`;
 }
@@ -395,12 +431,17 @@ function scalar(key: string, value: unknown): string | null {
 }
 
 /** Present only when there is something to say. */
-function line(label: string, value: string | null): string | null {
-  return value === null ? null : `${label}: ${value}`;
+function line(label: string, value: string | null): PreviewLine | null {
+  return value === null ? null : { label, value };
 }
 
-function compact(...lines: (string | null)[]): string[] {
-  return lines.filter((entry): entry is string => entry !== null);
+/** A line with no label of its own — "All day", and nothing else so far. */
+function bare(value: string | null): PreviewLine | null {
+  return value === null ? null : { value };
+}
+
+function compact(...lines: (PreviewLine | null)[]): PreviewLine[] {
+  return lines.filter((entry): entry is PreviewLine => entry !== null);
 }
 
 /**
@@ -433,7 +474,7 @@ export function describeAction(action: LlmAction, clock: Clock): ActionPreview {
   const params = (action.parameters ?? {}) as Params;
   const everything = Object.entries(params)
     .map(([key, value]) => line(label(key), scalar(key, value)))
-    .filter((entry): entry is string => entry !== null)
+    .filter((entry): entry is PreviewLine => entry !== null)
     .slice(0, 5);
   return { ...preview, lines: everything };
 }
@@ -451,7 +492,7 @@ function describeKnownAction(action: LlmAction, clock: Clock): ActionPreview {
           line('Ends', when(params.end, clock)),
           line('For', minutes(num(params.duration_minutes))),
           line('Where', str(params.location)),
-          params.all_day === true ? 'All day' : null,
+          bare(params.all_day === true ? 'All day' : null),
         ),
       };
 
@@ -495,7 +536,10 @@ function describeKnownAction(action: LlmAction, clock: Clock): ActionPreview {
       };
 
     case 'note_delete':
-      return { title: 'Delete a note', lines: compact(line('Note', subject(params.target) ?? str(params.title_summary))) };
+      return {
+        title: 'Delete a note',
+        lines: compact(line('Note', subject(params.target) ?? str(params.title_summary))),
+      };
 
     case 'habit_log':
       return {
@@ -533,7 +577,10 @@ function describeKnownAction(action: LlmAction, clock: Clock): ActionPreview {
     case 'place_save':
       return {
         title: 'Save a place',
-        lines: compact(line('Place', str(params.name) ?? str(params.label)), line('Address', str(params.address))),
+        lines: compact(
+          line('Place', str(params.name) ?? str(params.label)),
+          line('Address', str(params.address)),
+        ),
       };
 
     case 'crm_add_commitment':
@@ -549,8 +596,44 @@ function describeKnownAction(action: LlmAction, clock: Clock): ActionPreview {
     case 'checklist_add':
       return {
         title: 'Add to a list',
-        lines: compact(line('List', str(params.list_name)), line('Adding', list(params.items) ?? str(params.item_text))),
+        lines: compact(
+          line('List', str(params.list_name)),
+          line('Adding', list(params.items) ?? str(params.item_text)),
+        ),
       };
+
+    case 'checklist_remove':
+      return {
+        title: 'Take off a list',
+        lines: compact(line('Item', str(params.item_query)), line('List', str(params.list_name))),
+      };
+
+    case 'checklist_delete':
+      // One line and it is the whole action, so it cannot fall through to the
+      // scalar fallback and be read as "Checklist delete: shopping".
+      return { title: 'Delete a whole list', lines: compact(line('List', str(params.list_name))) };
+
+    case 'ledger_delete':
+      return {
+        title: 'Delete a spending entry',
+        lines: compact(
+          line('Amount', money(num(params.amount), null)),
+          line('Entry', str(params.query) ?? 'the last one recorded'),
+        ),
+      };
+
+    case 'task_update':
+      return {
+        title: 'Change a task',
+        lines: compact(
+          line('Task', subject(params.target)),
+          line('New title', str(params.title)),
+          line('Due', params.clear_due === true ? 'No deadline' : when(params.due, clock)),
+        ),
+      };
+
+    case 'task_delete':
+      return { title: 'Delete a task', lines: compact(line('Task', subject(params.target))) };
 
     default: {
       // Readable without a case of its own: "project_add_item" -> "Project add
@@ -560,7 +643,7 @@ function describeKnownAction(action: LlmAction, clock: Clock): ActionPreview {
         title: words.charAt(0).toUpperCase() + words.slice(1),
         lines: Object.entries(params)
           .map(([key, value]) => line(label(key), scalar(key, value)))
-          .filter((entry): entry is string => entry !== null)
+          .filter((entry): entry is PreviewLine => entry !== null)
           .slice(0, 5),
       };
     }

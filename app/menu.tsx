@@ -123,10 +123,23 @@ export default function MenuScreen() {
                   {i > 0 ? <Divider inset={48} /> : null}
                   <Card
                     padded={false}
-                    // Replace, not push: the menu is a junction, not a step.
-                    // Back from Tasks should reach home, not the list you came
-                    // through.
-                    onPress={() => nav.replace(entry.href as never)}
+                    /*
+                     * Push, not replace — and the comment that used to be here
+                     * argued the opposite, which is worth keeping a record of
+                     * because it was reasonable and wrong. "The menu is a
+                     * junction, not a step", so back from Tasks reached home.
+                     * What that ignores is what somebody is actually doing
+                     * when they open a list of nine screens: looking. Sending
+                     * them home after each one means re-opening the menu to
+                     * see the next, and the junction they were standing at is
+                     * gone every time they arrive somewhere.
+                     *
+                     * The sheet stays underneath, so Back lands on it with the
+                     * row they came through still on screen, and Close on the
+                     * sheet is still one tap from home. Two deep, never more:
+                     * the entries are all leaves.
+                     */
+                    onPress={() => nav.push(entry.href as never)}
                     style={{ borderWidth: 0, backgroundColor: 'transparent' }}
                   >
                     <View

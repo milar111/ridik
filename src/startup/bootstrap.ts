@@ -2,7 +2,7 @@ import * as Crypto from 'expo-crypto';
 import { setRandomSource } from '@/db/ids';
 import { getClient, openDatabase } from '@/db';
 import { createLogger } from '@/core/logger';
-import { setZoneOverride, isValidZone } from '@/core/time';
+import { setZoneOverride, setClockFormat, isValidZone, type ClockFormat } from '@/core/time';
 
 const log = createLogger('bootstrap');
 
@@ -62,6 +62,23 @@ export async function bootstrap(): Promise<BootstrapResult> {
         if (!row) return;
         const stored = JSON.parse(row.value) as unknown;
         if (typeof stored === 'string' && isValidZone(stored)) setZoneOverride(stored);
+      },
+    },
+    {
+      name: 'clock format',
+      run: () => {
+        // Same reasoning as the zone above, and the same direct read: a clock
+        // column measures itself from this, so it has to be settled before the
+        // first agenda row lays out rather than after a query resolves.
+        const row = getClient().getFirstSync<{ value: string }>(
+          'SELECT value FROM app_settings WHERE key = ?',
+          ['clockFormat'],
+        );
+        if (!row) return;
+        const stored = JSON.parse(row.value) as unknown;
+        if (stored === 'auto' || stored === '12h' || stored === '24h') {
+          setClockFormat(stored as ClockFormat);
+        }
       },
     },
     ...extraSteps,

@@ -33,6 +33,7 @@
 import { estimateTextTokens } from '@/llm/usage';
 import { buildSystemPrompt, type LlmContext } from '@/llm/prompt';
 import { RESPONSE_SCHEMA, strictResponseSchema } from '@/llm/provider';
+import { TOOL_NAMES } from '@/llm/contract';
 
 /**
  * The narrowest cache minimum the Gemini family has shipped. Below this, no
@@ -147,18 +148,65 @@ describe('prompt caching', () => {
     expect(JSON.stringify(RESPONSE_SCHEMA).length).toBeLessThan(schema.length / 10);
   });
 
-  /* The heuristic every number above rests on, checked against the one real
-     measurement this repo has: the shipped prompt plus the strict schema bills
-     at 7,240 input tokens (`TYPICAL_TURN`). A generic "four characters per
-     token" undercounts this content by nearly 9%, which is the wrong direction
-     for anything sizing a spend ceiling. */
+  /*
+   * The heuristic every number above rests on, checked against the one real
+   * measurement this repo has: on 17 August 2026 the shipped prompt plus the
+   * strict schema billed at 7,240 input tokens (`TYPICAL_TURN`). A generic
+   * "four characters per token" undercounts this content by nearly 9%, which
+   * is the wrong direction for anything sizing a spend ceiling.
+   *
+   * The measurement was taken against a 28-tool contract and the contract has
+   * grown since — the removal tools. So the ceiling is scaled by tool count
+   * rather than raised by hand: the strict schema is the largest thing in the
+   * request and it is exactly one full parameter branch per tool, so a contract
+   * that gains a tool costs roughly a 28th more. A flat number here would have
+   * to be edited every time the contract grows, and a number edited to make a
+   * test pass stops being a measurement.
+   *
+   * What is still asserted, and is the actual point: the estimate never comes
+   * in *under* what the provider billed.
+   */
+  const MEASURED_INPUT_TOKENS = 7_240;
+
   it('estimates tokens on the high side of what this prompt really costs', () => {
-    const measuredInputTokens = 7_240;
     const estimated = estimateTextTokens(
       buildSystemPrompt(bare) + JSON.stringify(strictResponseSchema()),
     );
+    expect(estimated).toBeGreaterThanOrEqual(MEASURED_INPUT_TOKENS);
+  });
 
-    expect(estimated).toBeGreaterThanOrEqual(measuredInputTokens);
-    expect(estimated).toBeLessThan(measuredInputTokens * 1.15);
+  /*
+   * The upper bound used to live on the line above, as the same tool-scaled
+   * number: `estimated < 7240 * tools / 28 * 1.05`. It had to be split, and
+   * what forced it is worth writing down rather than editing past.
+   *
+   * That ceiling is a model of how the **schema** grows — one full parameter
+   * branch per tool, so a contract that gains a tool costs a 28th more — and it
+   * was being asked to bound prompt *and* schema together. Prose does not grow
+   * with tool count, so every word added to RULES was silently spending the
+   * schema's headroom. By the time the conversation rules were written there
+   * was none: the prompt measured 99.5% of its own ceiling, and the next person
+   * to add a sentence of any kind would have hit it with no idea why a rule
+   * about continuations was failing a test about caching.
+   *
+   * So the two are bounded on their own terms. Both numbers are readings taken
+   * on 12 September 2026, not targets, and each has a reason for its headroom.
+   */
+  const SCHEMA_TOKENS_PER_TOOL = 175; // measured 162; one branch of slack.
+  const PROSE_CEILING_TOKENS = 4_200; // measured 3,931; about a rule and a half.
+
+  it('keeps the schema growing with the contract and nothing else', () => {
+    const schema = estimateTextTokens(JSON.stringify(strictResponseSchema()));
+    expect(schema).toBeLessThan(TOOL_NAMES.length * SCHEMA_TOKENS_PER_TOOL);
+  });
+
+  /*
+   * The prose is billed on every turn forever, so it is a budget and not a
+   * limit: going over is allowed, it just has to be a decision somebody takes
+   * on purpose and writes a number down for. What it buys at the moment is the
+   * tool list, sixteen behavioural rules and twelve worked examples.
+   */
+  it('keeps the static prose within its own budget', () => {
+    expect(estimateTextTokens(buildSystemPrompt(bare))).toBeLessThan(PROSE_CEILING_TOKENS);
   });
 });

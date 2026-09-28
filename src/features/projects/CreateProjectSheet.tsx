@@ -6,14 +6,21 @@
  * date. Anything finer than "in a month" is a sentence, not a form.
  */
 import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { now } from '@/core/clock';
 import { epochToLocal, localToEpoch } from '@/core/time';
 import type { CreateProjectInput, ProjectKind } from '@/repositories/projects';
 import { Button, Chip, Input, Section, SheetCard, Txt } from '@/ui/components';
-import { colorForTag } from '@/ui/theme';
 import { useTheme } from '@/ui/ThemeProvider';
 import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
@@ -122,7 +129,6 @@ export function CreateProjectSheet({
                     <Chip
                       key={option}
                       label={PROJECT_KIND_LABEL[option]}
-                      color={colorForTag(option)}
                       selected={option === kind}
                       onPress={() => setKind(option)}
                     />

@@ -4,19 +4,43 @@ import { Ionicons } from '@expo/vector-icons';
 import { countLabel } from '@/core/format';
 import { formatRelative } from '@/core/time';
 import type { NoteWithBullets } from '@/repositories/notes';
-import { Chip, Txt } from '@/ui/components';
+import { Txt } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
-import { colorForTag } from '@/ui/theme';
 import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
-
-const PREVIEW_BULLETS = 2;
+import { previewBullets } from './preview';
 
 /**
- * One note, four lines at most.
+ * One note, shown as completely as it fits.
  *
  * The metadata is deliberately "what is in it" and "when I last touched it" —
  * never when it was created. The user reaches for the note they keep adding to,
  * and a creation date is the one fact that never helps them find it.
+ *
+ * Two things changed when this stopped being a directory and started being
+ * something you can read, and both were costing a line of a four-line row.
+ *
+ * **The preview is a line budget, not two bullets.** See `./preview`: almost
+ * every note this app writes is shorter than the preview that was hiding it, so
+ * a three-line note showed two lines and spent a third saying "+1 more". Now
+ * "+N more" appears only when something is really being held back.
+ *
+ * **The tag is a word, not a `Chip`.** A chip is a control — it is what a row of
+ * them looks like when one is selected — and every note wore one that did
+ * nothing when tapped, in a list whose own `TagStrip` is directly above it made
+ * of real ones. Worse, with a tag filter on, every visible row repeated the tag
+ * the reader had just chosen. As plain text it costs 15pt instead of 24 and
+ * stops competing with the filter it duplicates.
+ *
+ * One more, found by looking at it: **the tick was an emoji.** `\u2611` gets
+ * emoji presentation on iOS, so a completed bullet drew a rounded *grey* box
+ * with a white check — a different size and shape from the `\u2610` above it, so
+ * the column went ragged; a true grey, which is the one colour this palette
+ * says reads as a bug; and it ignored the row's tone, which made the ticked
+ * item the brightest thing in the row. That is "completion recedes" broken by a
+ * character: the one bullet asking nothing of anybody was the one that shouted.
+ * `Ionicons` nests inside a `Text` run and wraps with it, which is how the rest
+ * of this app draws a checkbox and means the marker is themed, sized and toned
+ * like everything around it.
  */
 export function NoteRow({
   note,
@@ -31,8 +55,7 @@ export function NoteRow({
 
   const todos = note.bullets.filter((bullet) => bullet.bulletKind === 'todo');
   const done = todos.filter((bullet) => bullet.isCompleted).length;
-  const preview = note.bullets.slice(0, PREVIEW_BULLETS);
-  const tint = colorForTag(note.categoryTag);
+  const preview = previewBullets(note.bullets);
 
   const summary =
     todos.length > 0 ? `${done}/${todos.length}` : String(note.bullets.length);
@@ -62,35 +85,41 @@ export function NoteRow({
         </Txt>
       </View>
 
-      <View style={styles.meta}>
-        <Chip label={note.categoryTag} color={tint} size="sm" />
-        <Txt variant="micro" tone="tertiary" numberOfLines={1}>
-          {formatRelative(note.updatedAt)}
-        </Txt>
-        {note.isArchived ? (
-          <Txt variant="micro" tone="tertiary">
-            · archived
-          </Txt>
-        ) : null}
-      </View>
+      <Txt variant="micro" tone="tertiary" numberOfLines={1}>
+        {[note.categoryTag, formatRelative(note.updatedAt), note.isArchived ? 'archived' : null]
+          .filter((part): part is string => part !== null && part !== '')
+          .join(' · ')}
+      </Txt>
 
-      {preview.length > 0 ? (
+      {preview.shown.length > 0 ? (
         <View style={{ gap: 1 }}>
-          {preview.map((bullet) => (
+          {preview.shown.map((bullet) => (
             <Txt
               key={bullet.id}
               variant="caption"
               tone={bullet.isCompleted ? 'tertiary' : 'secondary'}
-              numberOfLines={1}
+              /* Two, matching `PREVIEW_MAX_LINES_PER_BULLET` — the budget is
+                 counted on the assumption the row will actually draw them, and
+                 a cap of one here would silently make every long bullet cost a
+                 line it was never given. */
+              numberOfLines={2}
               style={bullet.isCompleted ? styles.struck : undefined}
             >
-              {bullet.bulletKind === 'todo' ? (bullet.isCompleted ? '☑ ' : '☐ ') : '• '}
-              {bullet.content}
+              {bullet.bulletKind === 'todo' ? (
+                <Ionicons
+                  name={bullet.isCompleted ? 'checkbox-outline' : 'square-outline'}
+                  size={12}
+                  color={bullet.isCompleted ? colors.textTertiary : colors.textSecondary}
+                />
+              ) : (
+                '•'
+              )}
+              {` ${bullet.content}`}
             </Txt>
           ))}
-          {note.bullets.length > PREVIEW_BULLETS ? (
+          {preview.hidden > 0 ? (
             <Txt variant="micro" tone="tertiary">
-              +{note.bullets.length - PREVIEW_BULLETS} more
+              +{preview.hidden} more
             </Txt>
           ) : null}
         </View>
@@ -106,7 +135,6 @@ export function NoteRow({
 const styles = StyleSheet.create({
   row: { gap: 3, minHeight: 44 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  meta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   count: { fontVariant: ['tabular-nums'] },
   struck: { textDecorationLine: 'line-through' },
 });

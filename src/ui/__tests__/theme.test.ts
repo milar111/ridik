@@ -53,9 +53,16 @@ describe('a chosen ember', () => {
     }
   });
 
-  it.each(SCHEMES)('%s: takes the accent from its own ramp', (scheme) => {
-    for (const name of EMBER_NAMES.filter((n) => n !== DEFAULT_EMBER)) {
-      expect(makeTheme(scheme, name).colors.accent).toBe(embers[name][scheme].hot);
+  /* `accent` is a field on the ember, not a stop on its ramp. It was `hot` for
+     as long as the two happened to agree, and they stopped agreeing the moment
+     the ramps were held to their own contrast: kiln's dark `hot` (#F04B3C) and
+     rust's (#DE6038) are *emitting* colours, right for a cell and 3.85:1 on
+     their own muted tint, which is a chip nobody can read. The heat ramp and
+     the text-safe ink are two different jobs and now have two different
+     fields. */
+  it.each(SCHEMES)('%s: takes the accent from its own set', (scheme) => {
+    for (const name of EMBER_NAMES) {
+      expect(makeTheme(scheme, name).colors.accent).toBe(embers[name].accent[scheme]);
     }
   });
 
@@ -103,21 +110,36 @@ describe('a chosen ember', () => {
   });
 
   /* An unreadable label is the one way a colour setting could break the app, so
-     an ember that is *chosen* has to clear the bar outright: 4.5:1 on the ground
-     it sits on and on the card it sits in. `surfaceRaised` is deliberately not
-     in the list — it is a raised card that almost never carries accent text, and
-     the two darker embers land at about 4.2 on it.
+     every ember — the default included — clears the bar outright on all three
+     grounds a label sits on. `surfaceRaised` is deliberately not in the list: it
+     is a raised card that almost never carries accent text, and the two darker
+     embers land at about 4.2 on it.
 
-     The default is held to 4.4 and not 4.5, because that is what it has always
-     measured: #C7360F on the sand ground is 4.48. Rounding it up here would be
-     asserting something about the app that is not true. */
+     There is no exemption for the default any more. It carried one — a floor of
+     4.4, because #C7360F measured 4.48 on the sand ground and rounding it up
+     would have asserted something untrue about the app — and the honest way to
+     retire a rule that reads "this is nearly good enough" is to fix the colour
+     rather than to keep restating the shortfall. #B4320E measures 5.21. */
   it.each(SCHEMES)('%s: leaves the accent legible on the grounds it sits on', (scheme) => {
     for (const name of EMBER_NAMES) {
       const { colors } = makeTheme(scheme, name);
-      const floor = name === DEFAULT_EMBER ? 4.4 : 4.5;
-      for (const ground of [colors.bg, colors.surface]) {
-        expect(contrast(colors.accent, ground)).toBeGreaterThanOrEqual(floor);
+      for (const ground of [colors.bg, colors.surface, colors.surfaceSunken]) {
+        expect(contrast(colors.accent, ground)).toBeGreaterThanOrEqual(4.5);
       }
+    }
+  });
+
+  /* The ground a tinted chip actually has is not `surface` — it is `surface`
+     with the accent's own muted tint composited over it, and that tint is built
+     from the accent, so a colour too light to read is *doubly* too light there.
+     Nothing measured it, and that is exactly how kiln and rust shipped chips at
+     3.85:1: every check in this file was passing, on a ground the chip was not
+     drawn on. */
+  it.each(SCHEMES)('%s: leaves the accent legible on its own tint', (scheme) => {
+    for (const name of EMBER_NAMES) {
+      const { colors } = makeTheme(scheme, name);
+      const chip = over(colors.accentMuted, colors.surface);
+      expect(contrast(colors.accent, chip)).toBeGreaterThanOrEqual(4.5);
     }
   });
 });
@@ -164,4 +186,22 @@ function contrast(a: string, b: string): number {
 function lightness(hex: string): number {
   const y = luminance(hex);
   return y > 0.008856 ? 116 * y ** (1 / 3) - 16 : 903.3 * y;
+}
+
+/**
+ * An `rgba()` tint composited over an opaque hex, as a hex.
+ *
+ * A muted token is never seen on its own — it is paint laid over a card, and
+ * what a chip's label is actually read against is the result. Source-over on
+ * straight 8-bit channels, which is what both platforms do.
+ */
+function over(tint: string, ground: string): string {
+  const [r, g, b, a] = tint
+    .slice(tint.indexOf('(') + 1, -1)
+    .split(',')
+    .map((part) => Number(part.trim())) as [number, number, number, number];
+  const mix = [r, g, b].map((c, i) =>
+    Math.round(c * a + parseInt(ground.slice(1 + i * 2, 3 + i * 2), 16) * (1 - a)),
+  );
+  return `#${mix.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
 }

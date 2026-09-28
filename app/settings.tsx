@@ -24,7 +24,8 @@ import { useRouter } from 'expo-router';
 
 import { createLogger } from '@/core/logger';
 import { now } from '@/core/clock';
-import { formatDayHeading } from '@/core/time';
+import { clockFormatOptions, formatDayHeading, sampleClock } from '@/core/time';
+import type { ConfirmMode } from '@/llm/confirm';
 import {
   Group,
   ROW_LEAD,
@@ -35,6 +36,10 @@ import {
   SwitchRow,
 } from '@/features/settings';
 import { useEmber, useSetting } from '@/hooks';
+// The module rather than the barrel: this one is a single `Platform` check,
+// and `@/voice` reaches `expo-speech-recognition` on the way in.
+import { canCaptureAudio } from '@/voice/capability';
+import { useSecret } from '@/hooks/useSystem';
 import { mergeTrial, useEntitlement, useTrialLedger } from '@/hooks/useBilling';
 import {
   ANALYTICS_PROVIDER,
@@ -92,6 +97,18 @@ export default function SettingsScreen() {
       </ErrorBoundary>
       <ErrorBoundary label="profile: colour">
         <ColourGroup />
+      </ErrorBoundary>
+      <ErrorBoundary label="profile: clock">
+        <ClockGroup />
+      </ErrorBoundary>
+      <ErrorBoundary label="profile: confirmations">
+        <ConfirmGroup />
+      </ErrorBoundary>
+      <ErrorBoundary label="profile: listening">
+        <ListeningGroup />
+      </ErrorBoundary>
+      <ErrorBoundary label="profile: replies">
+        <RepliesGroup />
       </ErrorBoundary>
       <ErrorBoundary label="profile: data">
         <ImproveGroup />
@@ -449,6 +466,220 @@ function CalendarGroup() {
         }
       />
 
+    </Group>
+  );
+}
+
+/* ---------------------------------------------------------------- replies */
+
+/**
+ * Speaking replies, back on this screen because the first run now asks about it.
+ *
+ * `AGENTS.md` records it being moved to `/developer` — off for the life of the
+ * app, and reunited there with the `ttsRate` slider it had been separated from.
+ * That reasoning was sound while nothing ever raised the subject: an inert
+ * switch behind seven taps costs nobody anything.
+ *
+ * It stops being sound the moment the welcome flow asks the question. A person
+ * who says yes on their first run and wants it off an hour later would have to
+ * find a screen they have never seen, through a gesture nobody has told them
+ * about — which is a worse outcome than the row this screen was protecting
+ * itself from. **Anything onboarding asks, Settings has to be able to change.**
+ *
+ * The *rate* slider stays on `/developer`, which keeps the original point
+ * intact: the knob that can make speech unlistenable is still a developer's,
+ * and only the yes/no a stranger can answer is here.
+ */
+function RepliesGroup() {
+  const speak = useSetting('ttsEnabled');
+
+  return (
+    <Group title="Replies">
+      <SwitchRow
+        label="Read answers out loud"
+        hint="Off is quieter and faster. On is better with your hands full."
+        value={speak.value}
+        onChange={speak.set}
+      />
+    </Group>
+  );
+}
+
+/* -------------------------------------------------------------- listening */
+
+/**
+ * Which engine turns speech into text — and only the ones that can run.
+ *
+ * An option is listed when it is genuinely available, never as an
+ * advertisement: AssemblyAI needs a key in the keychain, and the offline model
+ * needs a recogniser that can hand over the audio it heard, which is Android
+ * 13+ (`canCaptureAudio`). With neither available there is one option, which is
+ * not a choice, so the whole group goes.
+ *
+ * **The notes are the substance of the row and they say two things: who hears
+ * it, and what it costs.** Never engine names alone — "AssemblyAI" means
+ * nothing to the person deciding, and the thing they are actually choosing
+ * between is a recording leaving the phone or not.
+ *
+ * They no longer say the upload engine costs the live caption, because on the
+ * phones where these options appear it does not: the recogniser still runs and
+ * still draws the words as they are said, and the second engine only rewrites
+ * what gets filed. That was the whole point of `upgrade`.
+ */
+function ListeningGroup() {
+  const engine = useSetting('sttEngine');
+  const key = useSecret('assemblyai');
+  const { colors } = useTheme();
+
+  const options = STT_ENGINES.filter((option) => {
+    if (option.value === 'assemblyai') return key.data?.present === true;
+    if (option.value === 'whisper-local') return canCaptureAudio();
+    return true;
+  });
+  if (options.length < 2) return null;
+
+  return (
+    <Group title="How it listens">
+      {options.map((option) => {
+        const selected = option.value === engine.value;
+        return (
+          <Row
+            key={option.value}
+            label={option.label}
+            value={option.note}
+            right={
+              selected ? <Ionicons name="checkmark" size={18} color={colors.accent} /> : undefined
+            }
+            onPress={() => engine.set(option.value)}
+          />
+        );
+      })}
+    </Group>
+  );
+}
+
+const STT_ENGINES: {
+  value: 'device' | 'assemblyai' | 'whisper-local';
+  label: string;
+  note: string;
+}[] = [
+  {
+    value: 'device',
+    label: 'This phone',
+    note: 'Free and instant, and the words appear as you say them. Loses more of them in a noisy room.',
+  },
+  {
+    value: 'whisper-local',
+    label: 'This phone, more carefully',
+    note: 'Reads it again after you stop and corrects what it got wrong — on the phone, with nothing sent anywhere. Works with no signal. Needs a one-off 57 MB download, and does nothing on a phone whose own dictation is already this good.',
+  },
+  {
+    value: 'assemblyai',
+    label: 'AssemblyAI',
+    note: 'The best of the three in a noisy room. The recording is uploaded to AssemblyAI, so it needs a signal and costs a little each time.',
+  },
+];
+
+/* ----------------------------------------------------------- confirmations */
+
+/**
+ * How much Ridik shows you before it writes — and until now, nothing set it.
+ *
+ * `confirmMode` has existed since the executor did, with a documented default
+ * of `irreversible` and **no UI anywhere in the app**: not on this screen, not
+ * behind the developer gate. So a user who found the questions too frequent had
+ * no way to say so, which is not a preference being withheld, it is a setting
+ * that shipped inert.
+ *
+ * It passes this screen's test in the strongest way available: the app works at
+ * every value. `never` is the receipt doing the job it was built for —
+ * `LastAction` catches the mis-heard word after the fact, which is the whole
+ * reason speaking is safe. `always` is somebody who wants to see every write
+ * first. Neither can break anything, and only the middle one is a judgement
+ * call about which writes deserve a question.
+ *
+ * What no value here reaches is the handlers' own questions. A clash, a
+ * deletion with dependents, an ambiguous match — those are asked because the
+ * app looked at the *stored data* and found something the user could not have
+ * known when they spoke. Turning the review gate off says "I trust you heard
+ * me"; it does not say "delete whatever you think I meant".
+ */
+function ConfirmGroup() {
+  const mode = useSetting('confirmMode');
+  const { colors } = useTheme();
+
+  return (
+    <Group title="Before it writes">
+      {CONFIRM_MODES.map((option) => {
+        const selected = option.value === mode.value;
+        return (
+          <Row
+            key={option.value}
+            label={option.label}
+            value={option.note}
+            right={
+              selected ? <Ionicons name="checkmark" size={18} color={colors.accent} /> : undefined
+            }
+            onPress={() => mode.set(option.value)}
+          />
+        );
+      })}
+    </Group>
+  );
+}
+
+const CONFIRM_MODES: { value: ConfirmMode; label: string; note: string }[] = [
+  {
+    value: 'never',
+    label: 'Just do it',
+    note: 'No questions. The receipt on the home screen is how you catch a mistake.',
+  },
+  {
+    value: 'irreversible',
+    label: 'Ask about what cannot be undone',
+    note: 'Deletes and money get a question. Everything else lands and can be undone.',
+  },
+  { value: 'always', label: 'Ask every time', note: 'Every write is shown before it happens.' },
+];
+
+/* ------------------------------------------------------------------- clock */
+
+/**
+ * Twelve-hour or twenty-four, said out loud rather than inferred.
+ *
+ * `auto` reads the device and is right almost always, which is exactly why the
+ * other two rows have to exist: `Intl` resolves from the *locale*, and
+ * Android's "Use 24-hour format" system switch is not part of one — so an
+ * American on an Android phone had no way to be shown AM/PM at all, and the
+ * app disagreed with its own widgets, which have read
+ * `DateFormat.is24HourFormat` since they shipped.
+ *
+ * Each row carries the same instant rendered its own way, because the label
+ * "12-hour" is a specification and `9:41 PM` is the answer. It passes the
+ * screen's test with room to spare: the worst value a stranger can pick is a
+ * working app whose clock reads the other way round.
+ */
+function ClockGroup() {
+  const format = useSetting('clockFormat');
+  const { colors } = useTheme();
+  const at = now();
+
+  return (
+    <Group title="Clock">
+      {clockFormatOptions().map((option) => {
+        const selected = option.value === format.value;
+        return (
+          <Row
+            key={option.value}
+            label={option.label}
+            value={sampleClock(option.value, at)}
+            right={
+              selected ? <Ionicons name="checkmark" size={18} color={colors.accent} /> : undefined
+            }
+            onPress={() => format.set(option.value)}
+          />
+        );
+      })}
     </Group>
   );
 }

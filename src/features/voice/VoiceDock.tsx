@@ -35,6 +35,16 @@ import { useQuickActionRouting } from './useQuickActions';
 const MAX_DRAFT_CHARS = 20_000;
 
 /**
+ * How tall the composer may grow before its own words start scrolling.
+ *
+ * About six lines of `body`. The sheet also has to show the line saying what
+ * the box is, the Send and Speak buttons and its grab handle, and a box that
+ * grows without limit takes all three off the top of the screen — on the one
+ * surface whose whole job is letting you fix a sentence and send it.
+ */
+const COMPOSER_MAX_HEIGHT = 148;
+
+/**
  * What the review box says above the words.
  *
  * Two facts, in the order they matter: this is what was heard, and it has not
@@ -501,6 +511,15 @@ export function VoiceDock() {
               <Txt variant="heading" tone="accent" accessibilityLiveRegion={onHome ? 'none' : 'polite'}>
                 Listening…
               </Txt>
+            ) : status === 'sending' ? (
+              // Off home this line is the only thing reporting the session, and
+              // `sending` can last the 2.5s the recogniser is allowed to take
+              // handing over a final result. Without its own branch the heading
+              // simply vanished for that whole window, over a transcript still
+              // sitting underneath it.
+              <Txt variant="heading" tone="accent" accessibilityLiveRegion={onHome ? 'none' : 'polite'}>
+                Sending…
+              </Txt>
             ) : status === 'thinking' ? (
               <Txt variant="heading" tone="accent" accessibilityLiveRegion={onHome ? 'none' : 'polite'}>
                 Working on it…
@@ -577,9 +596,48 @@ export function VoiceDock() {
                 ]}
               >
                 <Ionicons name="help-circle-outline" size={18} color={colors.accent} />
-                <Txt variant="body" style={{ flex: 1 }}>
-                  {clarification.question}
-                </Txt>
+                {clarification.preview ? (
+                  /*
+                   * The review gate's question, laid out instead of flattened.
+                   *
+                   * It used to be the spoken sentence, printed: "Add to
+                   * calendar — Title: Gym, Starts: Tue 10 Mar, 15:00?" — one
+                   * run-on line of labels and colons, which is a parameter dump
+                   * with a question mark on it. A confirmation is only worth
+                   * interrupting for if it is checkable at a glance, and the
+                   * first thing that has to be checkable is *what kind of thing
+                   * this is*: "Add to calendar" over "Add a task" is the
+                   * difference between two entirely different rows, and it was
+                   * buried at the head of a sentence nobody reads to the end.
+                   *
+                   * So the kind is a heading and every value gets its own line.
+                   * The sentence still exists and is still what gets spoken and
+                   * announced — see `accessibilityLabel` on the wrapper.
+                   */
+                  <View style={{ flex: 1, gap: 6 }}>
+                    <Txt variant="heading" tone="accent">
+                      {clarification.preview.title}
+                    </Txt>
+                    {clarification.preview.lines.map((entry, index) => (
+                      <View key={index} style={styles.previewLine}>
+                        {entry.label ? (
+                          <Txt variant="micro" tone="tertiary" style={styles.previewLabel}>
+                            {entry.label}
+                          </Txt>
+                        ) : (
+                          <View style={styles.previewLabel} />
+                        )}
+                        <Txt variant="body" style={{ flex: 1 }}>
+                          {entry.value}
+                        </Txt>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Txt variant="body" style={{ flex: 1 }}>
+                    {clarification.question}
+                  </Txt>
+                )}
               </View>
             ) : null}
 
@@ -781,6 +839,19 @@ export function VoiceDock() {
                           : 'Type what you would have said…'
                   }
                   multiline
+                  /*
+                    A multiline box with no ceiling grows with its content, and
+                    this one is seeded by dictation — so a long spoken paragraph
+                    pushed the Send button, the line explaining what the box is,
+                    and the sheet's own grab handle off the top of the screen,
+                    leaving no visible way to send it or to get out. The words
+                    scroll inside the cap instead.
+
+                    `maxLength` below is the other half and a different concern:
+                    that one is about what reaches the prompt builder, this one
+                    is about what reaches the screen.
+                  */
+                  style={{ maxHeight: COMPOSER_MAX_HEIGHT }}
                   // This box is "what you would have said", and nobody says
                   // twenty thousand characters. It took a paste of any size:
                   // a megabyte of text is a quarter of a million tokens
@@ -967,6 +1038,11 @@ const styles = StyleSheet.create({
   grabberHit: { alignSelf: 'stretch', alignItems: 'center', paddingTop: 4, paddingBottom: 12 },
   grabber: { width: 40, height: 4, borderRadius: 2 },
   clarify: { flexDirection: 'row', gap: 8, padding: 12, alignItems: 'flex-start' },
+  previewLine: { flexDirection: 'row', gap: 8, alignItems: 'baseline' },
+  // A reserved column, so the values line up whether or not a row has a label —
+  // the same rule `ReserveRowLead` follows for settings rows. 62 fits "Repeats",
+  // the longest label `describeAction` produces.
+  previewLabel: { width: 62 },
   result: {
     flexDirection: 'row',
     alignItems: 'center',

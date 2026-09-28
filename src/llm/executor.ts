@@ -44,9 +44,7 @@ import {
   type LocalDate,
 } from '@/core/time';
 import type { ActionParams, EntityQuery, LlmAction, ToolName } from '@/llm/contract';
-import type { Repositories,
-  UpdateTaskPatch,
-} from '@/repositories';
+import type { Repositories, UpdateTaskPatch } from '@/repositories';
 import type { CalendarEvent } from '@/repositories/calendarEvents';
 import type { SessionPhase } from '@/repositories/focusSessions';
 import type { ProjectItemInput } from '@/repositories/projects';
@@ -303,7 +301,8 @@ const HOMEWORK_RE =
  * Sections whose items are things to acquire or carry, which are only useful
  * as checkboxes. Ideas and questions stay plain bullets.
  */
-const TICKABLE_SECTION_RE = /\b(pack|packing|shop|shopping|groceries|grocery|buy|bring|supplies|kit|todo|to-do|tasks?|checklist)\b/i;
+const TICKABLE_SECTION_RE =
+  /\b(pack|packing|shop|shopping|groceries|grocery|buy|bring|supplies|kit|todo|to-do|tasks?|checklist)\b/i;
 
 const ALL_SEARCH_SCOPES = [
   'notes',
@@ -407,7 +406,11 @@ function done(summary: string, extra: Partial<Outcome> = {}): Outcome {
   return { ok: true, summary, ...extra };
 }
 
-function failure(code: AppErrorCode | string, message: string, extra: Partial<Outcome> = {}): Outcome {
+function failure(
+  code: AppErrorCode | string,
+  message: string,
+  extra: Partial<Outcome> = {},
+): Outcome {
   return { ok: false, summary: message, error: { code, message }, ...extra };
 }
 
@@ -558,7 +561,8 @@ export function createExecutor(ctx: ExecutionContext) {
     event: CalendarEvent,
     minutesBefore: number | undefined,
   ): Promise<number | null> {
-    const lead = minutesBefore ?? (event.kind === 'exam' ? EXAM_REMINDER_MINUTES : DEFAULT_REMINDER_MINUTES);
+    const lead =
+      minutesBefore ?? (event.kind === 'exam' ? EXAM_REMINDER_MINUTES : DEFAULT_REMINDER_MINUTES);
     const at = event.startsAt - lead * MINUTE_MS;
     // A reminder in the past fires the instant it is scheduled, which reads as
     // a bug rather than a reminder.
@@ -728,7 +732,9 @@ export function createExecutor(ctx: ExecutionContext) {
       detail: joinDetail([
         reason,
         params.schedule_reason,
-        buffer ? `Blocked ${formatDuration((event.startsAt - buffer.startsAt) / MINUTE_MS)} before it for ${buffer.title.toLowerCase()}.` : null,
+        buffer
+          ? `Blocked ${formatDuration((event.startsAt - buffer.startsAt) / MINUTE_MS)} before it for ${buffer.title.toLowerCase()}.`
+          : null,
         lead === null ? null : `Reminder ${formatDuration(lead)} before.`,
       ]),
     });
@@ -742,7 +748,19 @@ export function createExecutor(ctx: ExecutionContext) {
     if (!resolved.ok) return fromAppError(resolved.error, { href: '/calendar' });
     const current = resolved.value;
 
-    const startsAt = toEpochMaybe(params.start, 'start time');
+    /*
+     * A relative move is resolved here, against the row, not by the model.
+     *
+     * `shift_minutes` exists so "fifteen minutes later" needs nobody to know
+     * what time the event is at — the true start is one line above this, and
+     * adding to it cannot be wrong the way an invented absolute time can. The
+     * contract refuses both fields at once, so this is a choice between two
+     * mutually exclusive shapes rather than a precedence rule.
+     */
+    const startsAt =
+      params.shift_minutes !== undefined
+        ? current.startsAt + params.shift_minutes * MINUTE_MS
+        : toEpochMaybe(params.start, 'start time');
     let endsAt = toEpochMaybe(params.end, 'end time');
     if (endsAt === undefined && params.duration_minutes !== undefined) {
       endsAt = (startsAt ?? current.startsAt) + params.duration_minutes * MINUTE_MS;
@@ -787,11 +805,14 @@ export function createExecutor(ctx: ExecutionContext) {
       lead = await scheduleEventReminder(updated.value, undefined);
     }
 
-    return done(`Moved ${quote(updated.value.title)} to ${formatDateTime(updated.value.startsAt, zone)}.`, {
-      entityId: updated.value.id,
-      href: '/calendar',
-      detail: lead === null ? undefined : `Reminder ${formatDuration(lead)} before.`,
-    });
+    return done(
+      `Moved ${quote(updated.value.title)} to ${formatDateTime(updated.value.startsAt, zone)}.`,
+      {
+        entityId: updated.value.id,
+        href: '/calendar',
+        detail: lead === null ? undefined : `Reminder ${formatDuration(lead)} before.`,
+      },
+    );
   }
 
   async function calendarDelete(params: ActionParams<'calendar_delete'>): Promise<Outcome> {
@@ -890,7 +911,9 @@ export function createExecutor(ctx: ExecutionContext) {
     const note = resolved.value;
     const href = `/note/${note.id}`;
 
-    const deleted = await repos.notes.deleteNote(note.id, { confirmed: options.confirmed === true });
+    const deleted = await repos.notes.deleteNote(note.id, {
+      confirmed: options.confirmed === true,
+    });
     if (!deleted.ok) {
       // The repository refuses an unconfirmed delete by design; that refusal is
       // the question, not a failure.
@@ -915,24 +938,45 @@ export function createExecutor(ctx: ExecutionContext) {
   async function habitLog(params: ActionParams<'habit_log'>): Promise<Outcome> {
     const result = await repos.habits.logHabit({
       habitName: params.habit_name,
-      ...(params.duration_minutes !== undefined ? { durationMinutes: params.duration_minutes } : {}),
+      ...(params.duration_minutes !== undefined
+        ? { durationMinutes: params.duration_minutes }
+        : {}),
       ...(params.note !== undefined ? { note: params.note } : {}),
       ...(params.on_date !== undefined ? { onDate: params.on_date } : {}),
     });
 
     const duration = params.duration_minutes ? ` — ${formatDuration(params.duration_minutes)}` : '';
-    return done(`Logged ${result.habit.name}${duration}.`, {
-      entityId: result.habit.id,
-      href: '/habits',
-      detail: result.streak > 1 ? `${countLabel(result.streak, 'day')} in a row.` : undefined,
-    });
+    /*
+     * A first log says so, because it did something bigger than log.
+     *
+     * `logHabit` creates on demand — right, because "log stretching" must not
+     * fail on the grounds that nobody declared stretching first. But "Logged
+     * Stretching." was the same sentence whether it added a day to a habit kept
+     * for a month or invented a fourth one from a mis-heard word, and the
+     * second is the case where the numbers on the Habits screen visibly do
+     * nothing: a brand new habit is one day out of the whole elapsed window,
+     * and every other ring is untouched. Somebody watching for a percentage to
+     * move sees nothing move and concludes the log was lost.
+     */
+    return done(
+      result.created
+        ? `Started tracking ${result.habit.name}${duration}. First one logged.`
+        : `Logged ${result.habit.name}${duration}.`,
+      {
+        entityId: result.habit.id,
+        href: '/habits',
+        detail: result.streak > 1 ? `${countLabel(result.streak, 'day')} in a row.` : undefined,
+      },
+    );
   }
 
   async function activityLog(params: ActionParams<'activity_log'>): Promise<Outcome> {
     const projectId = await projectIdFor(params.project);
     const entry = await repos.activity.log({
       description: params.description,
-      ...(params.duration_minutes !== undefined ? { durationMinutes: params.duration_minutes } : {}),
+      ...(params.duration_minutes !== undefined
+        ? { durationMinutes: params.duration_minutes }
+        : {}),
       ...(params.habit_name !== undefined ? { habitName: params.habit_name } : {}),
       ...(projectId ? { projectId } : {}),
       ...(params.at !== undefined ? { at: toEpoch(params.at, 'time') } : {}),
@@ -1044,6 +1088,46 @@ export function createExecutor(ctx: ExecutionContext) {
     );
   }
 
+  /**
+   * Taking a transaction back out — the other half of the guard on `ledger_add`.
+   *
+   * That tool is on `ALWAYS_ASKS` because a wrong amount is the mistake nobody
+   * notices, and until this existed the app could ask "fifty on groceries?",
+   * hear yes to a mis-heard fifteen, and offer no way to say so out loud. The
+   * receipt's undo covers the turn it happened on and nothing after it.
+   *
+   * It asks a second time with the row named, and that question is not the
+   * review gate's: the gate showed the *words* — "the coffee" — and this one
+   * shows the row those words resolved to, with its amount.
+   */
+  async function ledgerDelete(
+    params: ActionParams<'ledger_delete'>,
+    options: ExecuteOptions,
+  ): Promise<Outcome> {
+    const resolved = await repos.ledger.resolveTransaction({
+      ...(params.query !== undefined ? { query: params.query } : {}),
+      ...(params.amount !== undefined ? { amount: params.amount } : {}),
+    });
+    if (!resolved.ok) return fromAppError(resolved.error, { href: '/ledger' });
+
+    const row = resolved.value;
+    const money = formatMoney(row.amount, row.currency);
+    const what = row.description ?? row.entityName ?? row.category;
+
+    if (options.confirmed !== true) {
+      return ask(
+        `Delete ${money} on ${what}? That cannot be undone.`,
+        [{ id: row.id, label: `${money} — ${what}` }],
+        { entityId: row.id, href: '/ledger' },
+      );
+    }
+
+    const removed = await repos.ledger.deleteTransaction(row.id);
+    if (!removed.ok) return fromAppError(removed.error, { href: '/ledger' });
+
+    return done(`Deleted ${money} on ${what}.`, { href: '/ledger' });
+  }
+
   function periodPhrase(period: ActionParams<'ledger_query'>['period']): string {
     switch (period) {
       case 'today':
@@ -1090,10 +1174,7 @@ export function createExecutor(ctx: ExecutionContext) {
     const spoken = joinNatural(amounts.map(([currency, value]) => speakMoney(value, currency)));
     const top = result.groups
       .slice(0, 3)
-      .map(
-        (group) =>
-          `${group.key}: ${formatMoney(group.total, result.primaryCurrency ?? 'EUR')}`,
-      );
+      .map((group) => `${group.key}: ${formatMoney(group.total, result.primaryCurrency ?? 'EUR')}`);
 
     return done(`You ${verb} ${spoken}${where} ${when}.`, {
       href: '/ledger',
@@ -1143,6 +1224,28 @@ export function createExecutor(ctx: ExecutionContext) {
     );
   }
 
+  /**
+   * "Is this even there?", for the two tools where the answer is one query.
+   *
+   * Returns the failure the handler would have produced, so the sentence the
+   * user hears is the handler's own and there is no second wording to keep in
+   * step. Returns null for everything else, including every case where the row
+   * *might* be there — proving absence is the only job here.
+   */
+  async function provablyMissing(action: LlmAction): Promise<Outcome | null> {
+    if (action.tool_name !== 'checklist_toggle' && action.tool_name !== 'checklist_remove') {
+      return null;
+    }
+    const params = action.parameters as { list_name?: string; item_query: string };
+    const resolved = await repos.checklists.resolveItem(params.item_query, {
+      ...(params.list_name !== undefined ? { listName: params.list_name } : {}),
+    });
+    // Ambiguous is not missing — several rows match and the handler will ask
+    // which, which is a question worth putting in front of somebody.
+    if (resolved.ok || resolved.error.code !== 'not_found') return null;
+    return fromAppError(resolved.error, { href: checklistHref(params.list_name) });
+  }
+
   async function checklistToggle(params: ActionParams<'checklist_toggle'>): Promise<Outcome> {
     const result = await repos.checklists.toggle({
       ...(params.list_name !== undefined ? { listName: params.list_name } : {}),
@@ -1158,6 +1261,70 @@ export function createExecutor(ctx: ExecutionContext) {
         ? `Ticked off ${row.itemText}.`
         : `Put ${row.itemText} back on the ${row.listName} list.`,
       { entityId: row.id, href },
+    );
+  }
+
+  /**
+   * Taking one item off, which is not the same as ticking it off.
+   *
+   * The distinction is the user's, not the model's: a ticked item stays on the
+   * screen and goes back with one tap, and this row is gone. So the sentence
+   * this reports says "off the list" rather than "done", or the two become
+   * indistinguishable on the receipt — which is the only place the user finds
+   * out which one happened.
+   */
+  async function checklistRemove(params: ActionParams<'checklist_remove'>): Promise<Outcome> {
+    const result = await repos.checklists.removeMatching({
+      ...(params.list_name !== undefined ? { listName: params.list_name } : {}),
+      itemQuery: params.item_query,
+    });
+    if (!result.ok) return fromAppError(result.error, { href: checklistHref(params.list_name) });
+
+    const row = result.value;
+    return done(`Took ${row.itemText} off the ${row.listName} list.`, {
+      href: checklistHref(row.listName),
+    });
+  }
+
+  /**
+   * The whole list.
+   *
+   * Asks with the count in it, always. The review gate has already shown the
+   * name, and the name is not the thing worth checking — "delete the shopping
+   * list" is an entirely reasonable sentence right up to the moment it turns
+   * out to have had eleven things on it. A yes to a question that says eleven
+   * is a different yes from one that says nothing.
+   */
+  async function checklistDelete(
+    params: ActionParams<'checklist_delete'>,
+    options: ExecuteOptions,
+  ): Promise<Outcome> {
+    const items = await repos.checklists.itemsForList(params.list_name);
+    if (items.length === 0) {
+      // Not a confirmation and not a delete: there is nothing there. Saying so
+      // beats asking somebody to approve emptying an empty list.
+      return failure('not_found', `There is no ${params.list_name} list.`, {
+        href: checklistHref(),
+      });
+    }
+
+    if (options.confirmed !== true) {
+      const open = items.filter((row) => !row.isCompleted).length;
+      return ask(
+        `Delete the ${items[0]!.listName} list and ${countLabel(items.length, 'item')} on it${
+          open > 0 ? ` (${open} still to get)` : ''
+        }? That cannot be undone.`,
+        [{ id: items[0]!.id, label: items[0]!.listName }],
+        { href: checklistHref(params.list_name) },
+      );
+    }
+
+    const removed = await repos.checklists.deleteList(params.list_name);
+    if (!removed.ok) return fromAppError(removed.error, { href: checklistHref() });
+
+    return done(
+      `Deleted the ${removed.value.name} list and ${countLabel(removed.value.removed, 'item')}.`,
+      { href: checklistHref() },
     );
   }
 
@@ -1271,7 +1438,9 @@ export function createExecutor(ctx: ExecutionContext) {
             ? params.commitment_text
             : `Follow up with ${params.entity_name}: ${params.commitment_text}`,
           dueDate,
-          notes: owed ? `Promised to ${params.entity_name}.` : `${params.entity_name} owes you this.`,
+          notes: owed
+            ? `Promised to ${params.entity_name}.`
+            : `${params.entity_name} owes you this.`,
         })
       : null;
     // Linking the two is what keeps the Today list and the person's page in
@@ -1410,14 +1579,14 @@ export function createExecutor(ctx: ExecutionContext) {
     if (!linked.ok) return fromAppError(linked.error, { href: '/tasks' });
 
     const { child, parents, created } = linked.value;
-    return done(
-      `${quote(child.title)} now waits on ${joinNatural(parents.map((p) => p.title))}.`,
-      {
-        entityId: child.id,
-        href: '/tasks',
-        detail: created.length > 0 ? `Created: ${joinNatural(created.map((t) => t.title))}.` : undefined,
-      },
-    );
+    // Straight to the tab it is now on. A dependency takes the task *out* of
+    // Active, so `/tasks` opened the one screen where it is no longer listed.
+    return done(`${quote(child.title)} now waits on ${joinNatural(parents.map((p) => p.title))}.`, {
+      entityId: child.id,
+      href: '/tasks?view=blocked',
+      detail:
+        created.length > 0 ? `Created: ${joinNatural(created.map((t) => t.title))}.` : undefined,
+    });
   }
 
   async function taskComplete(params: ActionParams<'task_complete'>): Promise<Outcome> {
@@ -1446,7 +1615,101 @@ export function createExecutor(ctx: ExecutionContext) {
     return done(`Done: ${quote(target.title)}.`, {
       entityId: target.id,
       href: '/tasks',
-      detail: unlocked.length > 0 ? `Unlocked: ${joinNatural(unlocked.map((t) => t.title))}.` : undefined,
+      detail:
+        unlocked.length > 0 ? `Unlocked: ${joinNatural(unlocked.map((t) => t.title))}.` : undefined,
+    });
+  }
+
+  /**
+   * Moving a deadline, renaming, re-prioritising.
+   *
+   * Not destructive, so it lands without a second question — the review gate
+   * has already read the new value back, and the receipt names the task. What
+   * it must not do is report a change it did not make, which is why the
+   * contract refuses an update with nothing in it rather than letting this say
+   * "Updated" over an untouched row.
+   */
+  async function taskUpdate(params: ActionParams<'task_update'>): Promise<Outcome> {
+    const resolved = await repos.tasks.resolveTask(params.target.query, { includeCompleted: true });
+    if (!resolved.ok) return fromAppError(resolved.error, { href: '/tasks' });
+    const task = resolved.value;
+
+    const patch: UpdateTaskPatch = {};
+    if (params.title !== undefined) patch.title = params.title;
+    if (params.due !== undefined) patch.dueDate = toEpoch(params.due, 'due date');
+    // "Push it a week" against a task that has no deadline is not a move, it is
+    // a request to invent one — and inventing a deadline the user never gave is
+    // exactly the silent wrongness the receipt exists to catch. Refuse in
+    // words, which is a sentence they can act on.
+    if (params.shift_minutes !== undefined) {
+      if (task.dueDate == null) {
+        return failure('invalid_input', `${quote(task.title)} has no deadline to move.`);
+      }
+      patch.dueDate = task.dueDate + params.shift_minutes * MINUTE_MS;
+    }
+    if (params.clear_due === true) patch.dueDate = null;
+    if (params.priority !== undefined) patch.priority = params.priority;
+    if (params.notes !== undefined) patch.notes = params.notes;
+    if (params.estimated_minutes !== undefined) patch.estimatedMinutes = params.estimated_minutes;
+    if (params.project !== undefined) patch.projectId = await projectIdFor(params.project);
+
+    const updated = await repos.tasks.updateTask(task.id, patch);
+    if (!updated.ok) return fromAppError(updated.error, { href: '/tasks', entityId: task.id });
+
+    const title = updated.value.title;
+    // The deadline is the field this tool is nearly always used for, so it is
+    // the one the receipt reads back. "Updated “X”." over a moved due date
+    // makes the user open the screen to find out whether it moved to the right
+    // day, which is the thing speaking was meant to save them.
+    const summary =
+      params.clear_due === true
+        ? `Took the deadline off ${quote(title)}.`
+        : updated.value.dueDate != null && params.due !== undefined
+          ? `${quote(title)} is now due ${formatDateTime(updated.value.dueDate, zone)}.`
+          : updated.value.dueDate != null && params.shift_minutes !== undefined
+            ? `${quote(title)} is now due ${formatDateTime(updated.value.dueDate, zone)}.`
+          : `Updated ${quote(title)}.`;
+
+    return done(summary, { entityId: task.id, href: '/tasks' });
+  }
+
+  /**
+   * Deleting a task, as opposed to completing it.
+   *
+   * Two different claims about the same disappearance, and only one of them
+   * counts towards the day. The question names which is happening, because
+   * "get rid of the essay task" and "I have done the essay" are the same
+   * gesture to somebody who has never read this contract.
+   */
+  async function taskDelete(
+    params: ActionParams<'task_delete'>,
+    options: ExecuteOptions,
+  ): Promise<Outcome> {
+    const resolved = await repos.tasks.resolveTask(params.target.query, { includeCompleted: true });
+    if (!resolved.ok) return fromAppError(resolved.error, { href: '/tasks' });
+    const task = resolved.value;
+
+    if (options.confirmed !== true) {
+      // What hangs off it matters more than the row: deleting a prerequisite
+      // unlocks everything behind it, and that is invisible from the sentence.
+      const dependents = await repos.tasks.getDependents(task.id);
+      return ask(
+        dependents.length > 0
+          ? `Delete ${quote(task.title)}? That unblocks ${joinNatural(dependents.map((t) => t.title))} and cannot be undone.`
+          : `Delete ${quote(task.title)}? That cannot be undone.`,
+        [{ id: task.id, label: task.title }],
+        { entityId: task.id, href: '/tasks' },
+      );
+    }
+
+    const deleted = await repos.tasks.deleteTask(task.id);
+    if (!deleted.ok) return fromAppError(deleted.error, { href: '/tasks', entityId: task.id });
+
+    const unlocked = deleted.value.unlocked;
+    return done(`Deleted ${quote(task.title)}.`, {
+      href: '/tasks',
+      detail:
+        unlocked.length > 0 ? `Unlocked: ${joinNatural(unlocked.map((t) => t.title))}.` : undefined,
     });
   }
 
@@ -1611,12 +1874,17 @@ export function createExecutor(ctx: ExecutionContext) {
   }
 
   async function briefingGenerate(params: ActionParams<'briefing_generate'>): Promise<Outcome> {
-    const generated = await safely('generateBriefing', () => effects.generateBriefing?.(params.scope));
+    const generated = await safely('generateBriefing', () =>
+      effects.generateBriefing?.(params.scope),
+    );
     const text = generated ?? (await localBriefing(params.scope));
     return done(text, { href: '/briefing', silent: params.speak === false });
   }
 
-  function summaryRange(params: ActionParams<'summary_generate'>): { from: LocalDate; to: LocalDate } {
+  function summaryRange(params: ActionParams<'summary_generate'>): {
+    from: LocalDate;
+    to: LocalDate;
+  } {
     const today = localDateOf(ctx.now, zone);
     if (params.period === 'day') return { from: today, to: today };
     if (params.period === 'custom') {
@@ -1691,18 +1959,18 @@ export function createExecutor(ctx: ExecutionContext) {
     if (scopes.has('checklists')) {
       for (const list of await repos.checklists.listNames()) {
         for (const item of await repos.checklists.itemsForList(list.name)) {
-          consider(
-            item.itemText,
-            'checklist item',
-            checklistHref(item.listName),
-            item.listName,
-          );
+          consider(item.itemText, 'checklist item', checklistHref(item.listName), item.listName);
         }
       }
     }
     if (scopes.has('projects')) {
       for (const project of await repos.projects.listProjects()) {
-        consider(project.name, 'project', `/project/${project.id}`, project.description ?? undefined);
+        consider(
+          project.name,
+          'project',
+          `/project/${project.id}`,
+          project.description ?? undefined,
+        );
       }
     }
     if (scopes.has('crm')) {
@@ -1758,14 +2026,17 @@ export function createExecutor(ctx: ExecutionContext) {
     // The rows, not a comma-joined `detail` of them. What the user asked was a
     // question, and the answer is the list — one line of "Resistor stock, Order
     // resistors, …" is a sentence about an answer that cannot be opened.
-    return done(`Found ${countLabel(hits.length, 'match', 'matches')} for ${quote(params.query)}: ${breakdown}.`, {
-      ...(best.href ? { href: best.href } : {}),
-      results: hits.slice(0, SEARCH_RESULT_CAP).map((hit) => ({
-        label: hit.label,
-        scope: hit.scope,
-        ...(hit.href ? { href: hit.href } : {}),
-      })),
-    });
+    return done(
+      `Found ${countLabel(hits.length, 'match', 'matches')} for ${quote(params.query)}: ${breakdown}.`,
+      {
+        ...(best.href ? { href: best.href } : {}),
+        results: hits.slice(0, SEARCH_RESULT_CAP).map((hit) => ({
+          label: hit.label,
+          scope: hit.scope,
+          ...(hit.href ? { href: hit.href } : {}),
+        })),
+      },
+    );
   }
 
   /* -------------------------------------------------------------- dispatch -- */
@@ -1796,10 +2067,16 @@ export function createExecutor(ctx: ExecutionContext) {
         return ledgerAdd(action.parameters);
       case 'ledger_query':
         return ledgerQuery(action.parameters);
+      case 'ledger_delete':
+        return ledgerDelete(action.parameters, options);
       case 'checklist_add':
         return checklistAdd(action.parameters);
       case 'checklist_toggle':
         return checklistToggle(action.parameters);
+      case 'checklist_remove':
+        return checklistRemove(action.parameters);
+      case 'checklist_delete':
+        return checklistDelete(action.parameters, options);
       case 'geofence_add':
         return geofenceAdd(action.parameters);
       case 'place_save':
@@ -1814,6 +2091,10 @@ export function createExecutor(ctx: ExecutionContext) {
         return taskAddDependency(action.parameters);
       case 'task_complete':
         return taskComplete(action.parameters);
+      case 'task_update':
+        return taskUpdate(action.parameters);
+      case 'task_delete':
+        return taskDelete(action.parameters, options);
       case 'curriculum_add':
         return curriculumAdd(action.parameters);
       case 'project_create':
@@ -1860,6 +2141,27 @@ export function createExecutor(ctx: ExecutionContext) {
        * docblock in `confirm.ts` for why it is a separate number from the one
        * that decides whether a transcript is worth sending at all.
        */
+      /*
+       * Never ask about a row that is not there.
+       *
+       * "Take the matches off" then "tick off the matches" — a question, a
+       * yes, and *then* "there are no matches on the camping list". The
+       * ordering is structural: the gate is deliberately upstream of every
+       * handler, so it asks about the words before anything has looked at the
+       * data, and a target that resolves to nothing only surfaces afterwards.
+       * That is fine for a clash, which is a real second fact — and absurd
+       * here, where the answer to the question could not have mattered.
+       *
+       * So the gate consults a cheap read first, for the tools where "does
+       * this exist" is one query. It is deliberately *not* a general resolve
+       * in front of every action: that would put a database read on the front
+       * of the fast path and duplicate ten handlers' matching rules. It
+       * answers only when it can prove absence, and says nothing otherwise —
+       * the handler is still the thing that decides.
+       */
+      const missing = await provablyMissing(action);
+      if (missing) return { toolName: action.tool_name, ...missing };
+
       if (!options.confirmed && !options.reviewed) {
         const mode = ctx.confirmMode ?? DEFAULT_CONFIRM_MODE;
         if (gateAsks(action.tool_name, mode, ctx.confidence ?? null)) {
@@ -1892,10 +2194,13 @@ export function createExecutor(ctx: ExecutionContext) {
    * one created ("start a Greece trip project, then add sunscreen to it"), and
    * one failure must never cost the user the rest of the utterance.
    */
-  async function executeAll(actions: LlmAction[]): Promise<ActionResult[]> {
+  async function executeAll(
+    actions: LlmAction[],
+    options: ExecuteOptions = {},
+  ): Promise<ActionResult[]> {
     const results: ActionResult[] = [];
     for (const action of actions) {
-      results.push(await execute(action));
+      results.push(await execute(action, options));
     }
     return results;
   }

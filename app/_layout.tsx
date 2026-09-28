@@ -3,7 +3,7 @@
 import '@/startup/logbox';
 
 import { useEffect, useState } from 'react';
-import { StyleSheet, View , Platform, useColorScheme } from 'react-native';
+import { StyleSheet, View, Platform, useColorScheme } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -13,6 +13,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { ConsentGate, useConsentGateOpen } from '@/features/consent';
+import { GuidedTour, TourProvider } from '@/features/tour';
+import { hasAnsweredConsent } from '@/llm/consent';
+import { useSetting } from '@/hooks/useSettings';
 import { SplashCurtain } from '@/features/splash';
 import { VoiceDock } from '@/features/voice/VoiceDock';
 import { useEmberChoice } from '@/hooks/useEmber';
@@ -73,6 +76,19 @@ const SHEET: React.ComponentProps<typeof Stack.Screen>['options'] = Platform.sel
   },
 });
 
+/**
+ * The tour's own gate, split out because `RootLayout` sits *above*
+ * `QueryClientProvider` and `useSetting` is a query.
+ *
+ * `hasAnsweredConsent`, not `granted`: declining leaves a working app whose
+ * offline matcher still files a spoken sentence, and somebody who said no to
+ * Google needs to be shown round it more than anyone, not less.
+ */
+function TourGate() {
+  const consent = useSetting('assistantConsent');
+  return <GuidedTour enabled={hasAnsweredConsent(consent.value)} />;
+}
+
 export default function RootLayout() {
   const scheme = useColorScheme() === 'light' ? 'light' : 'dark';
   const [boot, setBoot] = useState<BootstrapResult | null>(null);
@@ -117,29 +133,53 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <ThemeProvider>
           <FontsReadyProvider ready={fontsReady}>
-          <QueryClientProvider client={queryClient}>
-            <ToastProvider>
-              <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-              <ErrorBoundary label="app">
-                {/* Everything the consent lid is drawn over, in one view so it
+            <QueryClientProvider client={queryClient}>
+              <ToastProvider>
+                <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+                <ErrorBoundary label="app">
+                  {/*
+                  The tour walks *between* screens, so it cannot live on one.
+
+                  It used to be mounted inside home, which was right while it
+                  had four steps and all four were on home. It now opens the
+                  calendar, the lists, the money screen and five more — a voice
+                  app has no menu, and somebody who has never seen the Money
+                  screen will never guess the microphone takes money. A provider
+                  inside home unmounts the moment the tour navigates off it,
+                  taking the step it was on with it.
+                */}
+                  <TourProvider>
+                    {/* Everything the consent lid is drawn over, in one view so it
                     can be taken out of a screen reader's reach while the lid is
                     up. It is a wrapper and nothing else: the navigator still
                     mounts on the very first render, which is the rule the whole
                     overlay pattern exists to keep. */}
-                <ConsentShield>
-                {/* The navigator must mount on the very first render: expo-router
+                    <ConsentShield>
+                      {/* The navigator must mount on the very first render: expo-router
                     resolves the initial URL against whatever tree exists then, and
                     gating it behind an async boot leaves the app on "Unmatched Route".
                     Startup state is an overlay instead. */}
-                <Stack
-                  screenOptions={{
-                    headerShown: false,
-                    contentStyle: { backgroundColor: theme.colors.bg },
-                    animation: 'slide_from_right',
-                  }}
-                >
-                  <Stack.Screen name="index" />
-                  {/* A sheet on both, which is the iOS behaviour: it slides up,
+                      <Stack
+                        screenOptions={{
+                          headerShown: false,
+                          contentStyle: { backgroundColor: theme.colors.bg },
+                          animation: 'slide_from_right',
+                          /*
+                           * A replace slides *in*, like a push, rather than popping.
+                           *
+                           * The default is `pop`, which animates the outgoing screen
+                           * away and drops the incoming one in with no transition of
+                           * its own — and `replace` is how every destination in this
+                           * app is opened, because the menu is a junction rather than
+                           * a step. So the one navigation a user makes most often was
+                           * the one that looked like a cut. It is most obvious in the
+                           * guided tour, which does it nine times in a row.
+                           */
+                          animationTypeForReplace: 'push',
+                        }}
+                      >
+                        <Stack.Screen name="index" />
+                        {/* A sheet on both, which is the iOS behaviour: it slides up,
                       the screen behind stays visible, and you can drag it away.
                       Android's default for a modal was a plain full-screen push
                       with no gesture, so it is told explicitly to slide from the
@@ -147,58 +187,69 @@ export default function RootLayout() {
                       The gesture is never the only way out — both these screens
                       draw their own Close, because a sheet whose only exit is a
                       swipe is a sheet some people cannot leave. */}
-                  <Stack.Screen name="menu" options={SHEET} />
-                  <Stack.Screen name="briefing" options={SHEET} />
-                  {/* Where a web purchase lands: Stripe's success_url opens
+                        <Stack.Screen name="menu" options={SHEET} />
+                        <Stack.Screen name="briefing" options={SHEET} />
+                        {/* Where a web purchase lands: Stripe's success_url opens
                       `ridik:///unlock?session=…` and expo-router matches it
                       here, the same way every other deep link in this app is
                       matched. It fades because it is a beat, not a place —
                       sliding it in from the right would announce a screen the
                       user is about to be taken straight off again. */}
-                  <Stack.Screen name="unlock" options={{ animation: 'fade' }} />
-                  {/* And where Google's sign-in browser comes home. Same
+                        <Stack.Screen name="unlock" options={{ animation: 'fade' }} />
+                        {/* And where Google's sign-in browser comes home. Same
                       reasoning as `unlock` and the same fade: it is a beat the
                       user should barely see, and without a route for it the
                       redirect draws "Unmatched Route" over a sign-in that in
                       fact succeeded. */}
-                  <Stack.Screen name="oauthredirect" options={{ animation: 'fade' }} />
-                </Stack>
-                {/* Mounted above every route so a thought can be captured from
+                        <Stack.Screen name="oauthredirect" options={{ animation: 'fade' }} />
+                      </Stack>
+                      {/* Mounted above every route so a thought can be captured from
                     wherever you are. It draws its own floating mic everywhere
                     except home, where the screen already is one. */}
-                <VoiceDock />
-                </ConsentShield>
-                {/* Only once the database is open: the widget feed reads the
+                      <VoiceDock />
+                    </ConsentShield>
+                    {/* Only once the database is open: the widget feed reads the
                     same aggregate query as Today, and running it against a
                     half-migrated database would publish a face built from
                     nothing. */}
-                {boot?.ok ? <WidgetPublisher /> : null}
-                {/* Over the navigator and over the dock, never instead of
+                    {boot?.ok ? <WidgetPublisher /> : null}
+                    {/* Over the navigator and over the dock, never instead of
                     either: the first run has to cover whatever route a cold
                     start landed on, and it must not be able to stop expo-router
                     matching the initial URL. Draws nothing once answered. */}
-                {boot?.ok ? <ConsentGate /> : null}
-                {!boot || !fontsReady ? (
-                  <View
-                    style={[styles.overlay, styles.centred, { backgroundColor: theme.colors.bg }]}
-                  >
-                    <Spinner size="large" color={theme.colors.accent} accessibilityLabel="Starting Ridik" />
-                  </View>
-                ) : !boot.ok ? (
-                  <View style={[styles.overlay, { backgroundColor: theme.colors.bg }]}>
-                    <StartupFailure result={boot} />
-                  </View>
-                ) : null}
-                {/* Last, so it is on top of everything including the consent
+                    {/* Below the lid and above everything else: the first run
+                    ends by answering the disclosure, and this is what happens
+                    next. `hasAnsweredConsent`, not `granted` — declining leaves
+                    a working app, and a person who said no needs the tour more
+                    than anyone, not less. */}
+                    {boot?.ok ? <TourGate /> : null}
+                    {boot?.ok ? <ConsentGate /> : null}
+                  </TourProvider>
+                  {!boot || !fontsReady ? (
+                    <View
+                      style={[styles.overlay, styles.centred, { backgroundColor: theme.colors.bg }]}
+                    >
+                      <Spinner
+                        size="large"
+                        color={theme.colors.accent}
+                        accessibilityLabel="Starting Ridik"
+                      />
+                    </View>
+                  ) : !boot.ok ? (
+                    <View style={[styles.overlay, { backgroundColor: theme.colors.bg }]}>
+                      <StartupFailure result={boot} />
+                    </View>
+                  ) : null}
+                  {/* Last, so it is on top of everything including the consent
                     lid — it is the handover from the native splash, and the
                     native splash was on top of everything too. It draws over a
                     live app and claims no touches; see `SplashCurtain`. */}
-                {boot && fontsReady && curtain ? (
-                  <SplashCurtain onDone={() => setCurtain(false)} />
-                ) : null}
-              </ErrorBoundary>
-            </ToastProvider>
-          </QueryClientProvider>
+                  {boot && fontsReady && curtain ? (
+                    <SplashCurtain onDone={() => setCurtain(false)} />
+                  ) : null}
+                </ErrorBoundary>
+              </ToastProvider>
+            </QueryClientProvider>
           </FontsReadyProvider>
         </ThemeProvider>
       </SafeAreaProvider>
@@ -261,7 +312,15 @@ function WidgetPublisher() {
 function StartupFailure({ result }: { result: BootstrapResult }) {
   const theme = makeTheme('dark');
   return (
-    <View style={{ flex: 1, justifyContent: 'center', padding: 24, gap: 10, backgroundColor: theme.colors.bg }}>
+    <View
+      style={{
+        flex: 1,
+        justifyContent: 'center',
+        padding: 24,
+        gap: 10,
+        backgroundColor: theme.colors.bg,
+      }}
+    >
       <Txt variant="title">Ridik could not start</Txt>
       {result.failures.map((f) => (
         <Txt key={f.name} variant="mono" tone="danger">

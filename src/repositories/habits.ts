@@ -39,6 +39,17 @@ export type HabitLogResult = {
   entry: ActivityEntry;
   streakChanged: boolean;
   streak: number;
+  /**
+   * True when this log is what brought the habit into existence.
+   *
+   * `logHabit` creates on demand, which is right — "log stretching" should not
+   * fail because nobody declared stretching first. What was wrong is that the
+   * receipt could not tell the two apart: "Logged Stretching." reads exactly
+   * the same whether it added a day to a habit kept for a month or invented a
+   * fourth habit out of a mis-heard word. Silent creation is the failure the
+   * receipt exists to prevent, so it has to be sayable.
+   */
+  created: boolean;
 };
 
 /** Noon, because some zones skip midnight itself on the DST switchover day. */
@@ -92,6 +103,13 @@ export function createHabitsRepository(db: RidikDatabase) {
   }
 
   async function getOrCreateHabit(name: string, options: HabitOptions = {}): Promise<Habit> {
+    return (await getOrCreateHabitTracked(name, options)).habit;
+  }
+
+  async function getOrCreateHabitTracked(
+    name: string,
+    options: HabitOptions = {},
+  ): Promise<{ habit: Habit; created: boolean }> {
     const trimmed = name.trim();
     if (!trimmed) throw new AppError('invalid_input', 'A habit needs a name.');
 
@@ -100,9 +118,9 @@ export function createHabitsRepository(db: RidikDatabase) {
       // Archiving is how a habit leaves the list, so logging one again is the
       // only way back — and it is unambiguous about intent. Without this the
       // log lands on a row nothing renders and the streak grows unseen.
-      if (!existing.isArchived) return existing;
+      if (!existing.isArchived) return { habit: existing, created: false };
       await db.update(habits).set({ isArchived: false }).where(eq(habits.id, existing.id));
-      return { ...existing, isArchived: false };
+      return { habit: { ...existing, isArchived: false }, created: false };
     }
 
     const [created] = await db
@@ -118,7 +136,7 @@ export function createHabitsRepository(db: RidikDatabase) {
         createdAt: now(),
       })
       .returning();
-    return created!;
+    return { habit: created!, created: true };
   }
 
   async function loggedDates(
@@ -198,7 +216,7 @@ export function createHabitsRepository(db: RidikDatabase) {
     return inTransaction(db, async () => {
       // Inside the transaction: a log that fails must not leave behind a habit
       // the user never actually started tracking.
-      const habit = await getOrCreateHabit(input.habitName);
+      const { habit, created } = await getOrCreateHabitTracked(input.habitName);
       const before = habit.currentStreak ?? 0;
 
       const [entry] = await db
@@ -218,7 +236,7 @@ export function createHabitsRepository(db: RidikDatabase) {
         date === today ? await advanceStreak(habit, date, zone) : await recomputeStreak(habit.id);
       const streak = updated.currentStreak ?? 0;
 
-      return { habit: updated, entry: entry!, streakChanged: streak !== before, streak };
+      return { habit: updated, entry: entry!, streakChanged: streak !== before, streak, created };
     });
   }
 

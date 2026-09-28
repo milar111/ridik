@@ -92,7 +92,9 @@ function over(color: string, ground: string): string {
   const parts = alpha[1]!.split(',').map((p) => Number(p.trim()));
   const a = parts.length > 3 ? parts[3]! : 1;
   const base = channels(ground).map((c) => c * 255);
-  const mixed = [parts[0]!, parts[1]!, parts[2]!].map((c, i) => Math.round(c * a + base[i]! * (1 - a)));
+  const mixed = [parts[0]!, parts[1]!, parts[2]!].map((c, i) =>
+    Math.round(c * a + base[i]! * (1 - a)),
+  );
   return `rgb(${mixed.join(', ')})`;
 }
 
@@ -201,7 +203,7 @@ describe('ink on a fill clears 4.5:1', () => {
 
   it('and on every tag tint, which does not follow the scheme', () => {
     // `TAG_COLORS` is private; 200 tags is far more than enough to see all of it.
-    const tints = new Set(Array.from({ length: 200 }, (_, i) => colorForTag(`tag-${i}`)));
+    const tints = new Set(Array.from({ length: 200 }, (_, i) => colorForTag(`tag-${i}`, 'light')));
     expect(tints.size).toBeGreaterThan(1);
     for (const tint of tints) {
       expect(contrast(inkOn(tint), tint)).toBeGreaterThanOrEqual(4.5);

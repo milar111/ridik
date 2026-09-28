@@ -9,7 +9,6 @@ import { Ionicons } from '@expo/vector-icons';
 
 import type { ProjectSummary } from '@/hooks';
 import { Card, Chip, Txt } from '@/ui/components';
-import { colorForTag } from '@/ui/theme';
 import { useTheme } from '@/ui/ThemeProvider';
 import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 
@@ -41,7 +40,9 @@ export function ProjectCard({
           ? colors.warning
           : colors.border;
 
-  const kindTint = colorForTag(project.kind);
+  // The kind already arrives as its own glyph, so a hue on top of it was a
+  // second answer to a question the icon had finished answering.
+  const kindTint = colors.textSecondary;
   const deadline = project.targetDate == null ? null : deadlineOf(project.targetDate);
   // A finished project's overdue date is history, not a warning.
   const deadlineTone = project.status === 'done' ? 'tertiary' : (deadline?.tone ?? 'tertiary');

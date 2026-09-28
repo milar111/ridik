@@ -50,14 +50,19 @@ const PARAMS: Record<ToolName, Record<string, unknown>> = {
   timer_control: { action: 'pause' },
   ledger_add: { amount: 12.5, currency: 'EUR', category: 'lunch' },
   ledger_query: { period: 'month' },
+  ledger_delete: { query: 'lunch', amount: 12.5 },
   checklist_add: { list_name: 'Shopping', items: [{ text: 'milk', quantity: 2 }] },
   checklist_toggle: { list_name: 'Shopping', item_text: 'milk', done: true },
+  checklist_remove: { list_name: 'Shopping', item_query: 'milk' },
+  checklist_delete: { list_name: 'Shopping' },
   geofence_add: { place_name: 'Maker lab', note: 'pick up the frame' },
   place_save: { name: 'Maker lab', latitude: 42.7, longitude: 23.3 },
   crm_add_commitment: { person_name: 'Ivo', commitment_text: 'send the schematic' },
   crm_log_interaction: { person_name: 'Ivo', summary: 'talked about the frame' },
   task_add: { title: 'Buy paint' },
   task_add_dependency: { child_title: 'Assembly', parent_titles: ['Print frame'] },
+  task_update: { target: { query: 'buy paint' }, due: '2026-08-19T18:00' },
+  task_delete: { target: { query: 'buy paint' } },
   task_complete: { target: { query: 'buy paint' } },
   // The dangerous one. `replace_existing` is a boolean and `classes` an array
   // of objects, so a describer that reads only strings says nothing at all.
@@ -109,10 +114,7 @@ describe('every tool can describe itself', () => {
 describe('the questions that destroy things name what they destroy', () => {
   const preview = (name: ToolName) =>
     previewSentence(
-      describeAction(
-        { tool_name: name, parameters: PARAMS[name] } as never,
-        clock as never,
-      ),
+      describeAction({ tool_name: name, parameters: PARAMS[name] } as never, clock as never),
     );
 
   it('names the event it is about to delete', () => {

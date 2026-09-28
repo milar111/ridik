@@ -531,6 +531,86 @@ describe('orchestrator', () => {
     expect(history).toContain(question);
   });
 
+  /**
+   * The double-ask, and the one-way rule that survives fixing it.
+   *
+   * RULE 4 makes the model's own question concrete — "Book it Thursday at
+   * 16:00?" — so a yes to it *is* an answer to the review gate's "is this what
+   * you said?". Before this, that yes bought a second identical question from
+   * the gate, which reads as the app not having listened.
+   */
+  it('does not ask the review gate again after a yes to the model\'s own question', async () => {
+    const clarify = JSON.stringify({
+      conversational_feedback: 'I need a time first.',
+      requires_user_input: true,
+      clarification: { question: 'Book it Thursday at 16:00?', pending: 'calendar_add' },
+      actions: [],
+    });
+    const booked = JSON.stringify({
+      actions: [
+        {
+          tool_name: 'calendar_add',
+          parameters: { title: 'Meeting with Ivo', start: '2026-03-12T16:00' },
+        },
+      ],
+    });
+
+    // `always`, so the gate would certainly fire if the yes did not release it.
+    const { orchestrator } = harness({ responses: [clarify, booked] }, 'always');
+    const first = await orchestrator.interpretAndExecute({ transcript: 'book a meeting with Ivo' });
+
+    const second = await orchestrator.interpretAndExecute({
+      transcript: 'yes',
+      pending: first.clarification!.pending!,
+    });
+
+    expect(second.items[0]!.ok).toBe(true);
+    // Nothing left to answer: the turn carries no further question.
+    expect(second.clarification).toBeUndefined();
+    expect(await repos.calendar.listBetween(0, Number.MAX_SAFE_INTEGER)).toHaveLength(1);
+  });
+
+  /**
+   * The half that must not be released with it. `reviewed` answers "is this
+   * what you said?" and says nothing about what the stored data looks like, so
+   * a clash the proposal could not have known about still gets its own
+   * question.
+   */
+  it('still lets a handler ask about something the proposal could not contain', async () => {
+    await repos.calendar.createEvent({
+      title: 'Dentist',
+      startsAt: at('2026-03-12T16:00'),
+      endsAt: at('2026-03-12T17:00'),
+    });
+
+    const clarify = JSON.stringify({
+      requires_user_input: true,
+      clarification: { question: 'Book it Thursday at 16:00?', pending: 'calendar_add' },
+      actions: [],
+    });
+    const booked = JSON.stringify({
+      actions: [
+        {
+          tool_name: 'calendar_add',
+          parameters: { title: 'Meeting with Ivo', start: '2026-03-12T16:00' },
+        },
+      ],
+    });
+
+    const { orchestrator } = harness({ responses: [clarify, booked] }, 'always');
+    const first = await orchestrator.interpretAndExecute({ transcript: 'book a meeting with Ivo' });
+    const second = await orchestrator.interpretAndExecute({
+      transcript: 'yes',
+      pending: first.clarification!.pending!,
+    });
+
+    // The handler's question is hoisted onto the turn, which is where the dock
+    // reads it from — the item keeps it as its summary.
+    expect(second.clarification?.question).toMatch(/dentist/i);
+    expect(second.items[0]!.ok).toBe(false);
+    expect(await repos.calendar.listBetween(0, Number.MAX_SAFE_INTEGER)).toHaveLength(1);
+  });
+
   it('summarises from the results when the model says nothing back', async () => {
     const reply = JSON.stringify({
       actions: [
@@ -898,6 +978,114 @@ describe('orchestrator', () => {
       expect(
         (pending as { actions: { tool_name: string }[] }).actions.map((a) => a.tool_name),
       ).toEqual(['checklist_add', 'ledger_add']);
+    });
+  });
+
+  /*
+   * The wiring for `./recall`, asserted here because the module being correct
+   * and the module being *reached* are different claims, and only one of them
+   * had ever been true. History used to be built for a pending clarification
+   * and nothing else, so two sentences twenty seconds apart were two unrelated
+   * conversations and the second one arrived with no subject.
+   */
+  describe('carrying the conversation', () => {
+    const REPLY = JSON.stringify({
+      conversational_feedback: 'Added flowers to the shopping list.',
+      requires_user_input: false,
+      actions: [
+        { tool_name: 'checklist_add', parameters: { list_name: 'Shopping', items: ['flowers'] } },
+      ],
+    });
+    const SECOND = JSON.stringify({
+      conversational_feedback: 'On the shopping list too.',
+      requires_user_input: false,
+      actions: [
+        {
+          tool_name: 'checklist_add',
+          parameters: { list_name: 'Shopping', items: ['toilet paper'] },
+        },
+      ],
+    });
+
+    it('hands the model what was said a moment ago, and what it wrote', async () => {
+      const { provider, orchestrator } = harness({ responses: [REPLY, SECOND] });
+
+      await orchestrator.interpretAndExecute({ transcript: 'Add flowers to my list.' });
+      await orchestrator.interpretAndExecute({ transcript: 'Toilet paper.' });
+
+      const second = provider.requests[1]!;
+      const said = second.messages.filter((m) => m.role === 'user').map((m) => m.content);
+      expect(said).toContain('Add flowers to my list.');
+      // Last, because the current utterance is the one being answered.
+      expect(said[said.length - 1]).toBe('Toilet paper.');
+
+      // And the row that was written, which is the half the model cannot infer:
+      // the user said "my list" and the executor wrote "Shopping".
+      const told = second.messages.filter((m) => m.role === 'model').map((m) => m.content);
+      expect(told.join(' ')).toContain('Shopping');
+    });
+
+    it('sends no history at all on the first utterance of a conversation', async () => {
+      const { provider, orchestrator } = harness({ responses: [REPLY] });
+      await orchestrator.interpretAndExecute({ transcript: 'Add flowers to my list.' });
+      expect(provider.requests[0]!.messages.map((m) => m.content)).toEqual([
+        'Add flowers to my list.',
+      ]);
+    });
+
+    /*
+      A clarify turn is audited like any other, so the exchange it is waiting on
+      is already the newest row in the window. Appending the pending pair on top
+      of it showed the model the user saying the same sentence in consecutive
+      breaths — which reads as a repeat, and a repeat is a reason to act twice.
+    */
+    it('does not say the pending question twice', async () => {
+      const ASK = JSON.stringify({
+        conversational_feedback: 'I need a time first.',
+        requires_user_input: true,
+        clarification: { question: 'Book it tomorrow at 10:00?', pending: 'calendar_add: meeting' },
+        actions: [],
+      });
+      const { provider, orchestrator } = harness({ responses: [ASK, REPLY] });
+
+      const first = await orchestrator.interpretAndExecute({
+        transcript: 'Book a meeting with Ivo.',
+      });
+      await orchestrator.interpretAndExecute({
+        transcript: 'make it Thursday',
+        pending: first.clarification!.pending,
+      });
+
+      const said = provider.requests[1]!.messages
+        .filter((m) => m.role === 'user')
+        .map((m) => m.content);
+      expect(said.filter((line) => line === 'Book a meeting with Ivo.')).toHaveLength(1);
+    });
+
+    /* The trail is a convenience, never a precondition: losing the context of a
+       fragment is a worse answer, not a failed turn. */
+    it('still runs the turn when the trail cannot be read', async () => {
+      const provider = createMockProvider({ responses: [REPLY] });
+      const client = createLlmClient({ provider, sleep: async () => {} });
+      const blind = {
+        ...repos,
+        llmInteractions: {
+          ...repos.llmInteractions,
+          listRecent: async () => {
+            throw new Error('no such table');
+          },
+        },
+      } as unknown as Repositories;
+
+      const outcome = await createOrchestrator({
+        repos: blind,
+        client,
+        zone: ZONE,
+        confirmMode: 'never',
+      }).interpretAndExecute({ transcript: 'Add flowers to my list.' });
+
+      expect(outcome.items).toHaveLength(1);
+      expect(outcome.items[0]!.ok).toBe(true);
     });
   });
 });

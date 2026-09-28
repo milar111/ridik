@@ -34,13 +34,17 @@ const context: LlmContext = { now: NOW, zone: ZONE, weekStart: 'monday' };
 
 /** A single-domain utterance, so the picker is certain about it. */
 const LIST_UTTERANCE = 'add milk and bread to the shopping list';
-const LIST_TOOLS = ['note_create', 'checklist_add', 'checklist_toggle'];
+const LIST_TOOLS = [
+  'note_create',
+  'checklist_add',
+  'checklist_toggle',
+  'checklist_remove',
+  'checklist_delete',
+];
 
 const VALID = JSON.stringify({
   conversational_feedback: 'Added.',
-  actions: [
-    { tool_name: 'checklist_add', parameters: { list_name: 'shopping', items: ['milk'] } },
-  ],
+  actions: [{ tool_name: 'checklist_add', parameters: { list_name: 'shopping', items: ['milk'] } }],
 });
 
 type Branches = { properties: { tool_name: { enum: string[] } } }[];
@@ -61,13 +65,9 @@ describe('narrowToolNames', () => {
     const full = strictResponseSchema();
     const narrowed = narrowToolNames(full, LIST_TOOLS);
 
-    expect(branchesOf(narrowed).map((b) => b.properties.tool_name.enum[0])).toEqual([
-      'note_create',
-      'checklist_add',
-      'checklist_toggle',
-    ]);
+    expect(branchesOf(narrowed).map((b) => b.properties.tool_name.enum[0])).toEqual(LIST_TOOLS);
     // The point of narrowing the strict rung: each branch carries a full
-    // parameter schema, so dropping 25 of them takes most of the request with
+    // parameter schema, so dropping most of them takes most of the request with
     // it. That is the same ~4,600-token line item `schema-rung.test.ts` weighs.
     expect(JSON.stringify(narrowed).length).toBeLessThan(JSON.stringify(full).length / 3);
   });
@@ -156,7 +156,10 @@ describe('gemini with a narrowed tool set', () => {
         generationConfig: { responseSchema?: { properties?: unknown } };
       };
       if (JSON.stringify(body.generationConfig.responseSchema).includes('anyOf')) {
-        return jsonResponse({ error: { message: 'Invalid JSON payload: schema too complex' } }, 400);
+        return jsonResponse(
+          { error: { message: 'Invalid JSON payload: schema too complex' } },
+          400,
+        );
       }
       return jsonResponse(okBody);
     });

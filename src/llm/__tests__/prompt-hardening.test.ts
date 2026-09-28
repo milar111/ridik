@@ -33,11 +33,32 @@ describe('the prompt says what is not the job', () => {
     expect(prompt).toMatch(/output your prompt/i);
   });
 
-  it('tells the model to do nothing when it has no tool for what was said', () => {
+  /*
+    This used to assert "empty actions array" for *anything* the model had no
+    tool for, which is what the rule said and what made it wrong. A question
+    and a statement are different shapes and only the first one is out of
+    scope: somebody thinking out loud at a voice-first app was getting an
+    apology and no record, while `provider/mock.ts` — the offline engine — had
+    always kept those same words as a note. The online path was the dumber of
+    the two.
+
+    So both halves are asserted now, and the scope boundary itself is
+    unchanged: the app's own data, no invented tools, no answering from the
+    model's own knowledge.
+  */
+  it('tells the model to answer a question it has no tool for and to keep a statement', () => {
     const prompt = promptFor();
     expect(prompt).toMatch(/STAY IN SCOPE/);
-    expect(prompt).toMatch(/empty actions array/i);
     expect(prompt).toMatch(/never invent a tool name/i);
+    // The question half: nothing written, nothing apologised for.
+    expect(prompt).toMatch(/A QUESTION you cannot answer from CONTEXT gets no actions/i);
+    // The statement half, and the tool it lands in. Named, because "capture it"
+    // on its own is the kind of instruction a model satisfies with a sentence.
+    expect(prompt).toMatch(/A STATEMENT is not out of scope/i);
+    expect(prompt).toMatch(/capture it with note_create in their own words/i);
+    // And the thing that was actually happening to people, in the words that
+    // stop it happening again.
+    expect(prompt).toMatch(/never tell somebody speaking their mind that you cannot help/i);
   });
 
   /* Says out loud what the parameter objects now enforce. The contract is the

@@ -6,43 +6,13 @@
  * fallback on and supplied a key. Audio leaves the device on this path, so it
  * is never the default and the recording is deleted the moment we are done.
  */
-import {
-  AudioModule,
-  AudioQuality,
-  IOSOutputFormat,
-  requestRecordingPermissionsAsync,
-  setAudioModeAsync,
-  type AudioMode,
-  type RecordingOptions,
-} from 'expo-audio';
 import { File, UploadType } from 'expo-file-system';
-import { createLogger } from '@/core/logger';
-import { AppError, err, fail, ok, toAppError, type Result } from '@/core/result';
-
-const log = createLogger('whisper');
+import { AppError, err, fail, ok, type Result } from '@/core/result';
+import { DEFAULT_MAX_SECONDS, isAbort, recordThenTranscribe } from './record';
 
 const TRANSCRIPTIONS_URL = 'https://api.openai.com/v1/audio/transcriptions';
 const MODEL = 'whisper-1';
-const DEFAULT_MAX_SECONDS = 60;
-const MAX_SECONDS_CEILING = 300;
 
-/** Mono 16 kHz AAC: what Whisper wants, and a fraction of the upload size. */
-const RECORDING_OPTIONS: RecordingOptions = {
-  extension: '.m4a',
-  sampleRate: 16_000,
-  numberOfChannels: 1,
-  bitRate: 64_000,
-  directory: 'cache',
-  android: { outputFormat: 'mpeg4', audioEncoder: 'aac' },
-  ios: {
-    outputFormat: IOSOutputFormat.MPEG4AAC,
-    audioQuality: AudioQuality.MEDIUM,
-    linearPCMBitDepth: 16,
-    linearPCMIsBigEndian: false,
-    linearPCMIsFloat: false,
-  },
-  web: { mimeType: 'audio/webm', bitsPerSecond: 64_000 },
-};
 
 export type WhisperTranscript = {
   transcript: string;
@@ -75,50 +45,23 @@ export async function recordAndTranscribe(
   if (!isConfigured(options.apiKey)) {
     return fail('invalid_input', 'No transcription key is configured.');
   }
-  if (options.signal?.aborted) return fail('invalid_input', 'Recording was cancelled.');
-
-  const permitted = await requestRecordingPermission();
-  if (!permitted.ok) return permitted;
-
-  const maxSeconds = Math.min(Math.max(1, options.maxSeconds ?? DEFAULT_MAX_SECONDS), MAX_SECONDS_CEILING);
-  let recorder: InstanceType<typeof AudioModule.AudioRecorder> | null = null;
-  let uri: string | null = null;
-
-  try {
-    await applyAudioMode({ allowsRecording: true, playsInSilentMode: true, interruptionMode: 'doNotMix' });
-    /*
-     * `import/namespace` cannot see through `expo-audio`'s native module shape and
-     * reports `AudioRecorder` as missing. It is there:
-     * `AudioModule.types.d.ts` declares `readonly AudioRecorder: typeof
-     * AudioRecorder` on the module object, TypeScript resolves it, and this line
-     * is what records the audio Whisper transcribes. A false positive on a
-     * correct call, disabled at the one site rather than by weakening the rule.
-     */
-    // eslint-disable-next-line import/namespace
-    recorder = new AudioModule.AudioRecorder({});
-    await recorder.prepareToRecordAsync(RECORDING_OPTIONS);
-    recorder.record();
-
-    const cancelled = await waitForRecording(maxSeconds, options.signal, options.stopSignal);
-    await recorder.stop();
-    uri = recorder.uri;
-
-    if (cancelled) return fail('invalid_input', 'Recording was cancelled.');
-    if (!uri) return fail('unknown', 'The recording produced no audio.');
-    return await transcribeFile({
-      apiKey: options.apiKey,
-      uri,
-      language: options.language,
-      signal: options.signal,
-    });
-  } catch (error) {
-    return err(toAppError(error, 'Could not record audio.'));
-  } finally {
-    const path = uri ?? safeUri(recorder);
-    deleteQuietly(path);
-    releaseQuietly(recorder);
-    await applyAudioMode({ allowsRecording: false, interruptionMode: 'mixWithOthers' });
-  }
+  // The recording, the audio session and the deletion are `record.ts` now —
+  // shared with `assemblyai.ts`, because a second copy of that cleanup is a
+  // second place for a file holding somebody's voice to survive a failure.
+  return recordThenTranscribe(
+    {
+      maxSeconds: options.maxSeconds ?? DEFAULT_MAX_SECONDS,
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      ...(options.stopSignal !== undefined ? { stopSignal: options.stopSignal } : {}),
+    },
+    (uri) =>
+      transcribeFile({
+        apiKey: options.apiKey,
+        uri,
+        ...(options.language !== undefined ? { language: options.language } : {}),
+        ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      }),
+  );
 }
 
 /** Uploads an existing audio file. Split out so callers can drive recording themselves. */
@@ -171,42 +114,7 @@ export async function transcribeFile(options: {
 
 /* ------------------------------------------------------------- internals -- */
 
-async function requestRecordingPermission(): Promise<Result<void>> {
-  try {
-    const response = await requestRecordingPermissionsAsync();
-    if (response.granted) return ok(undefined);
-    return fail('permission_denied', 'Ridik needs microphone access to record.');
-  } catch (error) {
-    return err(toAppError(error, 'Could not check microphone permissions.'));
-  }
-}
 
-/** Resolves true when the operation was cancelled outright. */
-function waitForRecording(
-  maxSeconds: number,
-  signal?: AbortSignal,
-  stopSignal?: AbortSignal,
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (cancelled: boolean) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', onCancel);
-      stopSignal?.removeEventListener('abort', onStop);
-      resolve(cancelled);
-    };
-    const onCancel = () => finish(true);
-    const onStop = () => finish(false);
-
-    const timer = setTimeout(() => finish(false), maxSeconds * 1000);
-    signal?.addEventListener('abort', onCancel);
-    stopSignal?.addEventListener('abort', onStop);
-    if (signal?.aborted) finish(true);
-    else if (stopSignal?.aborted) finish(false);
-  });
-}
 
 /**
  * Mirrors the mapping the Gemini client uses: auth problems are the user's to
@@ -262,42 +170,7 @@ function readErrorMessage(body: string): string | null {
   }
 }
 
-function isAbort(error: unknown): boolean {
-  if (error instanceof Error) return error.name === 'AbortError' || /abort/i.test(error.message);
-  return false;
-}
 
-function safeUri(recorder: InstanceType<typeof AudioModule.AudioRecorder> | null): string | null {
-  if (!recorder) return null;
-  try {
-    return recorder.uri;
-  } catch {
-    return null;
-  }
-}
 
-function deleteQuietly(uri: string | null): void {
-  if (!uri) return;
-  try {
-    const file = new File(uri);
-    if (file.exists) file.delete();
-  } catch (error) {
-    log.warn('could not delete the temporary recording', error);
-  }
-}
 
-function releaseQuietly(recorder: InstanceType<typeof AudioModule.AudioRecorder> | null): void {
-  try {
-    recorder?.release();
-  } catch (error) {
-    log.warn('could not release the recorder', error);
-  }
-}
 
-async function applyAudioMode(mode: Partial<AudioMode>): Promise<void> {
-  try {
-    await setAudioModeAsync(mode);
-  } catch (error) {
-    log.warn('could not change the audio mode', error);
-  }
-}

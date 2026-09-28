@@ -32,7 +32,6 @@ import { MIC_KEEPOUT } from '@/ui/layout';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
 import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
-import { colorForTag } from '@/ui/theme';
 
 export default function NoteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -223,7 +222,6 @@ function NoteBody({ note }: { note: NoteWithBullets }) {
           <Chip
             label={note.categoryTag}
             icon="pricetag-outline"
-            color={colorForTag(note.categoryTag)}
             // The bare tag was a labelled field before; on its own it does not
             // say it is the tag, or that tapping it changes one.
             accessibilityHint="Changes the tag on this note"

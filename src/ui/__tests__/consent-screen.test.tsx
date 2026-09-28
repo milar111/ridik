@@ -16,7 +16,11 @@ import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 
 import * as consentModule from '@/llm/consent';
 import { defaultSettings, type SettingsValues } from '@/repositories/settings';
-import { FREE, registerBillingProvider, type BillingProvider } from '@/services/billing/entitlement';
+import {
+  FREE,
+  registerBillingProvider,
+  type BillingProvider,
+} from '@/services/billing/entitlement';
 
 import { ThemeProvider } from '../ThemeProvider';
 import { ToastProvider } from '../components/Toast';
@@ -30,6 +34,7 @@ import { ToastProvider } from '../components/Toast';
 const ALL_PROVIDERS = [
   consentModule.ASSISTANT_PROVIDER,
   consentModule.WHISPER_PROVIDER,
+  consentModule.STT_PROVIDER,
   consentModule.ANALYTICS_PROVIDER,
   consentModule.CRASH_PROVIDER,
   consentModule.STORE_PROVIDER,
@@ -378,6 +383,25 @@ describe('the decision', () => {
 });
 
 describe('the first-run lid', () => {
+  /**
+   * Walk the tour to the permission step, however many steps it is today.
+   *
+   * Counted rather than hard-coded: the loop was `for (panel = 0; panel < 3;)`
+   * and adding the examples step between the panels and the permissions broke
+   * three tests that have nothing to do with how many panels there are. What
+   * these assert is that the *permission* step cannot be passed and that the
+   * disclosure is behind it — neither of which is a statement about the length
+   * of the tour.
+   */
+  const walkToPermissions = async () => {
+    // Bounded so a step that stopped advancing spins the test out rather than
+    // the whole suite.
+    for (let step = 0; step < 10 && screen.queryByText('Next'); step += 1) {
+      await fireEvent.press(screen.getByText('Next'));
+    }
+    expect(screen.getByText('Continue')).toBeTruthy();
+  };
+
   it('covers the app until the question is answered', async () => {
     await wrap(<ConsentGate />);
 
@@ -402,12 +426,21 @@ describe('the first-run lid', () => {
     await wrap(<ConsentGate />);
     await screen.findByTestId('welcome-flow');
 
-    for (let panel = 0; panel < 3; panel += 1) {
-      await fireEvent.press(screen.getByText('Next'));
-    }
+    await walkToPermissions();
     expect(screen.queryByTestId('consent-screen')).toBeNull();
 
+    /*
+     * Permissions, then the three personal preferences, then the disclosure.
+     * The preferences step sits deliberately *before* this one: the disclosure
+     * has to be the last thing read before anything can be sent, and a page of
+     * switches after it would put three more decisions between reading the
+     * promise and living under it.
+     */
     await fireEvent.press(screen.getByText('Continue'));
+    expect(await screen.findByTestId('welcome-preferences')).toBeTruthy();
+    expect(screen.queryByTestId('consent-screen')).toBeNull();
+
+    await fireEvent.press(screen.getByText('Next'));
     expect(await screen.findByText('Goes to Google')).toBeTruthy();
   });
 
@@ -426,9 +459,7 @@ describe('the first-run lid', () => {
     mockLevel = 'denied';
     await wrap(<ConsentGate />);
     await screen.findByTestId('welcome-flow');
-    for (let panel = 0; panel < 3; panel += 1) {
-      await fireEvent.press(screen.getByText('Next'));
-    }
+    await walkToPermissions();
 
     // Still says Continue — it is off, not renamed. The label became a sentence
     // for one build ("3 still needed", with a padlock) and read as a different
@@ -448,11 +479,50 @@ describe('the first-run lid', () => {
     mockLevel = 'blocked';
     await wrap(<ConsentGate />);
     await screen.findByTestId('welcome-flow');
-    for (let panel = 0; panel < 3; panel += 1) {
-      await fireEvent.press(screen.getByText('Next'));
-    }
+    await walkToPermissions();
 
     expect(screen.getAllByText('Settings')).toHaveLength(3);
+  });
+
+  /*
+   * The lid may not claim the touch responder on the view the flow renders
+   * inside.
+   *
+   * A ScrollView deliberately does not claim on touch-start — a tap on a button
+   * inside it would never land — and takes over on the first *move*. An
+   * ancestor that has already become the responder never gives it back, so a
+   * step that scrolls cannot be scrolled at all. It shipped that way for one
+   * build: an examples step of nine cards showed two, with no error and every
+   * test green, because a renderer with no viewport has nothing to overflow.
+   *
+   * The guard is still there and still stops a finger reaching the microphone;
+   * it is a full-bleed sibling *behind* the flow. This asserts only the half a
+   * test can see — that the claim is not on the wrapper.
+   */
+  it('does not claim the responder on the view the flow renders inside', async () => {
+    mockLevel = 'granted';
+    await wrap(<ConsentGate />);
+
+    const gate = await screen.findByTestId('consent-gate');
+    expect(gate.props.onStartShouldSetResponder).toBeUndefined();
+  });
+
+  /*
+   * The examples do not live here any more.
+   *
+   * They were a fourth panel for a day. A page of quotations on a screen where
+   * nothing is real teaches the shape of a slideshow; `GuidedTour` points at
+   * the actual microphone on the actual home screen the moment this flow ends.
+   * If a step of examples ever comes back, this fails and the tour is the thing
+   * to fix instead.
+   */
+  it('does not teach what to say before there is anything to say it to', async () => {
+    mockLevel = 'granted';
+    await wrap(<ConsentGate />);
+    await screen.findByTestId('welcome-flow');
+    await walkToPermissions();
+
+    expect(screen.queryByText('Just say it.')).toBeNull();
   });
 
   it.each(['granted', 'declined'] as const)('is gone once the answer is %p', async (answer) => {

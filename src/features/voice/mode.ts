@@ -24,6 +24,9 @@ export const LLM_API_KEY_STORE_KEY = 'ridik.llm.apiKey';
 /** The transcription fallback's own key. */
 export const WHISPER_API_KEY_STORE_KEY = 'ridik.whisper.apiKey';
 
+/** AssemblyAI's, for the engine that can replace the recogniser outright. */
+export const ASSEMBLYAI_API_KEY_STORE_KEY = 'ridik.assemblyai.apiKey';
+
 /**
  * The session token a store build presents to your backend. Whatever issues
  * identity — RevenueCat, Supabase auth, your own sign-in — writes it here; the

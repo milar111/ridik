@@ -5,13 +5,17 @@ import { Chip } from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
 import { useStaggeredEntry } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
-import { colorForTag } from '@/ui/theme';
 import type { TagCount } from '@/repositories/notes';
 
 /**
- * The only filter the notes list offers. Tags carry a stable colour so the
- * strip is scannable without reading it; the count is what tells the user which
- * tag is worth opening.
+ * The only filter the notes list offers.
+ *
+ * The chips used to carry a colour per tag, hashed from the word. It looked
+ * like meaning and was not — nothing about "School" is gold — and with five
+ * tints and a hash, two tags on the same screen regularly came out identical
+ * anyway. The word is the identity. What the colour answers instead is the one
+ * question this strip exists to ask: which filter is on. One ember pill, the
+ * rest quiet, and the count is what says which tag is worth opening.
  */
 export function TagStrip({
   tags,
@@ -24,7 +28,7 @@ export function TagStrip({
   onSelect: (tag: string | null) => void;
   total: number;
 }) {
-  const { colors, spacing } = useTheme();
+  const { spacing } = useTheme();
   // Fading in place, not rising: a horizontal strip that slides up from below
   // has every chip cross whatever sits under it. Same call as `HabitStrip`.
   const arrive = useStaggeredEntry();
@@ -46,7 +50,6 @@ export function TagStrip({
         <Animated.View entering={arrive(0)}>
           <Chip
             label={`All ${total}`}
-            color={colors.textSecondary}
             selected={selected === null}
             onPress={() => onSelect(null)}
           />
@@ -62,7 +65,6 @@ export function TagStrip({
           >
             <Chip
               label={`${tag.tag} ${tag.count}`}
-              color={colorForTag(tag.tag)}
               selected={selected !== null && selected.toLowerCase() === tag.tag.toLowerCase()}
               onPress={() => onSelect(selected === tag.tag ? null : tag.tag)}
             />

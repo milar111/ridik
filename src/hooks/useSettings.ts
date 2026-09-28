@@ -20,7 +20,7 @@ import {
 } from '@tanstack/react-query';
 
 import { createUsageMeter, type UsageSnapshot } from '@/llm/usage';
-import { isValidZone, setZoneOverride } from '@/core/time';
+import { isValidZone, setClockFormat, setZoneOverride } from '@/core/time';
 import { getRepositories } from '@/repositories';
 import {
   defaultSettings,
@@ -87,6 +87,12 @@ function applyZone(patch: Partial<SettingsValues>): void {
   setZoneOverride(typeof zone === 'string' && zone.trim() && isValidZone(zone) ? zone : null);
 }
 
+/** `clockFormat` is the second setting that is module state, for the same reason. */
+function applyClock(patch: Partial<SettingsValues>): void {
+  if (!('clockFormat' in patch) || !patch.clockFormat) return;
+  setClockFormat(patch.clockFormat);
+}
+
 export function useSetSettings(): UseMutationResult<
   SettingsValues,
   Error,
@@ -98,6 +104,7 @@ export function useSetSettings(): UseMutationResult<
     mutationFn: async (patch: Partial<SettingsValues>) => {
       const values = await getRepositories().settings.setMany(patch);
       applyZone(patch);
+      applyClock(patch);
       return values;
     },
     onMutate: async (patch) => {
@@ -118,7 +125,9 @@ export function useSetSettings(): UseMutationResult<
       // agenda under today's date. It re-renders every screen, which is visible
       // — and correct: the alternative is a screenful of dates that are quietly
       // wrong until something else happens to refetch them.
-      invalidateKeys(client, ['timezone' in patch ? qk.all : qk.settings.all]),
+      invalidateKeys(client, [
+        'timezone' in patch || 'clockFormat' in patch ? qk.all : qk.settings.all,
+      ]),
   });
 }
 
@@ -134,6 +143,7 @@ export function useResetSetting(): UseMutationResult<
       // Resetting the zone means "use the device's", which is what a null
       // override restores.
       if (key === 'timezone') setZoneOverride(null);
+      if (key === 'clockFormat') setClockFormat('auto');
       return value;
     },
     onSettled: () => invalidateKeys(client, [qk.settings.all]),
@@ -146,6 +156,7 @@ export function useResetAllSettings(): UseMutationResult<SettingsValues, Error, 
     mutationFn: async () => {
       const values = await getRepositories().settings.resetAll();
       setZoneOverride(null);
+      setClockFormat('auto');
       return values;
     },
     onSettled: () => invalidateKeys(client, [qk.settings.all]),

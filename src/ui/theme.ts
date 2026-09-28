@@ -66,6 +66,17 @@ export type EmberName = 'ember' | 'kiln' | 'rust';
 
 export type EmberOption = {
   name: EmberName;
+  /**
+   * The ember as *ink*, which is not the ember as *light*.
+   *
+   * `accent` used to be the ramp's own `hot`, and a ramp's top is chosen to
+   * glow rather than to be read: two of the three failed 4.5:1 against a chip
+   * of their own colour, and the default failed against the sunken ground as
+   * well. They are the same hue and chroma, moved only in lightness until they
+   * clear as text. `heat.core` stays exempt and stays vivid — it is a gradient
+   * stop, and nothing is ever written on it.
+   */
+  accent: { light: string; dark: string };
   /** What the Settings row calls it. */
   label: string;
   /** One line, in the user's terms, not the palette's. */
@@ -96,6 +107,7 @@ export const embers: Record<EmberName, EmberOption> = {
     name: 'ember',
     label: 'Ember',
     note: 'The original. A coil at temperature.',
+    accent: { light: '#B4320E', dark: '#FF8253' },
     light: { cold: '#F2CBBD', low: '#E59E89', mid: '#D86F52', hot: '#C7360F', onHeat: '#FFF7F1' },
     dark: { cold: '#4F2216', low: '#82321F', mid: '#B84329', hot: '#FF5A36', onHeat: '#17100C' },
     platePeak: 'mid',
@@ -105,6 +117,7 @@ export const embers: Record<EmberName, EmberOption> = {
     name: 'kiln',
     label: 'Kiln',
     note: 'Further from orange. A firing chamber, not a coil.',
+    accent: { light: '#A82318', dark: '#F36F62' },
     light: { cold: '#EAC4BD', low: '#D6928A', mid: '#C15F56', hot: '#A82318', onHeat: '#FFF7F1' },
     dark: { cold: '#4F1F18', low: '#822D24', mid: '#B83C30', hot: '#F04B3C', onHeat: '#17100C' },
     platePeak: 'low',
@@ -114,6 +127,7 @@ export const embers: Record<EmberName, EmberOption> = {
     name: 'rust',
     label: 'Rust',
     note: 'Browner and quieter. Oxidised steel.',
+    accent: { light: '#96341A', dark: '#E57C5D' },
     light: { cold: '#E4C5BA', low: '#CA9585', mid: '#B16651', hot: '#96341A', onHeat: '#FFF7F1' },
     dark: { cold: '#492417', low: '#783721', mid: '#AA4B2D', hot: '#DE6038', onHeat: '#17100C' },
     platePeak: 'low',
@@ -270,38 +284,61 @@ export const lightColors: Colors = {
   textSecondary: 'rgba(46, 21, 8, 0.74)',
   textTertiary: 'rgba(46, 21, 8, 0.56)',
   // Deep enough to clear 4.5:1 on the sand ground; `heat.core` is the vivid one.
-  accent: '#C7360F',
-  accentMuted: 'rgba(199, 54, 15, 0.12)',
+  accent: '#B4320E',
+  accentMuted: 'rgba(180, 50, 14, 0.12)',
   /**
-   * The four semantics, at about two thirds of the chroma they used to carry.
+   * Two temperatures, and that is the whole semantic palette.
    *
-   * They were picked one at a time, each judged only against the ground, and
-   * every one came out at 78–100% saturation. Individually defensible;
-   * together they read as four stickers on a warm, pale room — the palette's
-   * own rule is that nothing is neutral grey, and the overcorrection was
-   * nothing being *quiet* either.
+   * It used to be four hues — green, yellow, red, blue — sitting on a warm
+   * ground beside the ember, and the arithmetic is what condemned them. Their
+   * hues were 8°, 34°, 150° and 193°: three of the five crowded into the warm
+   * quadrant while two shouted from across the wheel. `danger` landed **5° from
+   * `accent`**, so the one colour that has to be seen was the one that looked
+   * exactly like the brand, and `warning` at 34° read as a dirty orange rather
+   * than as a warning. Meaning cannot live in hue when the hues are that close,
+   * and a reader should not have to learn a five-colour legend to use an
+   * organiser.
    *
-   * The fix is proportional rather than a redesign: hue keeps the meaning and
-   * lightness keeps the contrast, so only chroma was cut, and the lightness
-   * was then walked away from the ground until the contrast lost came back.
-   * All four ended up *higher* against both grounds than they started
-   * (4.51–5.11:1 before, 5.28–5.60:1 now) — a calmer colour is not a weaker
-   * one, and treating saturation as if it were legibility is what produced
-   * the bright red button in the first place.
+   * So there are two, and they are a temperature pair, which is the one thing
+   * this product's vernacular already knew how to say:
    *
-   * `success` and `info` also moved a few degrees warmer. Only a few: they are
-   * the two hues in this file that cannot join the 7–34° family without
-   * ceasing to mean green and blue, and a "success" that reads orange is a
-   * worse bug than one that clashes. 26° still separates the closest pair.
+   *   **warm** — live, yours, now, going out, needs you. The ember.
+   *   **cool** — settled, kept, done, coming in. Metal that has cooled.
+   *
+   * `success` and `info` are the same slate, because they were never doing
+   * different jobs here: a finished task and a rest interval are both "nothing
+   * to do". `warning` *is* the accent, because "at risk" is an attention state
+   * and attention is what the accent means — it is told apart from a plain
+   * accent chip by its word, not by a second hue.
+   *
+   * Severity is carried by **weight, not by hue**. A tint with coloured text is
+   * a state worth noticing; a solid fill with ground-coloured ink is a state
+   * that needs acting on. That is why `danger` can stay inside the warm family —
+   * it is the far end of it, and it almost always arrives as a fill or beside a
+   * word that says "Overdue". A red that has to out-shout an orange on an orange
+   * product is a fight it loses; this one does not pick it.
+   *
+   * Which *direction* that weight goes is not the same in the two schemes, and
+   * pretending it was is what made the dark palette mesh. Light has room below
+   * the ember, so danger is the burnt end: darker, deeper, redder. Dark has no
+   * room below — a colour readable on `surface` bottoms out at L* 62.6 and the
+   * accent is already 67.9, so every "deeper" red down there is a red nobody can
+   * read. Weight in a dark room is emitted light, so danger climbs instead, to a
+   * pale ash-rose that is the brightest thing on the screen and unmistakably red
+   * rather than orange. Same rule, opposite direction, because the ground is.
+   *
+   * Every value below clears 4.5:1 as text on `surface`, on `bg`, and on its
+   * own muted tint — that last one is new, and is what fixed chips whose label
+   * sat on a plate of its own colour.
    */
-  success: '#206945',
-  successMuted: 'rgba(32, 105, 69, 0.12)',
-  warning: '#835519',
-  warningMuted: 'rgba(131, 85, 25, 0.14)',
-  danger: '#A34133',
-  dangerMuted: 'rgba(163, 65, 51, 0.12)',
-  info: '#20677A',
-  infoMuted: 'rgba(32, 103, 122, 0.12)',
+  success: '#2E5061',
+  successMuted: 'rgba(46, 80, 97, 0.12)',
+  warning: '#B4320E',
+  warningMuted: 'rgba(180, 50, 14, 0.12)',
+  danger: '#7F1D1A',
+  dangerMuted: 'rgba(127, 29, 26, 0.12)',
+  info: '#2E5061',
+  infoMuted: 'rgba(46, 80, 97, 0.12)',
   overlay: 'rgba(46, 21, 8, 0.40)',
 };
 
@@ -317,14 +354,14 @@ export const darkColors: Colors = {
   textTertiary: 'rgba(255, 238, 223, 0.44)',
   accent: '#FF8253',
   accentMuted: 'rgba(255, 130, 83, 0.16)',
-  success: '#51C68A',
-  successMuted: 'rgba(81, 198, 138, 0.16)',
-  warning: '#EAB762',
-  warningMuted: 'rgba(234, 183, 98, 0.16)',
-  danger: '#EB8070',
-  dangerMuted: 'rgba(235, 128, 112, 0.16)',
-  info: '#6EC8E3',
-  infoMuted: 'rgba(110, 200, 227, 0.16)',
+  success: '#86AFC1',
+  successMuted: 'rgba(134, 175, 193, 0.16)',
+  warning: '#FF8253',
+  warningMuted: 'rgba(255, 130, 83, 0.16)',
+  danger: '#F2B5B0',
+  dangerMuted: 'rgba(242, 181, 176, 0.16)',
+  info: '#86AFC1',
+  infoMuted: 'rgba(134, 175, 193, 0.16)',
   overlay: 'rgba(10, 4, 1, 0.68)',
 };
 
@@ -414,20 +451,26 @@ function withAlpha(hex: string, alpha: number): string {
 /**
  * The two accent tokens, for an ember that has no hand-drawn set.
  *
- * `accent` is the *text-safe* ember — the one that clears 4.5:1 on the ground it
- * sits on — and in every ramp that is `hot`: in light because the light ramp
- * descends into ink, and in dark because it climbs into emission. Both clear
- * 4.5:1 on `bg` and on `surface` for all three embers; on `surfaceRaised`, which
- * almost never carries accent text, the darker two land at about 4.2.
+ * `accent` is the *text-safe* ember, and it is a field on the option rather than
+ * a stop on its ramp. It was `hot` for as long as the two happened to agree, and
+ * they stopped agreeing the moment the chips were measured on the ground they
+ * are actually drawn on: kiln's dark `hot` (#F04B3C) and rust's (#DE6038) are
+ * *emitting* colours, correct for a heat cell and 3.85:1 against their own muted
+ * tint, which is a label nobody can read. A ramp and an ink are two jobs.
  *
- * `ember` itself is deliberately exempt. `darkColors.accent` is a lightened
- * #FF8253 that exists in no `CellRamp`, and re-deriving it from `dark.hot` would
- * move the default look — which is the one thing this feature must not do.
+ * Every ember's accent clears 4.5:1 on `bg`, `surface`, `surfaceSunken` and on
+ * its own tint, in both schemes; `surfaceRaised` is deliberately outside that —
+ * it is a raised card that almost never carries accent text, and the two darker
+ * embers land at about 4.2 on it.
+ *
+ * `ember` itself resolves to the hand-drawn `Colors` unchanged, so the default
+ * look cannot move; its `accent` field carries the same hex those tokens do,
+ * which is what `theme.test.ts` holds it to.
  */
 function emberColors(scheme: ColorScheme, option: EmberOption): Colors {
   const base = scheme === 'dark' ? darkColors : lightColors;
   if (option.name === DEFAULT_EMBER) return base;
-  const accent = option[scheme].hot;
+  const accent = option.accent[scheme];
   return { ...base, accent, accentMuted: withAlpha(accent, MUTED_ALPHA[scheme]) };
 }
 
@@ -474,25 +517,64 @@ export function makeTheme(scheme: ColorScheme, ember: EmberName = DEFAULT_EMBER)
 }
 
 /**
- * Deterministic accent for a tag, kept inside the palette's temperature.
+ * The tint a **subject, event kind or person** is drawn in.
  *
- * The old set was a rainbow, which on this ground would look like confetti
- * dropped on a photograph. These are all things that are warm or adjacent to
- * it, so a tag reads as a tag rather than as an alarm.
+ * Read the list again: it is short, and it used to be everything. Tags,
+ * spending categories, project kinds, habit and project chips on Activity, note
+ * rows — all of them took a colour from this ramp, hashed from a word, and none
+ * of them needed one. The row said "Hardware" and drew a bar beside it in a
+ * colour that meant nothing; two rows regularly came out identical anyway,
+ * because five tints and a hash collide constantly. A hue that is wrong half
+ * the time and meaningless the other half is not a weak signal, it is noise.
+ *
+ * What is left is the one use colour is actually for here: a **categorical
+ * channel** — many peers on one screen, each needing to be told from the next at
+ * a glance, with no other mark doing the job. A timetable grid, a month of event
+ * dots, a column of avatars. Everywhere else the word is the identity and the
+ * chip is quiet until it is the one that is chosen.
+ *
+ * Two things were wrong with the eight-hue set this ramp replaced, and the
+ * second one is a bug rather than a taste.
+ *
+ * It was eight unrelated hues — a green, a teal, a magenta, an olive, a forest
+ * — picked by hashing the word. A hash carries no information, so the colour
+ * was decoration that *looked* like meaning: nothing about "School" is blue.
+ * On a ground whose whole rule is one temperature, eight of them read as
+ * confetti dropped on a photograph. These are five, and they are the ember
+ * family plus the one cool counterweight the semantics already use, so a strip
+ * of chips reads as a set rather than as a spill. The word still carries the
+ * identity; the colour only helps you find the same thing twice.
+ *
+ * And **it has to know the scheme**. The old values were fixed dark hues used
+ * as *text*, which is fine on linen and unreadable on a near-black ground:
+ * every one of the eight measured between 2.45:1 and 3.55:1 in dark mode, in
+ * Notes, Money, People, Projects, the timetable and Activity. There is no
+ * single mid-tone that clears 4.5:1 against both grounds at any useful chroma —
+ * the best available is 3.80 — so one constant cannot serve both, and the
+ * function takes the scheme rather than pretending otherwise. Both ramps are
+ * solved to clear 4.6:1 as text on every ground of their scheme.
  */
-const TAG_COLORS = [
-  '#C7360F',
-  '#835519',
-  '#206945',
-  '#20677A',
-  '#A63668',
-  '#6B4E16',
-  '#B4471F',
-  '#3F5C2A',
-];
+/* Warm to cool in five steps, at one lightness so no member of the set shouts
+   over the others — the second slot used to sit at hue 32°, which on a warm
+   ground reads as a gold that belongs to no other part of this app. It is a
+   terracotta now, at 24°, which keeps the step between the ember and the taupe
+   while staying inside the family.
 
-export function colorForTag(tag: string): string {
+   Every value clears 4.6:1 as text on all three grounds of its scheme **and on
+   its own muted tint**, which is the check that was missing: the dark ember and
+   the dark taupe measured 4.16 and 4.39 against a plate of themselves, so a
+   chip drawn in either was a label a reader had to work at. Both were lifted
+   about four L* with their hue and chroma held, which also closed the ramp's
+   own spread from six L* to two — members of a categorical set have to be
+   equally loud, or the lightest one reads as the selected one. */
+const TAG_TINTS: Record<ColorScheme, readonly string[]> = {
+  light: ['#AC3915', '#8A4F2C', '#7A5A48', '#3B677D', '#46686D'],
+  dark: ['#EA7957', '#C98A63', '#B59482', '#6DA1BA', '#7CA5AB'],
+};
+
+export function colorForTag(tag: string, scheme: ColorScheme): string {
+  const ramp = TAG_TINTS[scheme];
   let hash = 0;
   for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) >>> 0;
-  return TAG_COLORS[hash % TAG_COLORS.length]!;
+  return ramp[hash % ramp.length]!;
 }

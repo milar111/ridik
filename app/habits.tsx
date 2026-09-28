@@ -4,6 +4,7 @@ import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
+import { now } from '@/core/clock';
 import { countLabel } from '@/core/format';
 import { toAppError } from '@/core/result';
 import { currentZone, epochToLocal, todayLocalDate, type LocalDate } from '@/core/time';
@@ -77,7 +78,9 @@ function HabitList() {
   // Resolved once per mount: a screen left open across midnight is rarer than
   // the re-render churn recomputing these on every frame would cost.
   const calendar = useMemo(() => {
-    const nowLocal = epochToLocal(Date.now(), zone);
+    // `now()`, never `Date.now()` — a frozen clock is what makes this testable,
+    // and the linter's purity rule refuses the direct call outright.
+    const nowLocal = epochToLocal(now(), zone);
     const start = nowLocal.startOf('week').minus({ weeks: WEEKS - 1 });
     return {
       today: todayLocalDate(zone),
@@ -266,7 +269,13 @@ function HabitCard({
           loggedToday ? ', logged today' : atRisk ? ', at risk today' : ''
         }`}
         accessibilityHint="Long press to archive"
-        style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }}
+        // Centred, not top-aligned. The grid is five rows and a weekday header
+        // — about 93pt — and the column beside it is two lines, so pinning both
+        // to the top left half the card empty under the name: a tall card with
+        // its content in the top third, which reads as something that failed to
+        // load rather than as a card with a record in it. Centred, the two
+        // columns share one centre line and the air is split between them.
+        style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'center' }}
       >
         <View style={{ flex: 1, gap: 4 }}>
           <View style={styles.titleRow}>

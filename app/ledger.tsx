@@ -36,10 +36,28 @@ import {
 } from '@/hooks';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
-import { AnimatedPressable, usePressScale , useProgressWidth, useStaggeredEntry } from '@/ui/motionHooks';
-import { Button, Card, Chip, Divider, EmptyState, Input, Screen, Section, Segmented, SheetCard, Txt, useConfirm, useToast } from '@/ui/components';
+import {
+  AnimatedPressable,
+  usePressScale,
+  useProgressWidth,
+  useStaggeredEntry,
+} from '@/ui/motionHooks';
+import {
+  Button,
+  Card,
+  Chip,
+  Divider,
+  EmptyState,
+  Input,
+  Screen,
+  Section,
+  Segmented,
+  SheetCard,
+  Txt,
+  useConfirm,
+  useToast,
+} from '@/ui/components';
 import { REFLOW_MS } from '@/ui/motion';
-import { colorForTag } from '@/ui/theme';
 
 type Period = 'today' | 'week' | 'month' | 'year';
 type Direction = 'expense' | 'income';
@@ -95,7 +113,13 @@ export default function LedgerScreen() {
       back
       title="Ledger"
       right={
-        <Button icon="add" label="Add" size="sm" variant="primary" onPress={() => setAdding(true)} />
+        <Button
+          icon="add"
+          label="Add"
+          size="sm"
+          variant="primary"
+          onPress={() => setAdding(true)}
+        />
       }
     >
       <Segmented options={PERIODS} value={period} onChange={setPeriod} />
@@ -427,9 +451,7 @@ function dayTotals(entries: readonly Transaction[]): string {
     const signed = tx.direction === 'income' ? tx.amount : -tx.amount;
     sums.set(tx.currency, (sums.get(tx.currency) ?? 0) + signed);
   }
-  return [...sums.entries()]
-    .map(([code, value]) => signedMoney(value, code))
-    .join(' · ');
+  return [...sums.entries()].map(([code, value]) => signedMoney(value, code)).join(' · ');
 }
 
 function TotalCard({
@@ -455,9 +477,19 @@ function TotalCard({
         </Txt>
       </View>
       <Txt variant="display">{formatMoney(spent, code)}</Txt>
+      {/* A zero is not an event, and it must not be painted like one. Both of
+          these were coloured unconditionally, so a month with no income at all
+          drew €0.00 in the cool "money came in" slate — the app's one
+          non-ember accent, spent on the absence of the thing it means — and a
+          net of exactly zero was reported as a good outcome. The same argument
+          as an empty checkbox not being a state worth a colour. */}
       <View style={{ flexDirection: 'row', gap: spacing.xl, marginTop: 2 }}>
-        <Stat label="In" value={formatMoney(received, code)} tone="success" />
-        <Stat label="Net" value={signedMoney(net, code)} tone={net >= 0 ? 'success' : 'primary'} />
+        <Stat
+          label="In"
+          value={formatMoney(received, code)}
+          tone={received > 0 ? 'success' : 'secondary'}
+        />
+        <Stat label="Net" value={signedMoney(net, code)} tone={net > 0 ? 'success' : 'primary'} />
       </View>
     </Card>
   );
@@ -470,7 +502,7 @@ function Stat({
 }: {
   label: string;
   value: string;
-  tone: 'success' | 'primary';
+  tone: 'success' | 'primary' | 'secondary';
 }) {
   return (
     <View style={{ gap: 1 }}>
@@ -527,7 +559,12 @@ function BreakdownBar({
               height: '100%',
               // A visible stub keeps a 0% row from reading as missing data.
               borderRadius: 3,
-              backgroundColor: colorForTag(name),
+              // One ink for every bar. A colour per category was hashed from the
+              // word, so four rows here came out the same tan more often than
+              // not — and even when they did not, the length is the datum and
+              // the name is already written above it. Spending is money going
+              // out, which in this palette is warm, so the bars are the ember.
+              backgroundColor: colors.accent,
             },
             fillStyle,
           ]}
@@ -558,7 +595,7 @@ function TransactionRow({ tx, onEdit }: { tx: Transaction; onEdit: () => void })
           {title}
         </Txt>
         <View style={styles.meta}>
-          <Chip label={tx.category} size="sm" color={colorForTag(tx.category)} />
+          <Chip label={tx.category} size="sm" />
           {tx.entityName ? (
             <Txt variant="micro" tone="tertiary" numberOfLines={1}>
               {tx.entityName}
@@ -651,7 +688,13 @@ function EditSheet({
             <Button label="Cancel" variant="ghost" onPress={onClose} />
           </View>
 
-          <Button label="Delete" icon="trash-outline" variant="danger" fullWidth onPress={onDelete} />
+          <Button
+            label="Delete"
+            icon="trash-outline"
+            variant="danger"
+            fullWidth
+            onPress={onDelete}
+          />
         </>
       }
     >
@@ -972,7 +1015,6 @@ function ChipField({
             key={option}
             label={option}
             size="sm"
-            color={colorForTag(option)}
             selected={!editing && option === value}
             onPress={() => pick(option)}
           />
@@ -1028,7 +1070,10 @@ function SkeletonRows({ count = 4 }: { count?: number }) {
             ]}
           />
           <View
-            style={[styles.bone, { width: '32%', height: 8, backgroundColor: colors.surfaceSunken }]}
+            style={[
+              styles.bone,
+              { width: '32%', height: 8, backgroundColor: colors.surfaceSunken },
+            ]}
           />
         </View>
       ))}

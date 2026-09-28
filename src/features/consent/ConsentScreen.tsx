@@ -43,6 +43,7 @@ import {
   ASSISTANT_PROVIDER,
   CRASH_PROVIDER,
   STORE_PROVIDER,
+  STT_PROVIDER,
   WHISPER_PROVIDER,
   type AssistantConsent,
 } from '@/llm/consent';
@@ -374,11 +375,12 @@ export function ConsentScreen({ onDone }: ConsentScreenProps) {
               switch on rather than merely leave alone; the sentence says so,
               because "optional" and "off right now" are different promises. */}
           <Txt variant="micro" tone="tertiary">
-            There is no account. Three optional extras also need this permission, and each is off
-            or unconfigured until you set it up: Whisper transcription, which uploads the recording
-            to {WHISPER_PROVIDER} with a key you paste in yourself; and — only if you switch on Help
-            improve Ridik in Settings, which is off — a count of what you did, never what you said,
-            to {ANALYTICS_PROVIDER}, along with crash reports to {CRASH_PROVIDER}.
+            There is no account. Four optional extras also need this permission, and each is off
+            or unconfigured until you set it up: better transcription, which uploads the recording
+            to {STT_PROVIDER} or to {WHISPER_PROVIDER}, each with a key you paste in yourself; and
+            — only if you switch on Help improve Ridik in Settings, which is off — a count of what
+            you did, never what you said, to {ANALYTICS_PROVIDER}, along with crash reports to{' '}
+            {CRASH_PROVIDER}.
           </Txt>
           {/* Two recipients nobody opts into, and the reason this paragraph
               stopped claiming the optional four were "the only other things

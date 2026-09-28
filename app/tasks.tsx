@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ScrollView, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { countLabel } from '@/core/format';
@@ -41,7 +42,20 @@ const DONE_FILTER = { completed: true } as const;
 
 export default function TasksScreen() {
   const { colors, spacing } = useTheme();
-  const [view, setView] = useState<TaskView>('active');
+  /*
+   * The tab can be opened *into*, and the reason is a real dead end.
+   *
+   * "I can't solder the board until the bearings arrive" files a dependency
+   * and then the soldering task vanishes from Active — correctly, it is
+   * blocked — with the only trace a "· 1 blocked" in the subtitle. So the
+   * receipt said the link had been made, the tap on it opened the screen where
+   * the task is not, and the honest question that came back was "where should
+   * I see that?".
+   */
+  const params = useLocalSearchParams<{ view?: string }>();
+  const [view, setView] = useState<TaskView>(
+    params.view === 'blocked' || params.view === 'done' ? params.view : 'active',
+  );
   const [showGraph, setShowGraph] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [quickTask, setQuickTask] = useState<Task | null>(null);
@@ -154,7 +168,18 @@ export default function TasksScreen() {
       ) : (
         <>
           <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md }}>
-            <Segmented options={VIEWS} value={view} onChange={setView} />
+            {/* The count rides on the tab, not only in the subtitle. A tab
+                that says how much is behind it is the difference between a
+                third segment nobody presses and one that asks to be. */}
+            <Segmented
+              options={VIEWS.map((entry) =>
+                entry.value === 'blocked' && blocked.length > 0
+                  ? { ...entry, label: `Blocked ${blocked.length}` }
+                  : entry,
+              )}
+              value={view}
+              onChange={setView}
+            />
           </View>
 
           <ScrollView

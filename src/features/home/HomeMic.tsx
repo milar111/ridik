@@ -37,7 +37,8 @@ import { fade } from '@/ui/motion';
 // `createAnimatedComponent` calls produce two component *types*, and the app
 // only needs one.
 import { AnimatedPressable, usePressScale } from '@/ui/motionHooks';
-import { elevate, withAlpha } from '@/ui/shadow';
+import { elevate } from '@/ui/shadow';
+import { useTourTarget } from '@/features/tour/TourContext';
 import { useVoiceStore } from '@/features/voice/store';
 
 const DIAMETER = 138;
@@ -45,10 +46,11 @@ const DIAMETER = 138;
 /**
  * The caption's box, reserved whatever is in it.
  *
- * Three lines of `caption` (17pt line height) plus a little air. Three because
- * two is not enough to be worth scrolling and four starts to crowd the receipt
- * below; past that the words scroll, which is the honest answer for a
- * dictation of any length.
+ * The number is unchanged from when the line was set larger, deliberately: it
+ * is what keeps the disc under your thumb in every state, and holding it while
+ * the type got smaller simply buys a fourth line of `eyebrow` (14pt line
+ * height) instead of a third of `caption`. Past that the words scroll, which
+ * is the honest answer for a dictation of any length.
  */
 const CAPTION_HEIGHT = 58;
 
@@ -82,6 +84,11 @@ const SPOKEN_IDLE = 'Tap to speak, or hold to type instead.';
 /** What the button is doing, in the fewest words that are still true. */
 const CAPTION: Record<string, string> = {
   listening: 'Listening · tap to send',
+  // Only ever seen when the recogniser returned nothing to show: with words in
+  // hand the caption keeps *them* up through this state — see `showingPartial`.
+  // Without it, the half-second after a silent utterance fell back to the idle
+  // label, which is the app saying "tap to speak" at somebody who just had.
+  sending: 'Sending',
   thinking: 'Working on it',
   speaking: 'Speaking',
   error: 'Tap to try again',
@@ -101,6 +108,7 @@ const CAPTION: Record<string, string> = {
  */
 const SPOKEN: Record<string, string> = {
   listening: 'Listening. Tap to send.',
+  sending: 'Sending.',
   thinking: 'Working on it.',
   speaking: 'Ridik is speaking.',
   error: 'That did not work. Tap to try again.',
@@ -168,6 +176,23 @@ export function HomeMic() {
 
   const startHold = () => {
     press.onPressIn();
+    /*
+      The press is confirmed by touch, not only by the collar.
+
+      The collar is the only thing saying a hold is under way, and it is not
+      drawn under Reduce Motion — so for those users pressing and waiting out
+      the 550ms produced no feedback of any kind, which is indistinguishable
+      from a tap that missed the button. That is the exact failure the collar
+      was added to prevent, left open for the people least able to tolerate it.
+
+      A haptic is the right answer rather than drawing the collar anyway: it is
+      not motion, so it does not defeat the setting, and it says the one thing
+      that was missing — *the button has you*. It is also what the hardware this
+      interaction was modelled on does, and for the same reason: the Stream ring
+      buzzes on press to confirm the mic is live, because a device you are not
+      looking at has to confirm by touch.
+    */
+    void Haptics.selectionAsync().catch(() => {});
     if (reduced) return;
     hold.value = 0;
     hold.value = withTiming(1, { duration: HOLD_MS, easing: Easing.linear });
@@ -204,8 +229,22 @@ export function HomeMic() {
    */
   const captionScroll = useRef<ScrollView>(null);
 
+  const micTarget = useTourTarget('mic');
+
   const spoken = SPOKEN[status] ?? null;
-  const showingPartial = listening && Boolean(partial);
+  /*
+    The words stay up while the utterance is being finalised, not just while it
+    is being heard.
+
+    `sending` is the window between the user finishing and the turn starting —
+    the recogniser is allowed 2.5s to hand over a final result. Dropping the
+    caption at the moment the finger lifts put the resting label back over a
+    sentence the user was still reading, and then a receipt arrived from
+    nowhere. Holding the last partial through `sending` makes the hand-off
+    continuous: the words you spoke stay on screen until the thing they did
+    replaces them.
+  */
+  const showingPartial = (listening || status === 'sending') && Boolean(partial);
   const announce = spoken && !showingPartial;
   // The iOS half of the same thing. See `src/ui/a11y.ts` for why it is not both
   // on both.
@@ -213,7 +252,11 @@ export function HomeMic() {
 
   return (
     <View style={[styles.wrap, { gap: spacing.lg }]}>
-      <View style={styles.stack}>
+      {/* The guided tour rings the disc, not the whole mic block: the caption
+          under it is a different thing and a ring around both says so. Inert
+          outside a `TourProvider`, so this component's own tests know nothing
+          about the tour. */}
+      <View style={styles.stack} {...micTarget}>
         <Animated.View
           pointerEvents="none"
           style={[styles.ring, { borderColor: colors.text }, ringStyle]}
@@ -266,12 +309,16 @@ export function HomeMic() {
         whatever is in it, so nothing on this screen ever moves, and a sentence
         longer than three lines scrolls with its top going under the fade.
 
-        A live transcript also stops being an `eyebrow`. That variant is a
-        tracked, upper-cased *label*, which is right for "TAP TO SPEAK" and
-        actively hostile to a paragraph: shouting is slower to read, and
-        `letterSpacing` costs a character or two per line on Android, which
-        cannot even measure it correctly. Your own words come back in the voice
-        they were said in.
+        One typographic treatment, not two. The transcript used to be set in
+        `caption` — larger, untracked, in the body face — on the reasoning that
+        `eyebrow` is a *label* variant and shouting a paragraph is slower to
+        read. That reasoning survives in exactly one place: the words are not
+        upper-cased. Everything else about it was wrong on a real screen, where
+        the caption slot visibly changed typeface, size and weight the instant
+        you started talking, so the calmest moment in the app became the one
+        where the type jumped. The Android objection to `letterSpacing` does
+        not apply here either — `styles.caption` already gives it an explicit
+        width and centres it, which is the documented remedy.
       */}
       <View testID="home-mic-caption-box" style={styles.captionBox}>
         <ScrollView
@@ -288,8 +335,8 @@ export function HomeMic() {
         >
           <Txt
             testID="home-mic-caption"
-            variant={showingPartial ? 'caption' : 'eyebrow'}
-            tone={showingPartial ? 'primary' : 'secondary'}
+            variant="eyebrow"
+            tone="secondary"
             style={styles.caption}
             // Android's half of "the state changed" — and off while the partial
             // transcript is what this line is showing.
@@ -303,48 +350,24 @@ export function HomeMic() {
           </Txt>
         </ScrollView>
         {/*
-          The top edge, softened. Without it a sentence scrolled halfway is a
-          line of text sliced through its own x-height, which reads as a
-          rendering fault rather than as more words above. It is only painted
-          while there is something to scroll, so the resting caption is not
-          sitting under a gradient for no reason.
+          There is no fade here any more, and the reason it had to go is the
+          one thing its own docblock got wrong. It was six bands of
+          `colors.bg`, argued as "the ground, not black" — but on *this* screen
+          the ground is not `colors.bg`. It is `HeatField`, and the caption sits
+          directly over the ember core, so an opaque brown-black strip was
+          painted across the brightest part of the screen at precisely the
+          moment the user was talking to it. Any opaque colour is wrong over an
+          animated gradient; the only correct version is a mask, which needs
+          `react-native-svg` whose mask support differs enough between the
+          platforms to come out a different size on each — eighteen points of
+          softening is not worth that. A top line sliced by the scroll edge is
+          a far smaller cost than a bar over the hero.
         */}
-        {showingPartial ? <CaptionFade /> : null}
       </View>
     </View>
   );
 }
 
-/**
- * A soft top edge, built from bands rather than a gradient.
- *
- * `expo-linear-gradient` is not a dependency of this app and eighteen points of
- * fade is not a reason to make it one — a native module has to be prebuilt into
- * both platforms, and this is decoration. Six bands over 18pt, each 3pt tall,
- * is under the threshold where banding is visible at this size; the alternative
- * was an `react-native-svg` overlay, which is a whole rendering surface for the
- * same result.
- *
- * The colour is the ground, not black: this sits over a warm field and a grey
- * or black fade would read as a smudge. See "Nothing is neutral grey".
- */
-function CaptionFade() {
-  const { colors } = useTheme();
-  return (
-    <View pointerEvents="none" style={styles.captionFade}>
-      {FADE_STEPS.map((alpha, index) => (
-        <View
-          key={index}
-          style={{ height: FADE_BAND, backgroundColor: withAlpha(colors.bg, alpha) }}
-        />
-      ))}
-    </View>
-  );
-}
-
-/** Six 3pt bands. Opaque at the cut edge, gone by the time text is readable. */
-const FADE_BAND = 3;
-const FADE_STEPS = [1, 0.86, 0.66, 0.44, 0.24, 0.1];
 
 const styles = StyleSheet.create({
   wrap: { alignItems: 'center', width: 300 },
@@ -376,5 +399,4 @@ const styles = StyleSheet.create({
   // not count `letterSpacing` when it measures a line, so a tracked label sized
   // to its own content gets ellipsised a character or two early — "TAP TO S…".
   caption: { textAlign: 'center', width: '100%' },
-  captionFade: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'column' },
 });

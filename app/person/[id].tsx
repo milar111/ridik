@@ -40,8 +40,9 @@ import {
 } from '@/ui/components';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { REFLOW_MS } from '@/ui/motion';
-import { useStaggeredEntry , AnimatedPressable, usePressScale } from '@/ui/motionHooks';
+import { useStaggeredEntry, AnimatedPressable, usePressScale } from '@/ui/motionHooks';
 import { useTheme } from '@/ui/ThemeProvider';
+import { inkOn } from '@/ui/ink';
 import { colorForTag } from '@/ui/theme';
 
 /** What to say to fill this screen — the empty state is the tutorial. */
@@ -303,7 +304,11 @@ function IdentityBlock({ profile }: { profile: CrmEntityProfile }) {
         onSuccess: () =>
           toast.show({ message: `“${value}” now resolves to ${entity.name}`, tone: 'success' }),
         onError: (error) =>
-          toast.show({ message: 'Could not add that alias', detail: error.message, tone: 'danger' }),
+          toast.show({
+            message: 'Could not add that alias',
+            detail: error.message,
+            tone: 'danger',
+          }),
       },
     );
   };
@@ -322,7 +327,11 @@ function IdentityBlock({ profile }: { profile: CrmEntityProfile }) {
             },
           }),
         onError: (error) =>
-          toast.show({ message: 'Could not remove that alias', detail: error.message, tone: 'danger' }),
+          toast.show({
+            message: 'Could not remove that alias',
+            detail: error.message,
+            tone: 'danger',
+          }),
       },
     );
   };
@@ -356,13 +365,20 @@ function IdentityBlock({ profile }: { profile: CrmEntityProfile }) {
           />
           <View style={{ flexDirection: 'row', gap: spacing.sm }}>
             <Button label="Save" variant="primary" size="sm" onPress={saveContext} />
-            <Button label="Cancel" variant="ghost" size="sm" onPress={() => setContextDraft(null)} />
+            <Button
+              label="Cancel"
+              variant="ghost"
+              size="sm"
+              onPress={() => setContextDraft(null)}
+            />
           </View>
         </View>
       ) : (
         <AnimatedPressable
           accessibilityRole="button"
-          accessibilityLabel={context ? `Edit relationship: ${context}` : 'Add relationship context'}
+          accessibilityLabel={
+            context ? `Edit relationship: ${context}` : 'Add relationship context'
+          }
           onPress={() => setContextDraft(context)}
           hitSlop={6}
           {...contextPress.handlers}
@@ -521,7 +537,9 @@ function ClosedCommitmentRow({
         onToggle={onToggle}
         label={commitment.commitmentText}
         sublabel={
-          commitment.completedAt !== null ? `done ${formatRelative(commitment.completedAt)}` : undefined
+          commitment.completedAt !== null
+            ? `done ${formatRelative(commitment.completedAt)}`
+            : undefined
         }
         right={
           <TrashButton
@@ -625,7 +643,11 @@ function CommitmentComposer({ entityName, onDone }: { entityName: string; onDone
           setText('');
           setDue('none');
           onDone();
-          toast.show({ message: 'Commitment added', detail: truncate(commitmentText, 60), tone: 'success' });
+          toast.show({
+            message: 'Commitment added',
+            detail: truncate(commitmentText, 60),
+            tone: 'success',
+          });
         },
         onError: (error) =>
           toast.show({ message: 'Could not save that', detail: error.message, tone: 'danger' }),
@@ -1120,8 +1142,20 @@ function ScreenHeader({ profile }: { profile: CrmEntityProfile | undefined }) {
   );
 }
 
+/**
+ * A person's initials, on a disc of their own colour.
+ *
+ * The disc used to be that colour at 18% over the card, which on a set of tints
+ * tuned to be *text* — low chroma by design, because they have to clear 4.5:1 on
+ * a near-white ground — composited to a grey. Two discs, one warm grey and one
+ * cool grey, in a palette whose first rule is that nothing is neutral. A tint
+ * cannot be both a readable ink and a visible wash at a fifth of its strength;
+ * this is the one place the ramp is a *fill*, so it is drawn at full strength
+ * with `inkOn` picking the linen or the soot that reads on it.
+ */
 function Monogram({ name, size = 34 }: { name: string; size?: number }) {
-  const tint = colorForTag(name);
+  const { scheme } = useTheme();
+  const tint = colorForTag(name, scheme);
   return (
     <View
       style={{
@@ -1130,10 +1164,10 @@ function Monogram({ name, size = 34 }: { name: string; size?: number }) {
         borderRadius: size / 2,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: withAlpha(tint, 0.18),
+        backgroundColor: tint,
       }}
     >
-      <Txt variant={size >= 44 ? 'heading' : 'caption'} weight="700" style={{ color: tint }}>
+      <Txt variant={size >= 44 ? 'heading' : 'caption'} weight="700" style={{ color: inkOn(tint) }}>
         {initialsOf(name)}
       </Txt>
     </View>
@@ -1162,7 +1196,9 @@ function SkeletonBlock() {
   return (
     <View style={{ gap: spacing.md }} importantForAccessibility="no-hide-descendants">
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-        <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surfaceSunken }} />
+        <View
+          style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surfaceSunken }}
+        />
         <View style={{ flex: 1, gap: 6 }}>
           {bar('55%', 12)}
           {bar('30%', 9)}
@@ -1200,7 +1236,9 @@ type DueChoice = 'none' | 'today' | 'tomorrow' | 'week';
 function dueEpoch(choice: DueChoice): number | null {
   if (choice === 'none') return null;
   const days = choice === 'today' ? 0 : choice === 'tomorrow' ? 1 : 7;
-  return epochToLocal(Date.now()).plus({ days }).endOf('day').toMillis();
+  // `now()`, never `Date.now()`: this value is written to the database as a
+  // deadline, so a test that freezes the clock has to be able to reach it.
+  return epochToLocal(now()).plus({ days }).endOf('day').toMillis();
 }
 
 function initialsOf(name: string): string {
@@ -1209,12 +1247,6 @@ function initialsOf(name: string): string {
   const first = parts[0]![0]!;
   const last = parts.length > 1 ? parts[parts.length - 1]![0]! : '';
   return (first + last).toUpperCase();
-}
-
-/** colorForTag returns #RRGGBB; the same hue at low alpha is the plate behind it. */
-function withAlpha(hex: string, alpha: number): string {
-  const value = Number.parseInt(hex.slice(1), 16);
-  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
 }
 
 const styles = StyleSheet.create({
@@ -1236,5 +1268,11 @@ const styles = StyleSheet.create({
   balanceRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 12 },
   txRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 9 },
   historyRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 9 },
-  moreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 36 },
+  moreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    minHeight: 36,
+  },
 });

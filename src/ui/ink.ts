@@ -5,9 +5,9 @@
  * is a warm brown, because a true white next to this palette reads as a bug.
  * Seven glyphs and labels drawn *on* a fill were breaking it with `#FFFFFF` —
  * and one hardcoded white is worse than a cosmetic slip, because a fill is not
- * always dark. `colors.accent` is #C7360F in light and #FF8253 in dark; white
- * on the second measures 2.45:1, and `colors.success` in dark (#51C68A) is
- * worse at 2.15:1. Both were shipping.
+ * always dark. `colors.accent` is a deep rust in light and #FF8253 in dark;
+ * white on the second measures 2.45:1, and the cool token in dark is worse.
+ * Both were shipping.
  *
  * So the ink is not a constant, it is a *function of the fill*. The two values
  * it chooses between are the palette's own: `CellRamp.onHeat`, which is exactly
@@ -90,4 +90,23 @@ export function inkOn(fill: string): string {
   const own = luminance(fill);
   if (own == null) return LINEN;
   return ratio(LINEN_LUMINANCE, own) >= ratio(SOOT_LUMINANCE, own) ? LINEN : SOOT;
+}
+
+/**
+ * A colour at an opacity — a *plate* of it, rather than the colour itself.
+ *
+ * The palette hands out `accentMuted`, `successMuted` and the rest for exactly
+ * this, and they are enough right up to the point where the tint is not a
+ * palette token: a tag colour, or an ember chosen in Settings. This is the same
+ * arithmetic for a fill that arrives at runtime.
+ *
+ * The alphas are the palette's own, and they differ by scheme because the two
+ * grounds do: 12% of a dark ink over linen is the same *presence* as 16% of a
+ * pale one over soot.
+ */
+export function plateOf(color: string, scheme: 'light' | 'dark'): string {
+  const rgb = channels(color);
+  if (!rgb) return 'transparent';
+  const [r, g, b] = rgb;
+  return `rgba(${r}, ${g}, ${b}, ${scheme === 'dark' ? 0.16 : 0.12})`;
 }

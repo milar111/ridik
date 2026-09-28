@@ -68,6 +68,22 @@ export const ASSISTANT_PROVIDER = 'Google';
  */
 export const WHISPER_PROVIDER = 'OpenAI';
 
+/**
+ * The third, and the reason there is a third.
+ *
+ * `src/voice/assemblyai.ts` posts the recording to `api.assemblyai.com`. It is
+ * the same payload Whisper takes and the same opt-in shape, and it is a
+ * separate constant rather than a second sentence about "transcription"
+ * because the rule this file exists for is *every recipient by name* — a
+ * screen that said "your audio may go to a transcription service" would be a
+ * grant obtained with a disclosure that understates, which is worse than none.
+ *
+ * `consent-screen.test.tsx` enumerates every `*_PROVIDER` this module exports
+ * and fails if one of them is not on the screen, so adding this constant is
+ * what makes forgetting the sentence a red test.
+ */
+export const STT_PROVIDER = 'AssemblyAI';
+
 /*
   There is no `PUSH_PROVIDER` any more, and its absence is the point.
 

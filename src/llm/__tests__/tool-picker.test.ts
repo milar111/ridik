@@ -93,17 +93,16 @@ describe('narrowing', () => {
       'note_create',
       'checklist_add',
       'checklist_toggle',
+      'checklist_remove',
+      'checklist_delete',
     ]);
     expect(pickedFor('Spent 12 leva on lunch')).toEqual([
       'note_create',
       'ledger_add',
       'ledger_query',
+      'ledger_delete',
     ]);
-    expect(pickedFor('Pause the timer')).toEqual([
-      'note_create',
-      'timer_start',
-      'timer_control',
-    ]);
+    expect(pickedFor('Pause the timer')).toEqual(['note_create', 'timer_start', 'timer_control']);
   });
 
   it('keeps every domain a multi-intent utterance touches', () => {
@@ -163,7 +162,7 @@ describe('narrowing', () => {
  *
  * A new example, or a changed one, re-tests the picker for free.
  */
-describe('the prompt\'s own examples', () => {
+describe("the prompt's own examples", () => {
   it.each(FEW_SHOT_EXAMPLES.map((example) => [example.input, example] as const))(
     'never drops the tool %s needs',
     (_input, example) => {

@@ -47,9 +47,24 @@ type Preset = {
 };
 
 const PRESETS: Preset[] = [
-  { key: 'pomodoro', label: 'Pomodoro', icon: 'timer-outline', plan: { focusMinutes: 25, breakMinutes: 5, cycles: 4 } },
-  { key: 'deep', label: 'Deep work', icon: 'telescope-outline', plan: { focusMinutes: 50, breakMinutes: 10, cycles: 2 } },
-  { key: 'block', label: 'Single block', icon: 'square-outline', plan: { focusMinutes: 90, breakMinutes: 0, cycles: 1 } },
+  {
+    key: 'pomodoro',
+    label: 'Pomodoro',
+    icon: 'timer-outline',
+    plan: { focusMinutes: 25, breakMinutes: 5, cycles: 4 },
+  },
+  {
+    key: 'deep',
+    label: 'Deep work',
+    icon: 'telescope-outline',
+    plan: { focusMinutes: 50, breakMinutes: 10, cycles: 2 },
+  },
+  {
+    key: 'block',
+    label: 'Single block',
+    icon: 'square-outline',
+    plan: { focusMinutes: 90, breakMinutes: 0, cycles: 1 },
+  },
 ];
 
 export default function FocusScreen() {
@@ -69,7 +84,8 @@ function FocusBody() {
   const { snapshot, phases } = useLiveFocus();
   // A completed or cancelled snapshot lingers for a frame after the runtime
   // detaches; only a live one may claim the screen.
-  const live = snapshot && (snapshot.status === 'running' || snapshot.status === 'paused') ? snapshot : null;
+  const live =
+    snapshot && (snapshot.status === 'running' || snapshot.status === 'paused') ? snapshot : null;
 
   return (
     <>
@@ -167,89 +183,92 @@ function RunningSession({ snapshot, phases }: { snapshot: FocusSnapshot; phases:
 
   return (
     <>
-    <Card padded={false}>
-      <View style={{ padding: spacing.lg, gap: spacing.md }}>
-        <View style={styles.rowBetween}>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Txt variant="micro" style={{ color: tint, letterSpacing: 1 }}>
-              {isBreak ? 'BREAK' : 'FOCUS'}
+      <Card padded={false}>
+        <View style={{ padding: spacing.lg, gap: spacing.md }}>
+          <View style={styles.rowBetween}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Txt variant="micro" style={{ color: tint, letterSpacing: 1 }}>
+                {isBreak ? 'BREAK' : 'FOCUS'}
+              </Txt>
+              <Txt variant="bodyStrong" numberOfLines={1}>
+                {snapshot.label}
+              </Txt>
+            </View>
+            {paused ? <Badge label="Paused" tone="warning" /> : null}
+            {snapshot.subject ? <Badge label={snapshot.subject} tone="neutral" /> : null}
+          </View>
+
+          <Txt
+            variant="timer"
+            center
+            accessibilityLabel={`${formatClock(snapshot.phaseRemainingMs)} left in this ${snapshot.phase.kind}`}
+            style={{ color: paused ? colors.textTertiary : colors.text }}
+          >
+            {snapshot.clock}
+          </Txt>
+
+          <View
+            accessibilityRole="progressbar"
+            accessibilityValue={{ min: 0, max: 100, now: Math.round(progress * 100) }}
+            style={[
+              styles.track,
+              { backgroundColor: colors.surfaceSunken, borderRadius: radius.pill },
+            ]}
+          >
+            <Animated.View
+              style={[
+                {
+                  height: '100%',
+                  backgroundColor: tint,
+                  borderRadius: radius.pill,
+                },
+                fillStyle,
+              ]}
+            />
+          </View>
+
+          <View style={styles.rowBetween}>
+            <Txt variant="caption" tone="tertiary">
+              Phase {snapshot.phaseIndex + 1} of {snapshot.phaseCount}
             </Txt>
-            <Txt variant="bodyStrong" numberOfLines={1}>
-              {snapshot.label}
+            <Txt variant="caption" tone="tertiary">
+              {formatClock(snapshot.totalRemainingMs)} left in total
             </Txt>
           </View>
-          {paused ? <Badge label="Paused" tone="warning" /> : null}
-          {snapshot.subject ? <Badge label={snapshot.subject} tone="neutral" /> : null}
+
+          {phases.length > 0 ? <PhaseStrip phases={phases} current={snapshot.phaseIndex} /> : null}
         </View>
 
-        <Txt
-          variant="timer"
-          center
-          accessibilityLabel={`${formatClock(snapshot.phaseRemainingMs)} left in this ${snapshot.phase.kind}`}
-          style={{ color: paused ? colors.textTertiary : colors.text }}
-        >
-          {snapshot.clock}
-        </Txt>
+        <Divider />
 
-        <View
-          accessibilityRole="progressbar"
-          accessibilityValue={{ min: 0, max: 100, now: Math.round(progress * 100) }}
-          style={[styles.track, { backgroundColor: colors.surfaceSunken, borderRadius: radius.pill }]}
-        >
-          <Animated.View
-            style={[
-              {
-                height: '100%',
-                backgroundColor: tint,
-                borderRadius: radius.pill,
-              },
-              fillStyle,
-            ]}
+        <View style={{ flexDirection: 'row', gap: spacing.sm, padding: spacing.md }}>
+          <Button
+            label={paused ? 'Resume' : 'Pause'}
+            icon={paused ? 'play' : 'pause'}
+            variant="primary"
+            onPress={() => run(paused ? 'resume' : 'pause')}
+            disabled={control.isPending}
+            style={{ flex: 1 }}
+          />
+          <Button
+            label="Skip"
+            icon="play-skip-forward"
+            onPress={() => run('skip')}
+            disabled={control.isPending}
+            accessibilityLabel="Skip this phase"
+            style={{ flex: 1 }}
+          />
+          <Button
+            label="Stop"
+            icon="stop"
+            variant="danger"
+            onPress={confirmStop}
+            disabled={control.isPending}
+            style={{ flex: 1 }}
           />
         </View>
-
-        <View style={styles.rowBetween}>
-          <Txt variant="caption" tone="tertiary">
-            Phase {snapshot.phaseIndex + 1} of {snapshot.phaseCount}
-          </Txt>
-          <Txt variant="caption" tone="tertiary">
-            {formatClock(snapshot.totalRemainingMs)} left in total
-          </Txt>
-        </View>
-
-        {phases.length > 0 ? <PhaseStrip phases={phases} current={snapshot.phaseIndex} /> : null}
-      </View>
-
-      <Divider />
-
-      <View style={{ flexDirection: 'row', gap: spacing.sm, padding: spacing.md }}>
-        <Button
-          label={paused ? 'Resume' : 'Pause'}
-          icon={paused ? 'play' : 'pause'}
-          variant="primary"
-          onPress={() => run(paused ? 'resume' : 'pause')}
-          disabled={control.isPending}
-          style={{ flex: 1 }}
-        />
-        <Button
-          label="Skip"
-          icon="play-skip-forward"
-          onPress={() => run('skip')}
-          disabled={control.isPending}
-          accessibilityLabel="Skip this phase"
-          style={{ flex: 1 }}
-        />
-        <Button
-          label="Stop"
-          icon="stop"
-          variant="danger"
-          onPress={confirmStop}
-          disabled={control.isPending}
-          style={{ flex: 1 }}
-        />
-      </View>
-    </Card>
-    {confirm.dialog}
+      </Card>
+      {confirm.dialog}
     </>
   );
 }
@@ -278,17 +297,18 @@ function PhaseStrip({ phases, current }: { phases: SessionPhase[]; current: numb
               active ? ', running now' : done ? ', done' : ''
             }`}
           >
+            {/* Three states, one colour each way. The phase keeps its own
+                temperature throughout — warm for work, cool for a break — and
+                what changes is the weight: an outline is still to come, a plate
+                is spent, and the solid fill is *now*. Done used to be a grey
+                fill, which spent the loudest treatment a chip has on the part of
+                the session that is already over. */}
             <Chip
               size="sm"
               label={String(phase.minutes)}
               selected={done || active}
-              color={
-                done
-                  ? colors.borderStrong
-                  : phase.kind === 'break'
-                    ? colors.info
-                    : colors.accent
-              }
+              fill={active ? 'solid' : 'soft'}
+              color={phase.kind === 'break' ? colors.info : colors.accent}
             />
           </Animated.View>
         );
@@ -522,7 +542,9 @@ function SkeletonRows() {
 function InlineError({ message, onRetry }: { message: string; onRetry: () => void }) {
   const { colors, spacing } = useTheme();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md }}>
+    <View
+      style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md }}
+    >
       <Ionicons name="alert-circle-outline" size={18} color={colors.danger} />
       <Txt variant="caption" tone="secondary" style={{ flex: 1 }} numberOfLines={2}>
         {message}

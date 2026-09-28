@@ -94,6 +94,26 @@ describe('the hook really does this', () => {
     expect(source).toContain('setZoneOverride');
     // And the broad invalidation, without which every cached day heading keeps
     // the old zone's dates on screen.
-    expect(source).toMatch(/'timezone' in patch \? qk\.all/);
+    expect(source).toMatch(/'timezone' in patch \|\| 'clockFormat' in patch \? qk\.all/);
+  });
+
+  /**
+   * `clockFormat` is the second setting that is module state, and it arrived
+   * with the same trap already documented above: applied only at bootstrap, it
+   * would write the row, show the new value on the Settings screen, and leave
+   * every agenda gutter, briefing lead and home readout on the old format
+   * until the process was killed. The invalidation has to be the broad one for
+   * the same reason too — a clock reading is cached inside every day query.
+   */
+  it('applies the clock format from the settings mutation', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const source = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '..', 'useSettings.ts'),
+      'utf8',
+    ) as string;
+
+    expect(source).toContain('function applyClock');
+    expect(source).toMatch(/applyClock\(patch\)/);
+    expect(source).toMatch(/'clockFormat' in patch/);
   });
 });
