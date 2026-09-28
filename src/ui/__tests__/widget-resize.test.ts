@@ -221,7 +221,12 @@ const attr = (xml: string, name: string): number =>
     return xml.slice(at, end === -1 ? undefined : end);
   }
 
-  const layouts = readdirSync(LAYOUT).filter((f) => f.startsWith('ridik_') && f.endsWith('.xml'));
+  // A skipped describe still runs its body to collect the tests, so the read
+  // has to be guarded as well as the block — on a checkout with no `android/`
+  // an unguarded `readdirSync` fails the whole suite rather than skipping it.
+  const layouts = existsSync(LAYOUT)
+    ? readdirSync(LAYOUT).filter((f) => f.startsWith('ridik_') && f.endsWith('.xml'))
+    : [];
 
   // Every graphic that is a whole face's picture. A row of text may be
   // `wrap_content` — it is the thing the graphic is yielding *to*.

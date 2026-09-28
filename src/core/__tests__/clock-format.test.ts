@@ -22,10 +22,18 @@ import {
   formatTime,
   sampleClock,
   setClockFormat,
+  setZoneOverride,
   uses12Hour,
 } from '@/core/time';
 
-/** 2026-09-06, a Sunday, in Europe/Sofia — the zone `setup-logic.ts` freezes. */
+/**
+ * 2026-09-06, a Sunday, in Europe/Sofia. Pinned here rather than borrowed from
+ * `setup-logic.ts`, which only defaults `TZ` — CI runs this suite again under
+ * UTC and Los Angeles, and every reading below would move with it.
+ */
+beforeAll(() => setZoneOverride('Europe/Sofia'));
+afterAll(() => setZoneOverride(null));
+
 const AT_2100 = Date.UTC(2026, 8, 6, 18, 0);
 const AT_0930 = Date.UTC(2026, 8, 6, 6, 30);
 const MIDNIGHT = Date.UTC(2026, 8, 5, 21, 0);

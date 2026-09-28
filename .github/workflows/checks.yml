@@ -89,24 +89,14 @@ jobs:
       #     false positive — the declaration is there and tsc resolves it.
       #     Disabled at the single site rather than by weakening the rule.
       #
-      # The remaining 43 are 21 warnings and 22 errors:
-      #   * 13 `no-require-imports` — load-bearing, either an optional native
-      #     module inside a `try` or a lazy load that keeps the `logic` project
-      #     importable under plain Node. Downgraded to `warn` so a new one is
-      #     still visible.
-      #   * 8 `exhaustive-deps` — one judgement call each; adding a dep to the
-      #     wrong one buys a render loop.
-      #   * 22 React Compiler diagnostics (`set-state-in-effect`, `purity`,
-      #     `immutability`, `refs`) across ~12 screens. These say a pattern is not
-      #     optimally compilable, not that it is broken — the code is tested and
-      #     runs on both platforms. They need real refactors, done deliberately
-      #     and one screen at a time, not a sweep at the end of a session.
-      #
-      # Gating now would mean a red run for a set that is understood and bounded.
-      # Flip `continue-on-error` off once the compiler diagnostics are worked
-      # through; nothing else stands in the way.
+      # Errors now gate. The React Compiler diagnostics that arrived with
+      # `eslint-plugin-react-hooks` 7 were worked through on 28 September: the
+      # `immutability` and `refs` findings were fixed (Reanimated's `.set()` /
+      # `.get()`, a ref read moved to `useState`), and `set-state-in-effect` —
+      # a deliberate re-sync pattern in about a dozen screens, in an app that
+      # does not run the compiler — is a warning in `eslint.config.js`, with the
+      # reason there. What is left is warnings only, and they stay visible.
       - name: Lint
-        continue-on-error: true
         run: npm run lint
 
       # The `logic` project runs under plain Node against real SQLite and the
