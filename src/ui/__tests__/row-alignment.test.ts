@@ -55,13 +55,13 @@ describe('the settings leading column', () => {
 
   it('indents what is in a card but is not a row by the same column', () => {
     // A card is rarely all rows. Developer's Assistant card interleaves them
-    // with a chip block and two sliders, and only the rows knew about the
-    // column: labels at 64pt, everything between them at 29.
+    // with sliders, and only the rows knew about the column: labels at 64pt,
+    // everything between them at 29. (It also had a model chip block, gone
+    // since the model was pinned.)
     expect(ROWS).toMatch(/export function useRowLeadInset\(\): number/);
     expect(ROWS).toMatch(/ROW_LEAD \+ spacing\.md/);
     // Every block in that card measures from the same inset.
     expect(ROWS.match(/paddingLeft: spacing\.md \+ lead/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
-    expect(read('app', 'developer.tsx')).toMatch(/paddingLeft: spacing\.md \+ lead/);
   });
 
   it('draws the ember swatch to the column instead of widening it', () => {

@@ -21,7 +21,6 @@ import { copyToClipboard } from '@/features/export';
 import {
   Group,
   ReserveRowLead,
-  useRowLeadInset,
   GroupSkeleton,
   RetryRow,
   Row,
@@ -58,12 +57,10 @@ import {
   type PermissionId,
   type PermissionLevel,
 } from '@/hooks/useSystem';
+import { DEFAULT_GEMINI_MODEL } from '@/llm/provider';
 import { ErrorBoundary } from '@/ui/ErrorBoundary';
 import { useTheme } from '@/ui/ThemeProvider';
-import { Badge, Button, Card, Chip, Screen, Section, Txt, useToast } from '@/ui/components';
-
-/** Names the Gemini client will actually accept. Free text is how voice dies. */
-const MODEL_PRESETS = ['gemini-flash-latest', 'gemini-3-flash', 'gemini-3.1-flash-lite'] as const;
+import { Badge, Button, Card, Screen, Section, Txt, useToast } from '@/ui/components';
 
 export default function DeveloperScreen() {
   const router = useRouter();
@@ -182,12 +179,7 @@ function latencyDetail(latency: LatencySummary): string {
 }
 
 function AssistantGroup() {
-  const { spacing } = useTheme();
-  // The card mixes rows with a chip block and two sliders; without this the
-  // second kind sits 34pt to the left of the first. See `useRowLeadInset`.
-  const lead = useRowLeadInset();
   const mode = useAssistantMode();
-  const model = useSetting('llmModel');
   const dailyCap = useSetting('llmDailyRequestCap');
   const monthlyCap = useSetting('llmMonthlyRequestCap');
   const trialUsed = useSetting('llmTrialRequestsUsed');
@@ -218,31 +210,12 @@ function AssistantGroup() {
       />
 
       {hosted ? null : (
-        <View
-          style={{
-            paddingLeft: spacing.md + lead,
-            paddingRight: spacing.md,
-            paddingVertical: spacing.md,
-            gap: spacing.sm,
-          }}
-        >
-          <Txt variant="micro" tone="tertiary" style={{ letterSpacing: 0.6 }}>
-            MODEL
-          </Txt>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
-            {MODEL_PRESETS.map((preset) => (
-              <Chip
-                key={preset}
-                label={preset}
-                selected={model.value === preset}
-                onPress={() => model.set(preset)}
-              />
-            ))}
-          </View>
-          <Txt variant="micro" tone="tertiary">
-            Anything the provider does not recognise falls back to the built-in default.
-          </Txt>
-        </View>
+        <Row
+          icon="hardware-chip-outline"
+          label="Model"
+          value={DEFAULT_GEMINI_MODEL}
+          hint="Fixed. Every price and limit in the app is worked out for this model."
+        />
       )}
 
       {hosted ? null : (

@@ -48,7 +48,12 @@ import { createLlmClient, type LlmClient } from '@/llm/client';
 import { createOrchestrator, type TurnOutcome } from '@/llm/orchestrator';
 import { createUsageMeter, estimateTextTokens, TYPICAL_TURN_TOKENS } from '@/llm/usage';
 import type { ExecutorEffects } from '@/llm/executor';
-import { createGeminiProvider, createHostedProvider, createMockProvider } from '@/llm/provider';
+import {
+  createGeminiProvider,
+  createHostedProvider,
+  createMockProvider,
+  DEFAULT_GEMINI_MODEL,
+} from '@/llm/provider';
 import { getRepositories } from '@/repositories';
 import { defaultSettings, type SettingsValues } from '@/repositories/settings';
 import { creditsCoverBreach, resolveAssistantBudget, type BudgetAction } from '@/services/billing/allowance';
@@ -549,18 +554,12 @@ async function preferredSchemaRung(): Promise<number> {
 }
 
 /**
- * `llmModel` is a free-text setting shared with future providers, so a value
- * that plainly is not a Gemini model is ignored rather than sent to Google as
- * a 404.
+ * The model is pinned, not chosen. Every price, cap and trial size in the app
+ * is worked out for this one model, so a stored `llmModel` from an older
+ * build is ignored rather than honoured — there is no screen that sets it.
  */
-async function preferredGeminiModel(): Promise<string | undefined> {
-  try {
-    const stored = (await getRepositories().settings.get('llmModel')).trim();
-    return stored.toLowerCase().startsWith('gemini') ? stored : undefined;
-  } catch (error) {
-    log.warn('could not read the model setting', error);
-    return undefined;
-  }
+async function preferredGeminiModel(): Promise<string> {
+  return DEFAULT_GEMINI_MODEL;
 }
 
 /* ---------------------------------------------------------------- pipeline -- */
