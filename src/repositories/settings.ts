@@ -217,14 +217,18 @@ export const SETTINGS = {
    * That is the whole content of this setting, and the screen says it in those
    * terms: **who hears it** and **what it costs**, never engine names alone.
    *
-   * `device` by default, and it stays the default even once a key is pasted:
-   * an engine that uploads audio must never become active because a *key*
-   * arrived, only because somebody chose it. A closed set for the same reason
-   * `ember` and `confirmMode` are.
+   * `whisper-local` by default, because it is the one upgrade with no cost
+   * a stranger could object to: nothing leaves the phone, nothing is billed,
+   * and where it cannot run (Android below 13) every caller already degrades
+   * to `device` through `canCaptureAudio()`. `assemblyai` is never the
+   * default, and stays off even once a key is pasted: an engine that uploads
+   * audio must never become active because a *key* arrived, only because
+   * somebody chose it. A closed set for the same reason `ember` and
+   * `confirmMode` are.
    */
   sttEngine: define<'device' | 'assemblyai' | 'whisper-local'>(
     z.union([z.literal('device'), z.literal('assemblyai'), z.literal('whisper-local')]),
-    () => 'device',
+    () => 'whisper-local',
   ),
 
   /**

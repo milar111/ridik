@@ -60,12 +60,11 @@ export default function ProjectsScreen() {
       rows: rows.filter((row) => row.project.status === status),
     })).filter((group) => group.rows.length > 0);
 
-    let offset = 0;
-    return present.map((group) => {
-      const placed = { ...group, offset };
-      offset += group.rows.length;
-      return placed;
-    });
+    // Each group's offset is the row count of every group above it.
+    return present.map((group, index) => ({
+      ...group,
+      offset: present.slice(0, index).reduce((sum, above) => sum + above.rows.length, 0),
+    }));
   }, [rows]);
   const arrive = useStaggeredEntry({ from: 'below' });
 

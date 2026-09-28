@@ -538,10 +538,17 @@ function ListeningGroup() {
   });
   if (options.length < 2) return null;
 
+  // The stored engine may be one this phone cannot run — the default is
+  // `whisper-local`, which needs Android 13 — and the pipeline then answers
+  // with the recogniser alone, so that is the row that gets the tick.
+  const active = options.some((option) => option.value === engine.value)
+    ? engine.value
+    : 'device';
+
   return (
     <Group title="How it listens">
       {options.map((option) => {
-        const selected = option.value === engine.value;
+        const selected = option.value === active;
         return (
           <Row
             key={option.value}

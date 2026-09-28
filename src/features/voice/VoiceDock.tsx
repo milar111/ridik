@@ -325,13 +325,13 @@ export function VoiceDock() {
     .onChange((event) => {
       // Downward only. Dragging a bottom sheet up should do nothing, not
       // detach it from the edge it is anchored to.
-      sheetY.value = Math.max(0, sheetY.value + event.changeY);
+      sheetY.set(Math.max(0, sheetY.get() + event.changeY));
     })
     .onEnd((event) => {
       // Either a long pull or a quick flick: a sheet that only closed on
       // distance ignores the fast flick everyone actually does.
-      if (sheetY.value > 90 || event.velocityY > 700) runOnJS(dismiss)();
-      else sheetY.value = withSpring(0, SPRING_TAP);
+      if (sheetY.get() > 90 || event.velocityY > 700) runOnJS(dismiss)();
+      else sheetY.set(withSpring(0, SPRING_TAP));
     });
 
 

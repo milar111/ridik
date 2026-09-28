@@ -98,7 +98,7 @@ REMOVING-ONESIGNAL.md
 # BACKLOG.txt and REMOVING-ONESIGNAL.md above predate the convention and are
 # named individually rather than moved, because both are referenced by name in
 # conversations and in AGENTS.md.
-notes/
+/notes/
 
 # Scratch tests an agent writes to reproduce a bug and then forgets to remove.
 # Two of these reached a commit during the August audits. A repro case is a

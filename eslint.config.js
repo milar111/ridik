@@ -86,4 +86,18 @@ module.exports = defineConfig([
       '@typescript-eslint/no-require-imports': 'warn',
     },
   },
+  {
+    /*
+     * `eslint-plugin-react-hooks` 7 arrived with `eslint-config-expo` 57.0.1 and
+     * brought the React Compiler's rules with it, as errors. This app does not
+     * run the compiler (`reactCompiler: false` in app.config.ts), and
+     * `set-state-in-effect` flags a pattern used on purpose in a dozen places:
+     * re-aligning local state when a setting or a query lands after the first
+     * paint. Rewriting all of them is a refactor, not a lint fix, so it is a
+     * warning — still visible on every run, no longer failing CI.
+     */
+    rules: {
+      'react-hooks/set-state-in-effect': 'warn',
+    },
+  },
 ]);

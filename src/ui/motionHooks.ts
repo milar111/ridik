@@ -23,7 +23,7 @@
  *    merely travels leans on `reduceMotion: ReduceMotion.System` in the config.
  *    Anything that loops or pops is switched off outright.
  */
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable } from 'react-native';
 import Animated, {
   Easing,
@@ -109,11 +109,11 @@ export function usePressScale(options: PressScaleOptions = {}) {
   });
 
   const onPressIn = useCallback(() => {
-    if (!disabled) press.value = withSpring(1, spring);
+    if (!disabled) press.set(withSpring(1, spring));
   }, [disabled, press, spring]);
 
   const onPressOut = useCallback(() => {
-    press.value = withSpring(0, spring);
+    press.set(withSpring(0, spring));
   }, [press, spring]);
 
   // `handlers` is spreadable onto a Pressable; the two are also returned flat
@@ -134,7 +134,7 @@ export function useMountProgress(spring: WithSpringConfig = SPRING_ENTER) {
   const progress = useSharedValue(0);
   // Captured at mount rather than tracked: an entrance runs once, and a caller
   // passing an inline config object would otherwise restart it on every render.
-  const config = useRef(spring).current;
+  const [config] = useState(spring);
 
   useEffect(() => {
     // The spring carries `ReduceMotion.System`, so this resolves to the settled

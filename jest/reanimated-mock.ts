@@ -43,9 +43,25 @@ const createAnimatedComponent = (component: unknown) => {
   return Wrapped;
 };
 
-/** A shared value that is a plain box: writes land, reads are synchronous. */
+/**
+ * A shared value that is a plain box: writes land, reads are synchronous.
+ * `get`/`set` mirror Reanimated 4's compiler-safe accessors, including `set`
+ * taking an updater.
+ */
 function useSharedValue<T>(initial: T) {
-  const ref = React.useRef({ value: initial });
+  const ref = React.useRef<{ value: T; get: () => T; set: (next: T | ((prev: T) => T)) => void }>(
+    null as never,
+  );
+  if (ref.current == null) {
+    const box = {
+      value: initial,
+      get: () => box.value,
+      set: (next: T | ((prev: T) => T)) => {
+        box.value = typeof next === 'function' ? (next as (prev: T) => T)(box.value) : next;
+      },
+    };
+    ref.current = box;
+  }
   return ref.current;
 }
 

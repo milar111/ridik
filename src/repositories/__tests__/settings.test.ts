@@ -64,7 +64,7 @@ describe('settings repository', () => {
         ttsRate: 1,
         primaryCurrency: 'EUR',
         clockFormat: 'auto',
-        sttEngine: 'device',
+        sttEngine: 'whisper-local',
         googleCalendarId: null,
         googleAccountEmail: null,
         onboardingComplete: false,
