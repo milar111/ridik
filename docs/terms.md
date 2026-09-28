@@ -95,7 +95,7 @@ as the usage counts. Their terms apply to their part.
 
 ## The source
 
-Ridik's source code is published under the MIT licence at
+Ridik's source code is published under the GNU Affero General Public License v3.0 at
 <https://github.com/milar111/ridik>. The licence covers the code. It does not
 grant access to the paid assistant service, to any API key, or to the Ridik name.
 

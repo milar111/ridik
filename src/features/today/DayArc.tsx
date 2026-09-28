@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
-import { formatTime } from '@/core/time';
+import { formatTime, uses12Hour } from '@/core/time';
 import { Txt } from '@/ui/components';
 import { useTheme } from '@/ui/ThemeProvider';
 
@@ -41,8 +41,14 @@ const MARKER = 9;
  * short — `letterSpacing` is not counted, so the last character is clipped.
  * A fixed width and `textAlign` is the documented fix, and it doubles as the
  * box the label is centred on.
+ *
+ * Sized for the clock it holds, measured in Martian at `eyebrow`'s 10pt with
+ * its 1.4 tracking: "21:00" is 42.0pt and "12:00 PM" is 67.2. A single 56 fit
+ * the first and cut the second to "12:00…" on every 12-hour phone.
  */
-const LABEL_WIDTH = 56;
+function labelWidth(): number {
+  return uses12Hour() ? 72 : 56;
+}
 
 export type DayArcProps = {
   agenda: Agenda;
@@ -169,12 +175,13 @@ function Label({
   accent?: boolean;
   children: string;
 }) {
-  const left = Math.max(0, Math.min(width - LABEL_WIDTH, x - LABEL_WIDTH / 2));
+  const box = labelWidth();
+  const left = Math.max(0, Math.min(width - box, x - box / 2));
   return (
     <Txt
       variant="eyebrow"
       tone={accent ? 'accent' : 'tertiary'}
-      style={[styles.label, { left, top: y }]}
+      style={[styles.label, { left, top: y, width: box }]}
       numberOfLines={1}
     >
       {children}
@@ -221,7 +228,6 @@ const styles = StyleSheet.create({
   markerHollow: { borderWidth: 2 },
   label: {
     position: 'absolute',
-    width: LABEL_WIDTH,
     textAlign: 'center',
   },
 });

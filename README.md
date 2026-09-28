@@ -83,4 +83,7 @@ Running it, the architecture and the design rules: **[DEVELOPING.md](DEVELOPING.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+Copyright © 2026 Daniel Yordanov. Licensed under the
+[GNU Affero General Public License v3.0](LICENSE): you can read, run and modify
+the code, but anything you distribute or host that is built on it has to be
+released under the same licence, with its source.
