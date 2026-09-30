@@ -192,13 +192,9 @@ export function formatDateTime(epoch: number, zone = currentZone()): string {
 }
 
 /*
- * These two defaulted to `Date.now()`, which is the one thing the invariant at
- * the top of `AGENTS.md` forbids: a module that reads the wall clock directly
- * cannot be frozen, so the string it renders is whatever the machine running
- * the test happened to say. Five call sites relied on the default — the note
- * row, the places screen, the people list and two on a person's profile — and
- * every one of them was untestable for that reason alone. The projects screens
- * already passed a `now` explicitly, which is what made the gap visible.
+ * These two default to `now()` rather than `Date.now()`: a module that reads
+ * the wall clock directly cannot be frozen, so the string it renders would be
+ * whatever the machine running the test happened to say.
  *
  * The parameter stays, because a caller with a `useNow()` tick should keep
  * passing it: that is what re-renders the label as time moves, and a default

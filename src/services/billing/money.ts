@@ -92,8 +92,7 @@ export function annualSaving(monthly: Plan | null, yearly: Plan | null): number 
 /**
  * The sentence under a yearly plan's headline price.
  *
- * Modelled on how Claude states it, because it is the wording that survives
- * the obvious follow-up questions: it names the total that will actually leave
+ * Worded to survive the obvious follow-up questions: it names the total that will actually leave
  * the account, says it goes up front, and repeats the monthly alternative so
  * the comparison does not require leaving the screen.
  *

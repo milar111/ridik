@@ -89,8 +89,8 @@ Using Ridik involves services described in the [Privacy Policy](privacy.html),
 which names each one and says what reaches it: our own server, Google (Gemini,
 and Calendar if you connect it), your phone's speech recognition and its
 geocoder, and Apple, Google and RevenueCat for a purchase. Optionally, and only
-when you turn the setting on: OpenAI for transcription, OneSignal for the daily
-briefing, and Sentry for crash reports — the last behind the same single switch
+when you turn the setting on: OpenAI or AssemblyAI for transcription, and
+Sentry for crash reports — the last behind the same single switch
 as the usage counts. Their terms apply to their part.
 
 ## The source

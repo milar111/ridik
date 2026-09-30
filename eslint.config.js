@@ -1,10 +1,6 @@
 /**
  * Lint, scoped to what a linter is actually good at here.
  *
- * `npm run lint` existed in package.json from the template and had never run:
- * eslint itself was not installed, so the script failed with "Cannot find
- * module 'eslint'" and nobody noticed until CI wanted to run it.
- *
  * Expo's shared config is the whole ruleset. What is added below is only the
  * ignore list — generated trees that no human wrote and that a linter would
  * report thousands of findings in, none of them actionable.

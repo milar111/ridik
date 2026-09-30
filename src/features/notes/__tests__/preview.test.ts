@@ -22,7 +22,7 @@ describe('estimating how tall a bullet is', () => {
   });
 
   /*
-    Measured rather than assumed: `notes/measure.py fits` puts this sentence at
+    Measured rather than assumed: the shipped font file puts this sentence at
     579.5pt in the shipped face at `caption`'s 13pt, against a 370pt row. If
     somebody retunes `PREVIEW_CHARS_PER_LINE` and this starts reading as one
     line, the row will draw two and overrun its budget by a line per bullet.

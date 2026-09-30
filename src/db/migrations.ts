@@ -485,8 +485,7 @@ ALTER TABLE llm_usage ADD COLUMN calls INTEGER NOT NULL DEFAULT 0;
 /**
  * What the user does with the app, counted — and only counted.
  *
- * The app measured its own latency for months and threw the measurement away;
- * this is the same mistake one level up. Nothing here is content: `name` comes
+ * Nothing here is content: `name` comes
  * from a closed union in `services/analytics/events.ts`, `props` is that
  * event's own schema and has no free-text field anywhere in it, and
  * `local_date` is deliberately the finest time this table records — a

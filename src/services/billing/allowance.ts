@@ -3,9 +3,8 @@
  *
  * One pure function, because the decision it makes is the one that costs real
  * money and it has to be readable in a test rather than inferred from a chain
- * of `? :` in the voice pipeline. It answers four questions that used to be
- * one, and being unable to tell them apart is what let a non-paying user spend
- * the operator's Gemini budget at 200 requests a day:
+ * of `? :` in the voice pipeline. It answers four questions that must never
+ * collapse into one:
  *
  *   personal    no store is compiled into this build, so there is nothing to
  *               have bought. This is somebody running Ridik on their own key,

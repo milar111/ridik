@@ -41,12 +41,11 @@ struct RidikRingsView: View {
   /**
    Six, in two rows of three — and the ring's name sits *beside* it, not under.
 
-   The under-label version of this face did not fit and never had. A medium
-   tile's content box is 312 x 130; a 56-point ring with four points of gap and
-   an eleven-point name under it is a 73-point row, so two rows plus the header
-   asked for about 189 points of the 130 there are. WidgetKit does not complain,
-   it clips — so the face shipped with its header cut off the top and the second
-   row's names cut off the bottom, which is exactly how it was found.
+   A name *under* each ring does not fit. A medium tile's content box is
+   312 x 130; a 56-point ring with four points of gap and an eleven-point name
+   under it is a 73-point row, so two rows plus the header ask for about 189
+   points of the 130 there are. WidgetKit does not complain, it clips the
+   header off the top and the second row's names off the bottom.
 
    Height is the scarce axis on a medium tile and width is the abundant one: 312
    points across three columns is 97 each, and a name reads perfectly well in the

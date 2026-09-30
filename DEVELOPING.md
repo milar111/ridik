@@ -51,8 +51,8 @@ Four rules hold it together:
    and an ambiguous match becomes a question. A wrong resolve destroys data silently, which is the
    one failure this app is built to make impossible.
 
-`AGENTS.md` records the rest — every invariant, and every trap that has already cost a debugging
-session.
+`AGENTS.md` records the rest — every invariant, and the platform details worth knowing before you
+change an area.
 
 ---
 
@@ -67,13 +67,13 @@ npx expo start               # Metro
 
 npm run ios
 
-export JAVA_HOME="$HOME/.jdks/temurin-21/Contents/Home"   # JDK 25 fails the CMake step
+export JAVA_HOME=/path/to/jdk-21   # the Android build requires JDK 21
 npm run android
 ```
 
 Requires Node 20+, Xcode 26+ with an iOS 26 simulator, the Android SDK with platform 36, and **JDK
-21**. This is a bare debug build rather than Expo Go — `expo-dev-client` is deliberately absent
-because its launcher needs a manual tap that blocks automated verification.
+21**. This is a bare debug build rather than Expo Go — `expo-dev-client` is deliberately absent so
+a debug build loads Metro directly, which keeps simulator verification fully scriptable.
 
 ### Configuration
 
@@ -86,7 +86,6 @@ subsystem no-ops when its value is missing rather than failing:
 EXPO_PUBLIC_REVENUECAT_IOS_KEY=appl_…      # unset → a local sandbox that sells nothing
 EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=goog_…
 EXPO_PUBLIC_REVENUECAT_ENTITLEMENT=…       # unset → `assistant`
-EXPO_PUBLIC_ONESIGNAL_APP_ID=…             # unset → no remote push
 EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=…         # unset → no calendar sync
 EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=…
 EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=…
@@ -97,7 +96,7 @@ EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=…
 ### Testing
 
 ```bash
-npm test              # 117 suites, 2,180+ tests
+npm test              # the full suite: logic, UI and server projects
 npm run test:logic    # plain Node — repositories, migrations, the LLM engine, services
 npm run test:ui       # jest-expo — component tests
 npm run typecheck
@@ -110,14 +109,9 @@ populated database and pushes it into whichever simulators are running — it is
 end-to-end exercise of the data layer.
 
 CI runs typecheck, lint, the full suite and a prebuild of both platforms on every push; compiled
-apps are a separate, manually-triggered workflow, because a native build is twenty minutes to prove
-something the simulators already showed.
+apps are built by a separate, manually-triggered workflow.
 
 ---
 
-
----
-
-See `AGENTS.md` for the invariants that hold this together and every trap that
-has already cost somebody a debugging session, and `WIDGETS.md` for the widget
+See `AGENTS.md` for the invariants that hold this together, and `WIDGETS.md` for the widget
 contract.

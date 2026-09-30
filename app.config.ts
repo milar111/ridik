@@ -79,18 +79,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
      *
      * `ios/Ridik/PrivacyInfo.xcprivacy` is written by prebuild and `ios/` is
      * gitignored, so a hand-edit there survives exactly until the next
-     * `expo prebuild` and then silently reverts to declaring that this app
-     * collects nothing. It shipped saying `NSPrivacyCollectedDataTypes: []`,
-     * which stopped being true the day the first turn was sent to a model and
-     * is now also wrong about the usage counts and crash reports.
+     * `expo prebuild` and then silently reverts to the template's empty
+     * `NSPrivacyCollectedDataTypes: []` — which would be wrong about the
+     * assistant's requests, the usage counts and the crash reports.
      *
      * `NSPrivacyTracking` stays **false** and must: "tracking" in Apple's sense
      * is linking this data to other apps' data or a data broker's, and nothing
      * here does that or can — there is no identifier in the payload to link on.
      *
      * These entries must stay in step with the App Store Connect questionnaire
-     * and with Play's Data safety form; `notes/STORE-CHECKLIST.md` holds all
-     * three side by side.
+     * and with Play's Data safety form.
      */
     privacyManifests: {
       NSPrivacyTracking: false,
@@ -412,10 +410,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
          * `applyPermissions` resolves `permissions[p] || infoPlist[p] || default`,
          * so this plugin's value beats the `ios.infoPlist` one above and
          * expo-speech-recognition's identical one — regardless of plugin order.
-         * It used to describe only the optional Whisper fallback ("short audio
-         * clips when on-device transcription is unavailable"), which omits the
-         * app's primary and constant use of the microphone: the entire product.
-         * 5.1.1(ii) requires the purpose string to be complete, and setting
+         * It has to describe the app's primary and constant use of the
+         * microphone, not only the optional Whisper fallback. 5.1.1(ii) requires the purpose string to be complete, and setting
          * `microphonePermission: false` deletes the key, which is a worse
          * rejection than a poor sentence.
          *

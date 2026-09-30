@@ -39,15 +39,13 @@ export function SyncBanner({ onPress }: { onPress: () => void }) {
           Google Calendar isn’t connected
         </Txt>
         {/*
-          Precise, because the vague version cost a real user an evening. It
-          said "Events stay on this device", and they do — in the phone's *own*
+          Precise on purpose. Events stay on this device — in the phone's *own*
           calendar, which on an Android with a Google account signed in is
-          displayed by Samsung Calendar and Google Calendar alike. So the events
-          appeared in an app that syncs to Google, and the obvious conclusion
-          was that they had reached Google. They had not: the mirror is a LOCAL
-          calendar (`nativeCalendar.ts`) and Android never syncs one of those to
-          an account. "On this device" was true and unhelpful; naming the two
-          places is what makes the banner worth reading.
+          displayed by Samsung Calendar and Google Calendar alike, so they can
+          appear in an app that syncs to Google without having reached Google.
+          The mirror is a LOCAL calendar (`nativeCalendar.ts`) and Android never
+          syncs one of those to an account. Naming the two places is what makes
+          the banner worth reading.
         */}
         <Txt variant="micro" tone="tertiary">
           They show in your phone’s calendar, but never reach Google.

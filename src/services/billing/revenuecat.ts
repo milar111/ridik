@@ -100,7 +100,7 @@ const NATIVE_KEY_PREFIXES = { ios: ['appl_'], android: ['goog_', 'amzn_'] } as c
  * here" — register the provider that reports `sells: false`, keep the developer
  * caps, sell nothing — and a Web Billing key on a phone means precisely that:
  * nothing on this device can be bought with it. Letting it through so the SDK
- * can object is how a shared `test_` key in `.env` cost an Android launch.
+ * can object would mean an app that cannot be opened.
  *
  * Note this cannot mask a real misconfiguration on a store build: a hosted
  * build forces `storeBuild: true` from the backend URL rather than asking the

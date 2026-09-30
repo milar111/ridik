@@ -1,5 +1,5 @@
 /**
- * Reference backend for store builds. NOT DEPLOYED — this is a starting point.
+ * Reference backend for store builds.
  *
  * One endpoint, POST /v1/interpret. It exists for three reasons, in order of
  * importance:
@@ -53,14 +53,10 @@ export type Deps = {
 /*
  * Gemini, and specifically the same model the app calls directly.
  *
- * This file used to POST to OpenAI, which was a quiet trap: every price in
- * `src/services/billing/allowance.ts` was solved against Flash-Lite token rates,
- * the key the operator actually holds is a Gemini key, and the pinned model in
- * `src/llm/provider/gemini.ts` carries a comment explaining that moving up the
- * Flash family alone turns the upper tier from $1.93 to $10.58 of cost against
- * $7.60 of revenue. Deploying an OpenAI-shaped proxy would have meant buying a
- * second provider and re-deriving the plans to match it, discovered at the point
- * of deployment.
+ * Every price in `src/services/billing/allowance.ts` is solved against
+ * Flash-Lite token rates, and the pinned model in `src/llm/provider/gemini.ts`
+ * explains why the plans depend on it. A proxy to a different provider would
+ * mean re-deriving the plans to match it.
  *
  * Keep this in step with `DEFAULT_GEMINI_MODEL`. The two are allowed to differ —
  * the backend is exactly the seam that lets the operator move models without

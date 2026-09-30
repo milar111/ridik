@@ -73,14 +73,11 @@ export function UnsentTranscript({ maxWidth }: { maxWidth?: number }) {
         {/*
           "Edit", not "Put it back".
 
-          The behaviour was always this — `recoverTranscript()` seeds the
-          composer and opens it, so the words arrive in the text box ready to be
-          corrected and sent. But an undo arrow labelled "put it back" says
-          *restore it as it is*, and the one situation this card exists for is a
-          sentence the recogniser got **wrong**: the first real user to meet it
-          read the card, wanted to change one word, and asked for a feature that
-          had been there all along. A control that hides what it does is the
-          same defect as one that does the wrong thing.
+          `recoverTranscript()` seeds the composer and opens it, so the words
+          arrive in the text box ready to be corrected and sent. An undo arrow
+          labelled "put it back" would say *restore it as it is*, and the one
+          situation this card exists for is a sentence the recogniser got
+          **wrong** — so the label says what the control does.
 
           The pencil matches `Type` on purpose — they open the same box, one
           empty and one already holding your sentence.

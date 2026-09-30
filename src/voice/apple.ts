@@ -15,16 +15,14 @@
  * `AGENTS.md` is clear that a row on Settings has to justify being a question,
  * and there is no answer to "would you like four times more wrong words".
  * So this is what `device` *means* on an iPhone that has it, and there is no
- * new row anywhere. See `notes/STT-OPTIONS.md`.
+ * new row anywhere.
  *
- * ## Two things it does not lose, one of which the notes said it would
+ * ## Two things it does not lose
  *
- * **Custom vocabulary survives.** `AGENTS.md` and the STT note both recorded
- * that `SpeechAnalyzer` has no equivalent of `contextualStrings`, and that
- * adopting it would cost `./dictionary` — "the only fix for the one error the
- * rest of the pipeline cannot recover from". That was wrong. The SDK has
- * `AnalysisContext.contextualStrings`, keyed by tag, and `.general` is the tag
- * for exactly this; the bias list is handed over unchanged.
+ * **Custom vocabulary survives.** `./dictionary` is the fix for the one error
+ * the rest of the pipeline cannot recover from, and the SDK has
+ * `AnalysisContext.contextualStrings`, keyed by tag; `.general` is the tag for
+ * exactly this, so the bias list is handed over unchanged.
  *
  * **Confidence arrives for the first time.** `.transcriptionConfidence` is a
  * real 0..1 reading per run. `wasPoorlyHeard` in `src/llm/confirm.ts` has been

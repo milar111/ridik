@@ -106,11 +106,11 @@ will **not** do this: it asks you to type instead.
 Off unless you switch it on and paste your own API key. When on, the audio of a
 recording is uploaded to OpenAI for transcription.
 
-### 4. Optional: the daily briefing notification — OneSignal
+### 4. Optional: better transcription — AssemblyAI
 
-Off unless you switch it on. When on, one sentence summarising your day — which
-can include event titles and people's names — is handed to OneSignal to deliver
-as a push notification.
+Off unless you paste your own AssemblyAI API key and choose it as the
+transcription engine. When on, the audio of a recording is uploaded to
+AssemblyAI for transcription, the same way as §3.
 
 ### 5. Purchases — RevenueCat, Apple, Google
 
@@ -176,8 +176,7 @@ and a crash is only a crash.
 
 ## Counting how the app is used
 
-This section replaces an earlier one that said there was nothing to count. There
-is now, deliberately, in two layers with a switch between them.
+Ridik counts how it is used in two layers, with a switch between them.
 
 **On your phone, always.** Ridik writes a row when something happens that the app
 needs to know about itself: a request was made in which mode, took which of five
@@ -205,9 +204,8 @@ until you turn it on, covering the upload and the crash reports together.
 **What none of this does**, on either layer: it does not build a profile of you,
 does not use an advertising identifier, does not fingerprint your device, and
 does not track you across apps or websites. There is no third-party analytics
-company and no advertising SDK in Ridik at all. There is one third-party SDK in
-this area and we would rather name it than let "no third-party SDK" do quiet work
-for us: Sentry, for crashes only, described in §9, and inert until the switch is
+company and no advertising SDK in Ridik at all. The one third-party SDK in this
+area is Sentry, for crashes only, described in §9, and inert until the switch is
 on.
 
 We do not sell, rent or share personal information. There is no third-party
@@ -237,15 +235,13 @@ you can carry out yourself, immediately and without asking:
 | **Withdraw consent** | Menu → Settings → *Where your words go* → Stop sending, and Menu → Settings → *Help improve Ridik* → Send usage and crash reports |
 | **Object to processing** | Decline on first run, or withdraw as above |
 
-**One request we cannot carry out, and the reason is the same reason the counts
-are safe.** If you have had the upload switched on, we cannot delete what it
-sent, because we cannot find it: a batch carries no identifier, so the rows are
-not linked to you, to your phone, or to each other. Nothing we could search on
-exists. Switching the setting off stops any further row leaving, immediately and
-for good, and clearing the Usage screen removes what has not gone yet. We would
-rather state that than offer a delete button that could only pretend — the reason
-it cannot work is the same property that means nobody, us included, can pick you
-out of what was sent.
+**Uploaded usage counts cannot be deleted individually, because they cannot be
+found.** If you have had the upload switched on, a batch carries no identifier,
+so the rows are not linked to you, to your phone, or to each other, and there is
+nothing we could search on. Switching the setting off stops any further row
+leaving, immediately and for good, and clearing the Usage screen removes what has
+not gone yet. The same property means nobody, us included, can pick you out of
+what was sent.
 
 If you are in the EEA or UK, the legal basis for sending a request to Google is
 your **consent** (GDPR Art. 6(1)(a)), obtained on the first-run screen before

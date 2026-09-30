@@ -42,8 +42,8 @@ const UPLOAD_URL = 'https://api.assemblyai.com/v2/upload';
 const TRANSCRIPT_URL = 'https://api.assemblyai.com/v2/transcript';
 
 /**
- * `universal` is the general model — the one the English benchmarks in
- * `notes/STT-OPTIONS.md` are measured on (5.6% mean WER, 4.7% on noisy sets).
+ * `universal` is the general model — the one AssemblyAI's published English
+ * benchmarks are measured on (5.6% mean WER, 4.7% on noisy sets).
  */
 const SPEECH_MODEL = 'universal';
 

@@ -42,16 +42,13 @@ registerBootstrapStep({
       // The failure this catches is a missing environment variable, not a bug:
       // `app.config.ts` defaults both RevenueCat keys to `''`, so a release
       // built without them registers a provider that cannot sell and reports
-      // `sells: false`. That used to be indistinguishable from a personal
-      // build and handed every user the operator's developer caps. The money
-      // path no longer trusts `sells` alone (see `pipeline.ts`), but a release
-      // in this state still cannot take a payment and has to say so loudly.
+      // `sells: false`. The money path does not trust `sells` alone (see
+      // `pipeline.ts`), but a release in this state still cannot take a
+      // payment and has to say so loudly.
       log.error('release build has no store configured; nothing can be sold', {
         provider: provider.name,
-        // The *reason*, not just the fact. A logcat line saying "nothing can be
-        // sold" sent somebody looking for a bug in the paywall; the bug was a
-        // Web Billing key in `.env` that the native SDK will not take, and the
-        // guard doing exactly its job.
+        // The *reason*, not just the fact — typically a Web Billing key the
+        // native SDK will not take — so nobody goes looking in the paywall.
         reason: unavailableReason(),
       });
       return;

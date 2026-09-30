@@ -10,16 +10,15 @@
  4.56% — roughly a four-fold reduction, for free, on the phone, with nothing
  uploaded. It also beats the cloud engine this app can be pointed at
  (AssemblyAI's 4.7% on noisy audio) while adding no recipient to the consent
- screen and costing nothing per utterance. See `notes/STT-OPTIONS.md`.
+ screen and costing nothing per utterance.
 
  ## Deliberately free of `ExpoModulesCore`
 
  Everything here is `Speech` and `AVFoundation`. `RidikSpeechModule.swift` is
  the only file that knows this is an Expo module, and it is thin on purpose:
  this one can then be compiled against the simulator SDK as a plain executable
- and *run*, transcribing a file, which is the only way to verify an iOS 26
- speech path without a phone in your hand. `notes/speechlab` is that bench and
- the same trick `notes/tilelab` plays on the widget faces.
+ and *run*, transcribing a file, which is how an iOS 26 speech path is
+ verified on the host against real models.
 
  ## The shape of the API, and why it is a class of closures
 
@@ -236,16 +235,11 @@ final class SpeechAnalyzerSession {
     self.analyzer = analyzer
 
     /*
-     The user's own proper nouns, and the reason this is not the loss the notes
-     said it would be.
-
-     `AGENTS.md` and `notes/STT-OPTIONS.md` both recorded that `SpeechAnalyzer`
-     has no custom vocabulary, and that swapping to it would cost
-     `src/voice/dictionary.ts` — "the only fix for the one error the rest of
-     the pipeline cannot recover from". That is wrong, and the SDK is where it
-     was checked: `AnalysisContext.contextualStrings` is a
+     The user's own proper nouns. `src/voice/dictionary.ts` is the fix for the
+     one error the rest of the pipeline cannot recover from, and it survives
+     this engine intact: `AnalysisContext.contextualStrings` is a
      `[ContextualStringsTag: [String]]` and `.general` is the tag for exactly
-     this. The bias list survives the swap intact.
+     this (checked against the SDK's `.swiftinterface`).
      */
     if !contextualStrings.isEmpty {
       let context = AnalysisContext()

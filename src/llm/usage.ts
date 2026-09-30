@@ -57,13 +57,11 @@ export type ModelRate = {
  * Published list prices, USD per million tokens, checked against
  * ai.google.dev/gemini-api/docs/pricing on 16 August 2026.
  *
- * The docblock here used to say "nothing depends on these being current". That
- * stopped being true the day a cost cap started reading `costMicros`: these
- * numbers now decide when a user is cut off and when the operator's budget is
- * declared spent. Three of the five rows were wrong when that changed, all in
- * the dangerous direction — `gemini-3.1-flash-lite` carried Gemini *2.5*
- * Flash-Lite's prices, understating input 2.5x and output 3.75x, so a cap set
- * in dollars let through two and a half times the spend it was configured for.
+ * These have to be current: a cost cap reads `costMicros`, so these numbers
+ * decide when a user is cut off and when the budget is declared spent. A row
+ * that understates its model's price lets a cap set in dollars through more
+ * spend than it was configured for, so correct them from the published page
+ * rather than by analogy with a neighbouring model.
  *
  * The Gemini family prices a cached input token at a tenth of a fresh one, so
  * `cachedInputPerMillion` is one tenth of the row's own input rate and has to be
@@ -93,11 +91,11 @@ export const MODEL_RATES: Record<string, ModelRate> = {
 /**
  * What an unrecognised model is billed at.
  *
- * `estimateCostMicros` used to return 0 here, which reads as prudent and is the
- * opposite: a model name this table has not been taught — a rename upstream, a
- * value typed into the developer screen, or an alias resolving somewhere new —
- * would have billed as FREE, and a spend cap counting free requests never
- * trips at all. Zero is the one answer that cannot be right.
+ * Not 0, which reads as prudent and is the opposite: a model name this table
+ * has not been taught — a rename upstream, a value typed into the developer
+ * screen, or an alias resolving somewhere new — would bill as FREE, and a spend
+ * cap counting free requests never trips at all. Zero is the one answer that
+ * cannot be right.
  *
  * The most expensive row instead. An estimate that is too high shows the user a
  * cost they did not incur and trips a cap early, both of which are visible and

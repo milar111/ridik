@@ -183,8 +183,8 @@ export async function scheduleAt(input: ScheduleInput): Promise<Result<string>> 
   await configureNotifications();
 
   // Resolved once: the channel decides where Android delivers it *and* whether
-  // iOS may interrupt for it, and the two used to be worked out in different
-  // places — which is how the immediate path below lost the channel entirely.
+  // iOS may interrupt for it, so it is worked out in one place for both the
+  // scheduled and the immediate path.
   const channel = input.channel ?? CHANNELS.reminders;
 
   const content: Notifications.NotificationContentInput = {

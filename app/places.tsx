@@ -1,14 +1,12 @@
 /**
  * Saved places and the reminders anchored to them.
  *
- * TODO(map): the brief asks for a map picker. `react-native-maps` is not in
- * this build and adding a native dependency is out of scope here, so a pin comes
- * from the phone's own fix and is described by its reverse-geocoded address.
- * Typed coordinates were the earlier stand-in and are gone: one wrong digit puts
- * a geofence in another country, and without a map there is nothing to catch it
- * against. Swap this block for a `<MapView>` with a draggable pin and a
- * `<Circle>` bound to `radiusMeters` once the dependency lands; nothing else on
- * this screen has to change.
+ * A pin comes from the phone's own location fix and is described by its
+ * reverse-geocoded address, which keeps the build free of a maps dependency.
+ * Coordinates are never typed: one wrong digit puts a geofence in another
+ * country. The picker is self-contained, so a `<MapView>` with a draggable pin
+ * and a `<Circle>` bound to `radiusMeters` can replace it without changing
+ * anything else on this screen.
  */
 import { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';

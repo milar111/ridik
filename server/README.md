@@ -27,13 +27,11 @@ Three reasons, and only the first is about money:
 | `revenuecat.ts` | `verifyCaller`, asking RevenueCat who has paid. |
 | `quota.ts` | The counter: in-memory, Postgres, or Redis. |
 | `events.ts` | The usage ingest. `POST /v1/events`, and mostly a list of refusals. |
-| `__tests__/` | 56 tests. The key never leaking is the first thing asserted; the second is that the ingest cannot store a sentence. |
+| `__tests__/` | The server's test project. It asserts that the provider key never leaks into a response and that the ingest cannot store a sentence. |
 
 It talks to **Gemini**, the same provider and the same model family the app calls
 directly, because that is the key you hold and the token price every number in
-`src/services/billing/allowance.ts` was solved against. It used to POST to
-OpenAI, which would have meant buying a second provider and re-deriving the plans
-to match — discovered at deployment.
+`src/services/billing/allowance.ts` was solved against.
 
 ## Wiring it up
 
@@ -70,24 +68,21 @@ Put `GEMINI_API_KEY` and `REVENUECAT_SECRET_KEY` in the platform's secret store.
 Neither may appear in the repo, in the client, or in a response body — the handler
 swallows upstream error bodies for exactly that reason, and a test asserts it.
 
-## Two things to understand before you rely on it
+## Design notes
 
-**The token is an identifier, not a credential.** The app sends its RevenueCat
-app user id (`$RCAnonymousID:…`, ~128 bits, unguessable). Anyone who *learns* one
-can spend that person's daily allowance — nothing more, since the request body is
-their own sentence. The honest fix is a signed token, which needs an account
-system, and "no account, nothing to sign in to" is a promise on the consent
-screen. That is the trade, made deliberately. What is never trusted is the
-*entitlement*: the server asks RevenueCat with its own secret key rather than
-believing a claim from the client.
+**The caller is identified, and the entitlement is verified server-side.** The
+app sends its RevenueCat app user id (`$RCAnonymousID:…`, ~128 bits of
+randomness) rather than an account token, because Ridik has no accounts by
+design. The server never trusts an entitlement claimed by the client: it asks
+RevenueCat with its own secret key, and each id is held to its own daily
+allowance.
 
 **`increment` must be atomic.** Two requests from one person landing on two
 serverless instances in the same millisecond must add two, not one. The Postgres
 adapter does the addition inside a single `on conflict do update`; Redis uses
-`INCR`. A `select` → `+1` → `update` in application code loses requests under
-exactly the load where it matters, which is why neither adapter does one. The
-in-memory adapter is for tests and your laptop only — every instance would keep
-its own count.
+`INCR`. Neither adapter does a read-modify-write in application code. The
+in-memory adapter is for tests and local development only — every instance would
+keep its own count.
 
 ## The window is a UTC day
 
@@ -99,14 +94,13 @@ same thing about the in-app meter, which ratchets for the same reason.
 ## The usage ingest, and why it has no authentication
 
 `POST /v1/events` takes the batch the app's Usage screen shows, and it is the
-other half of a claim `docs/privacy.md` makes: that the counters carry no
-identity. The app can be read to see what it sends. Without this file, "and the
-server keeps nothing else" was a promise about code that was not here.
+server side of a claim `docs/privacy.md` makes: that the counters carry no
+identity. The app shows what it sends, and this file shows what the server keeps.
 
-It takes no token, on purpose. `interpret.ts` needs one because it spends the
-operator's money; this spends nothing, and a token would be the one thing the
-payload is guaranteed not to contain — an identifier. The price is that the
-endpoint is spammable, which is what the optional `Sink.rateLimit` seam is for.
+It takes no token, on purpose. `interpret.ts` needs one because it spends
+provider budget; this spends nothing, and a token would be the one thing the
+payload is designed not to contain — an identifier. Abuse protection belongs in
+the optional `Sink.rateLimit` seam.
 Implement it against a hash of the caller's address that you **do not store**:
 a per-IP counter kept beside the events is an identifier joined to behaviour,
 which is the whole thing this path avoids.

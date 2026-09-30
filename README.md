@@ -91,24 +91,19 @@ one consumable (`ridik_topup_100`).
 - **The model is fixed first, then the price.** The app is pinned to `gemini-3.1-flash-lite`,
   which costs $0.25 per million input tokens and $1.50 per million output tokens. A typical turn
   was measured at about 3,240 tokens in and 600 out, so one request costs roughly **$0.0017**. If
-  a Pro subscriber uses all 1,000 requests, they cost about **$1.93** (repairs included), against
-  about $7.60 of net revenue. The first real API call showed why the model has to be pinned: the
-  `gemini-flash-latest` alias had silently resolved to a larger Flash model, where the same Pro
-  subscriber would cost **$10.58**. That plan would lose money on exactly the customer it was
-  built for. So the model is an exact version, never an alias
-  ([`provider/gemini.ts`](src/llm/provider/gemini.ts)): an alias can change without a release,
-  and a spending cap can't help when the price per token is the thing that changed.
+  a Pro subscriber uses all 1,000 requests, they cost about **$1.93** (repairs included), so even
+  the heaviest user of the biggest plan is comfortably sustainable. The model is an exact version,
+  never a moving alias ([`provider/gemini.ts`](src/llm/provider/gemini.ts)): an alias can change
+  model, and price, without a release, and every number on this page depends on it staying put.
 - **Twice the money for four times as much.** $5 for 250 is 2¢ a request, and $10 for 1,000 is 1¢.
   Prices are round on purpose: anyone can do that division in their head, which $4.99 / 250
   doesn't allow.
 - **250 is set so the limit actually happens.** It sits near the 88th percentile of modelled
   usage, so about one Ridik subscriber in eight reaches it in a given month and sees the Pro
-  offer. An earlier ceiling of 1,500 was reached by 0.4% of users, which means an upgrade screen
-  almost nobody would see.
-- **There is no unlimited tier.** "Unlimited" used to be stored as `0`, and `0` is also what a
-  free user has. That is how a free user once inherited the developer's limit of 200 requests a
-  day. If an unlimited plan is ever sold, it gets its own type, not a number that already means
-  something else ([`entitlement.ts`](src/services/billing/entitlement.ts)).
+  offer — often enough to matter, rare enough that most people never think about a limit.
+- **There is no unlimited tier.** Every plan has a real ceiling, so the cost of any subscriber
+  is bounded. Limits are their own type rather than a number, so "unlimited" can never be
+  confused with "nothing bought" ([`entitlement.ts`](src/services/billing/entitlement.ts)).
 
 ### The free trial is a lifetime allowance, not a monthly one
 
@@ -168,9 +163,9 @@ can't increase your balance and clearing it can't refund anything.
 - **A paywall that can't load says why.** If a store key is wrong for the platform, the app names
   the problem and the key prefix that platform needs, instead of blaming the store.
 
-A web-checkout path (Stripe → a deep link back into the app → a backend that grants the same
-RevenueCat entitlement) is built but not yet enabled. A web purchase is just another reason for
-the one entitlement to be active, never a second source of truth
+The app is also ready for web checkout (Stripe → a deep link back into the app → a backend that
+grants the same RevenueCat entitlement), so a web purchase is just another reason for the one
+entitlement to be active, never a second source of truth
 ([`webFunnel.ts`](src/services/billing/webFunnel.ts)).
 
 ## Under the hood

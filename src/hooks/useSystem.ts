@@ -460,10 +460,8 @@ export function useDatabaseStats(): UseQueryResult<DatabaseStats> {
  * against a real SQLite database in the logic suite.
  *
  * "Every table" has two documented exceptions, both spend controls rather than
- * anything the user wrote — see `PRESERVED_TABLES` in that file. This button
- * used to reset the free trial and the whole spend meter along with the notes,
- * which made it a one-tap way to buy another 25 requests on somebody else's
- * key at the price of a database the person doing it did not want.
+ * anything the user wrote — see `PRESERVED_TABLES` in that file. Resetting
+ * them here would make this button a one-tap way to refill the free trial.
  */
 export function useEraseAllData(): UseMutationResult<number, Error, void> {
   const client = useQueryClient();
@@ -472,15 +470,12 @@ export function useEraseAllData(): UseMutationResult<number, Error, void> {
       /*
        * Stop the timer BEFORE the tables go, because stopping it needs the row.
        *
-       * Erasing everything used to leave a focus session running: the runtime
-       * kept its in-memory row and its ticker, the Focus screen counted down a
-       * session that no longer existed and then froze at 00:00 for ever, and on
-       * Android the ongoing notification stayed in the shade — re-posted every
-       * 30 seconds, `sticky` and `autoDismiss: false`, so it could not even be
-       * swiped away. Only a force-stop cleared it.
+       * Otherwise the runtime would keep its in-memory row and its ticker for a
+       * session that no longer exists, and on Android the ongoing notification
+       * (`sticky`, `autoDismiss: false`) would stay in the shade.
        *
        * `cancelAllScheduled()` below does not reach it: that cancels *pending*
-       * notifications, and the ongoing one was posted immediately. It is
+       * notifications, and the ongoing one is posted immediately. It is
        * dismissed by the runtime's own teardown and nothing else.
        *
        * Best effort in the strongest sense — a timer that will not stop must

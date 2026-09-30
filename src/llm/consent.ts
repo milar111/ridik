@@ -117,7 +117,7 @@ export const STT_PROVIDER = 'AssemblyAI';
  * absence of a company name.
  *
  * A third-party analytics SDK was considered and rejected for exactly this
- * reason — see `notes/ONBOARDING-SPEC.md` §15.1. Nothing in the payload
+ * reason. Nothing in the payload
  * identifies a device, an install or a person.
  */
 export const ANALYTICS_PROVIDER = "Ridik's own server";

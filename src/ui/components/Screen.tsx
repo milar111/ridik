@@ -85,8 +85,8 @@ export function Screen({
    * A sheet is dismissible by dragging it away, and that is not enough on its
    * own: the gesture is invisible, it is the first thing to fail for anyone
    * with a motor impairment, and on Android people reach for the system Back
-   * before they think to swipe. The menu shipped for one commit with the
-   * gesture as its only exit and there was simply no way off it.
+   * before they think to swipe. Without a Close, the gesture would be the only
+   * exit.
    */
   close?: boolean;
 }) {

@@ -19,7 +19,7 @@ Worth knowing first, because it decides how much of this is one-time work.
 | **Paywall selling points** | RevenueCat → Offering → Metadata → `benefits` (array of strings) | Within 30 min, or next launch |
 | **Which plan is badged** | Same metadata → `highlight`: `"monthly"` or `"yearly"` | Same |
 | **Free-trial length** | App Store Connect / Play Console, on the product | Next launch |
-| **Assistant model, spend caps** | In-app: Profile → tap Version ×7 → Developer | Immediately |
+| **Personal-build spend caps** | In-app Developer screen | Immediately |
 | **The entitlement's name** | RevenueCat, plus `EXPO_PUBLIC_REVENUECAT_ENTITLEMENT` | Next build — no code |
 | **Which RevenueCat project** | `EXPO_PUBLIC_REVENUECAT_*` | Next build — no code |
 
@@ -39,7 +39,7 @@ Connect changes what the app shows, with no build.
 | Apple Developer Program | $99/year | Shipping to the App Store at all |
 | Google Play Console | $25 once | Same, for Android |
 | RevenueCat | Free under $2.5k/month tracked revenue | One subscription that means the same thing on both stores |
-| Google Cloud | Free tier | Calendar sync (optional), Maps (optional) |
+| Google Cloud | Free tier | Calendar sync (optional) |
 | An LLM provider | Usage-based | The assistant. See §3 |
 
 ---
@@ -67,9 +67,9 @@ Nothing secret belongs in this repository. Two kinds of value:
    `standard`: a mis-named product should under-serve and be noticed, never hand
    out an uncapped assistant by accident.
 
-   The app looks up **one** entitlement identifier and a mismatch is silent —
-   everybody simply looks unsubscribed. It defaults to `assistant`, which is
-   what shipped; call it something else (`Ridik Pro`) and set
+   The app looks up **one** entitlement identifier, and a mismatch makes every
+   user read as unsubscribed. It defaults to `assistant`; call it something
+   else (`Ridik Pro`) and set
    `EXPO_PUBLIC_REVENUECAT_ENTITLEMENT` to match. Rename it in the dashboard and
    in that variable together and no code changes.
 4. Create an **offering**, mark it current, and add a package per product using
@@ -94,8 +94,8 @@ npx expo prebuild --clean
 
 The app switches from the sandbox provider to the real one automatically —
 `src/services/billing/revenuecat.ts` checks for both the package and a key for
-the current platform. Confirm it took: Profile → Version ×7 → the Assistant
-group names the active provider.
+the current platform. Confirm it took: the Developer screen's Assistant group
+names the active provider.
 
 > **The secret RevenueCat key never goes in the app.** It is for server-to-server
 > calls only.
@@ -115,8 +115,8 @@ extra: { assistantApiUrl: 'https://api.yourdomain.com/interpret' }
 The provider key lives on that server as an environment variable and never ships.
 
 **Personal key (your own builds only).** Leave `assistantApiUrl` empty and paste
-a key into Profile → Version ×7 → Developer → Assistant key. It is kept in the
-device keychain. A store build hides this field entirely.
+a key into the Developer screen → Assistant key. It is kept in the device
+keychain. A store build hides this field entirely.
 
 > Do not ship a build with a provider key compiled in. Anyone can extract it and
 > spend your money.
@@ -159,7 +159,7 @@ Google will not let you create a client until this exists.
    just means the app stays in **Testing** until you submit it for
    verification, and in Testing you must add every account that will sign in
    under **Test users**. Add your own address now; a missing test user surfaces
-   as `access_blocked`, which reads like a bug in the app and is not one.
+   as `access_blocked`.
 
 #### c. Three client ids
 
@@ -174,8 +174,7 @@ Google will not let you create a client until this exists.
 
 The **Web** client is not for a website. Google's installed-app clients cannot
 complete the token exchange on their own, so the app uses the web client id for
-that step. Creating only two clients is the usual mistake and it fails at the
-last moment of a sign-in that otherwise looked fine.
+that step, so all three are required.
 
 For the Android SHA-1, from the repo root:
 
@@ -229,12 +228,7 @@ The three failures, and what each actually means:
 - **`DEVELOPER_ERROR` on Android** — the SHA-1 of the key that signed the build
   is not on the Android client.
 
-### 2.4 Google Maps (optional)
-
-Only for the map picker in Places, and **Android only** — iOS uses Apple Maps
-with no key. Full steps in `SETUP.md` §5c.
-
-## Crash reporting (Sentry) — optional, and off unless you configure it
+### 2.4 Crash reporting (Sentry) — optional, and off unless you configure it
 
 ```bash
 EXPO_PUBLIC_SENTRY_DSN=https://xxxxxxxx@o000000.ingest.sentry.io/0000000
@@ -246,13 +240,10 @@ SENTRY_AUTH_TOKEN=sntrys_xxxxxxxx
 
 **The DSN is what switches the whole path on, including the native plugin.**
 `app.config.ts` adds `@sentry/react-native` to `plugins` only when
-`EXPO_PUBLIC_SENTRY_DSN` is set, and that is not a tidiness decision — the
-plugin installs a build phase that runs `sentry-cli` to upload source maps, and
-with no organisation configured that phase fails the **entire iOS build** with
-`An organization ID or slug is required`, thousands of lines into a log, long
-after the JavaScript has bundled cleanly. Unset, there is no plugin, no upload
-phase, and `services/analytics/crash.ts` finds no native module and reports
-nothing — which is exactly how this app behaved before Sentry existed.
+`EXPO_PUBLIC_SENTRY_DSN` is set, because the plugin installs a build phase that
+runs `sentry-cli` to upload source maps and that phase requires an organisation.
+Unset, there is no plugin, no upload phase, and `services/analytics/crash.ts`
+finds no native module and reports nothing.
 
 Set the DSN without the other three and the build works; you get crash reports
 with minified stack traces. Run `npx expo prebuild --clean` after changing any
@@ -263,17 +254,10 @@ Two things to know before you turn it on:
 - **Nothing is sent until the user opts in.** The DSN only decides whether the
   switch in Settings → Help improve Ridik has anywhere to point. It is off by
   default, and Sentry is named on the consent screen because of it.
-- **The earliest crashes are not reported, deliberately.** Sentry is normally
-  started as early as possible; here it starts *after* settings are readable,
-  because registering a third party's global error handler before the person
-  has been asked is the thing the consent screen exists to prevent. See the
-  docblock in `crash.ts` before "fixing" it.
-
-
-The plugin also adds a **Notification Service Extension** target to the iOS
-project (confirmed delivery, badges, images). It sits alongside the WidgetKit
-target and shares nothing with it but the App Group list, which both plugins
-append to rather than overwrite.
+- **Sentry starts after consent is readable, by design.** Registering a third
+  party's global error handler before the person has been asked is what the
+  consent screen exists to prevent, so crashes during the first moments of
+  launch are not reported. The docblock in `crash.ts` explains the ordering.
 
 ---
 
@@ -312,12 +296,12 @@ Then check `app.config.ts`:
    on-device" is the shape of the app, not an answer to this form — nine
    separate paths send something to somebody, and every one of them has to be
    declared. Work from this table; `docs/privacy.md` says the same thing in
-   prose and the two must not drift.
+   prose and the two must stay in step.
 
    | Data type | What actually goes, and where | Purpose |
    | --- | --- | --- |
    | Contact Info → Name | up to 25 of the names in your CRM ride in the assistant's context (`src/llm/context.ts`) | App Functionality |
-   | User Content → Audio Data | the recording, to Apple's or Google's speech service when the phone has no offline voice, and to OpenAI when a Whisper key is set | App Functionality |
+   | User Content → Audio Data | the recording, to Apple's or Google's speech service when the phone has no offline voice, to OpenAI when a Whisper key is set, and to AssemblyAI when that engine is chosen | App Functionality |
    | User Content → Other User Content | list, project, note, habit and place names, task titles and due dates, spending categories, event titles and times — the assistant's context on every turn | App Functionality |
    | Location → Precise and Coarse | coordinates to the platform geocoder for a place's address (`useSystem.ts`). Geofencing itself never leaves the phone and is not collection | App Functionality |
    | Purchases | the fact of a subscription, through Apple/Google and RevenueCat | App Functionality |
@@ -326,16 +310,14 @@ Then check `app.config.ts`:
    | Diagnostics → Performance Data | the same upload: which of five latency bands a turn fell in | Analytics |
    | Diagnostics → Crash Data | Sentry, behind the same opt-in switch | App Functionality |
 
-   **Used for tracking: No** and **Linked to the user: No** on all nine, which
-   is what `privacyManifests` in `app.config.ts` declares — the questionnaire
-   and the manifest are read side by side and must not disagree. Nothing is
-   shared with a data broker, nothing is joined to another app's data, and
-   there is no advertising SDK. The one row where *not linked* is a judgement
-   rather than a fact is Device ID: the assistant request and the purchase
-   travel with RevenueCat's anonymous installation id, which identifies an
-   install and nothing about a person. If a reviewer pushes back, that is the
-   row, and the answer to give is what the id is for — counting an allowance —
-   not a claim that no identifier exists.
+   **Used for tracking: No** on every row. **Linked to the user** follows
+   `privacyManifests` in `app.config.ts` row by row, and the questionnaire and
+   the manifest must not disagree: *Yes* for Name, Other User Content,
+   Purchases and Device ID, because a hosted turn carries RevenueCat's
+   anonymous installation id alongside the request; *No* for Audio Data,
+   Location and the three analytics and diagnostics rows, which carry no
+   identifier. Nothing is shared with a data broker, nothing is joined to
+   another app's data, and there is no advertising SDK.
 
    **The on-device usage ledger needs no entry at all.** Both forms define
    collection as data leaving the device, and Layer 1 never does — it is one
@@ -351,8 +333,8 @@ Then check `app.config.ts`:
 5. Add a **Privacy Policy URL** and **Terms of Use (EULA) URL**. Apple requires
    both for auto-renewable subscriptions, and both are linked from the app's
    Profile screen — make sure those point somewhere real before submitting.
-6. Review notes: give them a test account and say the assistant needs a
-   subscription, or reviewers will report it as broken.
+6. Review notes: explain that the assistant is metered (a free trial, then a
+   subscription) and that every on-device feature works without one.
 
 ### Play Console
 
@@ -449,7 +431,7 @@ change for the full loop.
 ```bash
 npx expo prebuild --clean
 npx expo run:ios
-export JAVA_HOME="$HOME/.jdks/temurin-21/Contents/Home"   # 25 fails the CMake step
+export JAVA_HOME=/path/to/jdk-21   # the Android build requires JDK 21
 npx expo run:android
 ```
 
@@ -492,32 +474,12 @@ silently.
 are append-only (`src/db/migrations.ts`) — never edit a shipped one, or an
 existing user's database will be left half-upgraded.
 
-**If you change what the widgets show:** bump `WIDGET_SNAPSHOT_VERSION` in
+**If you change the widget payload's shape:** bump `WIDGET_SNAPSHOT_VERSION` in
 `src/services/widgets/snapshot.ts` and the two constants that mirror it (see
 `AGENTS.md` → Widgets). A widget from the previous build then says "Ridik was
 updated" instead of drawing a half-decoded face, and rights itself the first
-time the user opens the app. Five widgets ship: Today, Agenda, Tasks, Habits
-and List, the same five on both platforms.
+time the user opens the app. `WIDGETS.md` is the contract for every face.
 
 **If the assistant breaks:** it fails soft. The app falls back to offline
 pattern matching, and every local feature keeps working. Check your backend
 first, then the provider's status page.
-
----
-
-## 8. Known gaps before you ship
-
-Honest list. See `AGENTS.md` for the full one.
-
-- **iOS Live Activities** fall back to a notification. The WidgetKit target now
-  exists (`targets/RidikWidget/`), so this is a Swift widget-extension view away
-  rather than a whole target away.
-- **Google Calendar sync has never run against the live API.** Every path is
-  tested against a mocked transport; no request has reached Google.
-- **The LLM path has only run against the mock provider.** The client, its retry
-  and repair loops and the prompt are all tested; no request has been made with
-  a real key.
-- **The map picker** is an address search with a pin, not a map. `SETUP.md` §5c.
-
-The first thing to do with a real key and a real device is speak one sentence
-and watch what lands. That is the one path nothing here can prove for you.

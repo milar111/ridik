@@ -63,39 +63,15 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      # Reports, does not gate — and what is left is now a known, named set.
+      # Lint. `import/first` is off for tests only, because `jest.mock` has to
+      # be written before the import it replaces and autofixing would hoist the
+      # imports above the mocks and silently un-mock the modules. The reasons
+      # for every other exception are in `eslint.config.js`.
       #
-      # `npm run lint` came from the template and had never run once: eslint
-      # itself was not a dependency, so the script failed with "Cannot find
-      # module 'eslint'". Installing it surfaced ~169 findings across a codebase
-      # that had never been linted. On 17 August that was taken to **43**, and
-      # the difference is worth recording because almost none of it was style:
-      #
-      #   * 34 import warnings were `jest.mock` doing its job — a mock has to be
-      #     written before the import it replaces, so `import/first` fired on
-      #     every test file. Autofixing would have hoisted the imports above the
-      #     mocks and silently un-mocked the modules: green suite, real module.
-      #     Switched off for tests only, with the reason in `eslint.config.js`.
-      #   * ~11 `eslint-disable` comments named `no-var-requires`, a rule that no
-      #     longer exists under that name, so they suppressed nothing *and* were
-      #     reported as unused. Renamed to `no-require-imports`.
-      #   * 25 unused bindings, of which three were more than tidying: a dead
-      #     `summariseDay()` in `briefingScheduler.ts` (whose removal orphaned
-      #     four more imports, which is how you know it was dead), two vestigial
-      #     store reads in `LastAction.tsx` under a comment pointing at a gate
-      #     that no longer consulted them, and a generic parameter on a method
-      #     `node-client.ts` implements without one.
-      #   * 1 `import/namespace` error on `AudioModule.AudioRecorder`, which is a
-      #     false positive — the declaration is there and tsc resolves it.
-      #     Disabled at the single site rather than by weakening the rule.
-      #
-      # Errors now gate. The React Compiler diagnostics that arrived with
-      # `eslint-plugin-react-hooks` 7 were worked through on 28 September: the
-      # `immutability` and `refs` findings were fixed (Reanimated's `.set()` /
-      # `.get()`, a ref read moved to `useState`), and `set-state-in-effect` —
-      # a deliberate re-sync pattern in about a dozen screens, in an app that
-      # does not run the compiler — is a warning in `eslint.config.js`, with the
-      # reason there. What is left is warnings only, and they stay visible.
+      # Errors gate. `set-state-in-effect` from `eslint-plugin-react-hooks` 7 is
+      # a deliberate re-sync pattern in an app that does not run the React
+      # Compiler, so it is a warning in `eslint.config.js`, with the reason
+      # there. Warnings stay visible.
       - name: Lint
         run: npm run lint
 
@@ -141,9 +117,9 @@ jobs:
           echo "no secrets tracked"
 
       # The Android manifest points at backup rules a config plugin generates.
-      # They were deleted on every prebuild by another plugin's resource sweep,
-      # the manifest kept naming them, and Android silently backed up nothing —
-      # so losing a phone lost every note. Nothing else fails when this breaks.
+      # If another plugin's resource sweep removed them, the manifest would keep
+      # naming them and Android would silently back up nothing. Nothing else
+      # fails when this breaks, so it is checked here.
       - name: The database is in the Android backup set
         run: |
           set -e

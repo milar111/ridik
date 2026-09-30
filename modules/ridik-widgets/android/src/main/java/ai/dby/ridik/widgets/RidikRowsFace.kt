@@ -87,7 +87,7 @@ internal object RidikRowsFace {
     // Read before the layout is picked, not after: the ember is part of the
     // layout's name. RemoteViews cannot recolour a `TextView` on a build that
     // ships to API 26 — and a colour resolved in this process would be resolved
-    // against this process's night mode, which is the bug that cost a day — so
+    // against this process's night mode rather than the launcher's — so
     // an ember-tinted word is a different file, exactly as a 12-hour clock is.
     val snapshot = WidgetSnapshotStore.read(context)?.let { WidgetSnapshot.parse(it) }
     val ids = idsFor(

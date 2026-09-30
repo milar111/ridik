@@ -69,12 +69,10 @@ export function useRawSetting(key: SettingKey): UseQueryResult<string | null> {
 /**
  * The one setting that is also *module state*.
  *
- * `src/core/time.ts` holds the active zone in a module variable, and the only
- * thing that ever set it was the `timezone` bootstrap step — which runs once,
- * memoised. So changing the zone wrote the row, showed the new value, and
- * changed nothing at all until the process was killed: every "today" boundary,
- * day heading and dictated date kept the old zone, and "book dinner tomorrow at
- * 9am" was stored at 9am in the zone the user had just left.
+ * `src/core/time.ts` holds the active zone in a module variable, and the
+ * `timezone` bootstrap step runs once, memoised. Applying the zone only there
+ * would leave every "today" boundary, day heading and dictated date on the old
+ * zone until the process restarted.
  *
  * Applied here rather than in an effect somewhere, because a write is the only
  * moment the answer changes and an effect would have to guess when to look.

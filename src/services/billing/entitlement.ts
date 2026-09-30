@@ -93,12 +93,11 @@ export type PlanTier = 'base' | 'pro';
  *
  * 250 is also chosen so the wall is a real event: it sits near the 88th
  * percentile of modelled usage, so about one subscriber in eight meets it in a
- * given month. The 1,500 that used to be here met 0.4% of them — an upgrade
- * screen that fires for one user in 233 is a page nobody reads.
+ * given month. A much higher wall would almost never be met, and an upgrade
+ * screen that almost nobody sees is a page nobody reads.
  *
- * There is deliberately no uncapped tier. The previous `unlimited: 0` was a
- * magic zero meaning "no ceiling", and it is exactly what let a *free* user
- * inherit the operator's developer caps, because free also resolves to 0. If an
+ * There is deliberately no uncapped tier. A magic `0` meaning "no ceiling"
+ * would be indistinguishable from free, which also resolves to 0. If an
  * unlimited plan is ever sold it needs its own type, not a number that already
  * means something else.
  */
@@ -184,8 +183,8 @@ export function describeAllowance(tier: PlanTier): string {
  *
  * Zero for free as well, which is why nothing may branch on this number alone:
  * "nothing bought" and "bought the Unlimited tier" answer identically here, and
- * treating that 0 as a cap is exactly how a free user inherited the operator's
- * developer caps. What a free install gets is `resolveAssistantBudget()` in
+ * treating that 0 as a cap would hand a free user the developer caps. What a
+ * free install gets is `resolveAssistantBudget()` in
  * `./allowance`, and it is a lifetime trial rather than a monthly allowance.
  */
 export function monthlyAllowance(entitlement: Entitlement): number {
@@ -424,9 +423,9 @@ export function isStoreBuild(): boolean {
  *
  * Never throws and never blocks a screen. A store that cannot be reached is not
  * evidence that someone has stopped paying, so the failure is reported as
- * `UNKNOWN` rather than as free: the two used to be the same value, and the
- * money path could not tell "chose not to pay" from "could not ask", which cost
- * a subscriber their assistant every time the network blinked.
+ * `UNKNOWN` rather than as free, so the money path can tell "chose not to
+ * pay" from "could not ask" and a subscriber keeps their assistant when the
+ * network blinks.
  *
  * A build with no provider registered at all is a different fact again — there
  * is nothing to have bought — and `FREE` is the honest answer there, with

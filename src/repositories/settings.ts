@@ -241,8 +241,7 @@ export const SETTINGS = {
    * Where Gemini's schema ladder starts.
    * 0 = strict schema, 1 = envelope only, 2 = no response schema.
    *
-   * **Measured against the live API on 17 August 2026, and the reasoning below
-   * was wrong in a way only a real key could show.**
+   * **Measured against the live API on 17 August 2026.**
    *
    * Eight representative utterances, `gemini-3.1-flash-lite`:
    *
@@ -255,13 +254,11 @@ export const SETTINGS = {
    *   rung 2  no schema         8 of 8 correct, including the three-action
    *                             multi-intent sentence. No fallbacks.
    *
-   * The old note here claimed "only `parameters` goes free-form, where zod
-   * catches it". That is the error. With a `responseSchema` present, Gemini
-   * constrains the output *to the schema* — and `parameters` is declared as an
-   * OBJECT with no `properties`, so constrained decoding fills it with `{}`.
-   * Nothing goes free-form. Zod then rejects every reply, the repair ladder
-   * runs three times, and the offline engine answers. The assistant looked
-   * like it worked because the mock provider always returned well-formed JSON.
+   * Why rung 1 fails: with a `responseSchema` present, Gemini constrains the
+   * output *to the schema* — and `parameters` is declared as an OBJECT with no
+   * `properties`, so constrained decoding fills it with `{}`. Nothing goes
+   * free-form. Zod then rejects every reply, the repair ladder runs three
+   * times, and the offline engine answers.
    *
    * The prompt already documents every tool and its parameters in prose, which
    * is what rung 2 relies on and why it works.

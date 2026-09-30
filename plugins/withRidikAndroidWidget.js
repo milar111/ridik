@@ -452,12 +452,10 @@ const PLATE_NUMERAL_MAX_SP = 14;
  * any tile shorter than the one the face was drawn for, **the entire shortfall
  * lands on the plate**, from a base of zero, while nothing else gives up a dp.
  *
- * That is not a preview bug, it is the face. It is what made the placed Agenda
- * tile on a Galaxy S23 draw its month as one empty band under the weekday
- * letters, and it is what left One UI's picker card with about 40dp of plate
- * for six weeks — 5dp a row, under a numeral that will not go below 7sp however
- * hard `autoSizeTextType` is asked. Autosizing scales the digit into the cell;
- * it cannot conjure a cell to scale it into.
+ * Left alone, a short tile such as One UI's picker card gets about 40dp of
+ * plate — 5dp a row, under a numeral that will not go below 7sp however hard
+ * `autoSizeTextType` is asked. Autosizing scales the digit into the cell; it
+ * cannot conjure a cell to scale it into.
  *
  * A base height makes the shortfall *shared* instead of dumped. `LinearLayout`
  * hands out bases first and only then distributes the delta by weight, so the
@@ -1969,8 +1967,8 @@ function debt(depth, { ember, size, sample }) {
   );
 
   // `android.widget.Space` is not on the RemoteViews inflate allow-list — a
-  // layout with one in it gives "Can't load widget" and nothing else. This is
-  // the third time that has cost a build; FrameLayout is allowed.
+  // layout with one in it gives "Can't load widget" and nothing else.
+  // FrameLayout is allowed.
   const tail = `${indent(depth + 2)}<FrameLayout
 ${indent(depth + 6)}android:layout_width="0dp"
 ${indent(depth + 6)}android:layout_height="match_parent"
@@ -3401,12 +3399,11 @@ function chainFace({ ember, size, preview }) {
 /**
  * The rings, laid out in rows of three — with the name *beside* each one.
  *
- * The under-label version of this face did not fit and never had, on either
- * platform. A 56 dp ring with four dp of gap and an eleven-sp name under it is a
- * 73 dp row; two rows plus the header asked for about 189 of the 130-odd dp a
- * two-row tile actually has. Neither WidgetKit nor a launcher complains about
- * that — they clip — so the face shipped with its header cut off the top and the
- * second row's names cut off the bottom.
+ * A name *under* each ring does not fit, on either platform. A 56 dp ring with
+ * four dp of gap and an eleven-sp name under it is a 73 dp row; two rows plus
+ * the header ask for about 189 of the 130-odd dp a two-row tile actually has.
+ * Neither WidgetKit nor a launcher complains about that — they clip the header
+ * off the top and the second row's names off the bottom.
  *
  * Height is the scarce axis and width is the abundant one: three columns of a
  * 312 dp box is 97 each, and a name reads perfectly well in the 49 the ring does

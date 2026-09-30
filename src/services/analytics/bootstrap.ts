@@ -17,8 +17,7 @@
  *
  * The AppState listener flushes on background (the reliable moment: the app is
  * about to stop being scheduled) and on a foreground that is more than an hour
- * old. `services/notifications/push.ts` does the same dance for the same
- * reason and is the model for it.
+ * old.
  */
 import { AppState, type AppStateStatus } from 'react-native';
 

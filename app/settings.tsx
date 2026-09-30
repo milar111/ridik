@@ -152,29 +152,22 @@ function PlanGroup() {
   // build if anything in the app can write a trial counter. The number is
   // monotonic by design — nothing here may lower it.
   const trialUsed = useSetting('llmTrialRequestsUsed');
-  // The trial's *other* ceiling, and the row is a lie without it. Six long
-  // dictations, two of them repaired, spend the token allowance in six requests
-  // — `resolveAssistantBudget` then refuses every turn with "this install has
-  // used its free assistant allowance" while this row cheerfully reads "19 of
-  // 25 free requests left". The one row that exists so a free user is not
-  // misled about the limit has to know about both of them.
+  // The trial's *other* ceiling. A few long dictations can spend the token
+  // allowance well before the request count, and `resolveAssistantBudget`
+  // refuses on whichever is crossed first — so the row that tells a free user
+  // about the limit has to know about both of them.
   const trialTokens = useSetting('llmTrialTokensUsed');
   const simulateStore = useSetting('simulateStoreBuild');
   /* Both stores. The settings rows are the working copy and the keychain holds
-     the durable mirror — reading only the first told somebody who had spent
-     their whole trial, deleted the app and reinstalled that they had all 25
-     left. `useTrialLedger` also heals the rows upward as it reads.
+     the durable mirror, which survives a reinstall — reading only the first
+     would under-count after one. `useTrialLedger` also heals the rows upward as
+     it reads.
 
-     Up here with the other hooks, and it has to stay here. It used to sit below
-     the loading return, which is a conditional hook: the first render ran four
-     hooks and returned the skeleton, the second ran five, and React refused the
-     component outright — "Rendered more hooks than during the previous render."
-     Every render of this screen goes through that transition, because the
-     entitlement is an async store read that has never resolved by the first
-     frame. So the Plan row did not render at all; it was caught by the error
-     boundary and replaced with its failure card, which is to say the one row
-     that tells a free user their trial has a limit was the one row nobody could
-     see. */
+     Up here with the other hooks, and it has to stay here: below the loading
+     return it would be a conditional hook. Every render of this screen goes
+     through that transition, because the entitlement is an async store read
+     that has not resolved by the first frame, and React refuses a component
+     whose hook count changes between renders. */
   const durable = useTrialLedger();
 
   if (entitlement.isLoading && !entitlement.data) return <GroupSkeleton title="Plan" rows={1} />;
@@ -377,16 +370,12 @@ function AssistantGroup() {
  * question a stranger could get wrong — connect or not — has a working app on
  * both sides of it.
  *
- * It spent a while behind the developer gate, on the reasoning that it is a
- * one-time setup act rather than a preference. Both halves were true and the
- * conclusion was still wrong, because the calendar screen draws a banner that
- * says "Google Calendar isn't connected" and sends you *here* to fix it — so
- * the app was advertising a destination that did not exist for anybody who had
- * not tapped Version seven times. The confusion it caused is worth recording:
- * events mirrored to the phone's own calendar show up in Samsung Calendar,
- * which is itself synced to Google, so the app looked connected while nothing
- * had ever reached Google at all. See the note in `nativeCalendar.ts` about the
- * mirror being a LOCAL calendar.
+ * It is here rather than behind the developer gate because the calendar
+ * screen draws a banner that says "Google Calendar isn't connected" and sends
+ * you *here* to fix it. The distinction matters: events mirrored to the
+ * phone's own calendar show up in Samsung Calendar, which is itself synced to
+ * Google, so the mirror can look like a connection when it is not. See the
+ * note in `nativeCalendar.ts` about the mirror being a LOCAL calendar.
  *
  * "Show in your phone calendar" used to sit beside it and is gone: it was never
  * a preference at all, only a mirror of an OS permission that the app now asks
@@ -590,13 +579,10 @@ const STT_ENGINES: {
 /* ----------------------------------------------------------- confirmations */
 
 /**
- * How much Ridik shows you before it writes — and until now, nothing set it.
+ * How much Ridik shows you before it writes.
  *
- * `confirmMode` has existed since the executor did, with a documented default
- * of `irreversible` and **no UI anywhere in the app**: not on this screen, not
- * behind the developer gate. So a user who found the questions too frequent had
- * no way to say so, which is not a preference being withheld, it is a setting
- * that shipped inert.
+ * `confirmMode` defaults to `irreversible`, and a user who finds the questions
+ * too frequent (or not frequent enough) needs a way to say so.
  *
  * It passes this screen's test in the strongest way available: the app works at
  * every value. `never` is the receipt doing the job it was built for —

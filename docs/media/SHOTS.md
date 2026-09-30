@@ -1,13 +1,9 @@
 # Shot list
 
-Every image the README wants, with what has to be in frame. Nothing here has
-been taken yet — the interface is still moving, and a screenshot of a screen
-that is about to change is worse than none.
-
-**How to use this:** take a shot, save it at the path in the first column, then
-find the matching `<!-- SHOT: id -->` block in `README.md` and delete the two
-comment markers around the image line. The README is written so that each one
-slots in without any other edit.
+Capture conventions for Ridik's screenshots. The README gallery uses
+`banner.png` and `01-say.png` … `08-private.png` in this folder; the table below
+lists further shots and what each has to show, for store listings or a longer
+README.
 
 ## Before you shoot
 
@@ -15,9 +11,8 @@ slots in without any other edit.
   timetable, a trip, a robotics project, a dependency chain, a buffered meeting,
   streaks, spending, people and promises. Empty screens photograph badly and
   misrepresent the app.
-- **Both platforms, matched.** The repo's rule is that the two platforms look
-  the same. Any shot that shows a difference is either a bug to fix or a shot to
-  retake — do not paper over it in the README.
+- **Both platforms, matched.** The two platforms are designed to look the same,
+  so shots from each should match framing, data and state.
 - **iPhone 17 Pro and a Pixel-class AVD**, both at 3x, both in light mode unless
   the row says otherwise.
 - **Hide the dev overlays.** A debug build shows the LogBox toast
@@ -40,7 +35,7 @@ slots in without any other edit.
 | `tasks-graph.png` | `/tasks`, the dependency view | A real DAG: blocked work greyed behind what unlocks it. Use the seed's assembly chain (frame printed → servos arrive → assembly). |
 | `notes.png` | `/notes` | Structured notes with a checklist section and the tag strip. Show FTS search open with a query typed and results, since search is otherwise invisible. |
 | `paywall.png` | `/plans`, not subscribed | The two tier cards with the Monthly/Yearly toggle set to Yearly, the Save badge, and the per-month price with "billed yearly as … up front" underneath. Include the top-up card at the bottom of the frame if it fits. |
-| `plan-active.png` | `/plans`, subscribed | The subscribed state: tier name, billing-period badge, and the Included row stating the monthly allowance. Do not use a sandbox purchase for this if a real one is available — the "Sandbox" badge will be in frame and looks unfinished. |
+| `plan-active.png` | `/plans`, subscribed | The subscribed state: tier name, billing-period badge, and the Included row stating the monthly allowance. Use a store build so the local sandbox provider's "Sandbox" badge is not in frame. |
 | `consent.png` | `/consent` | The first-run disclosure, scrolled so at least "Stays on this phone" and "Goes to Google" are both readable, with Allow and "Use Ridik offline" visible. This is the screen that carries the privacy claim and is worth showing in full. |
 | `widgets-ios.png` | iOS home screen | Two or three widget faces placed together — Today, Agenda and Habits reads best. Real data, from the seed. |
 | `widgets-android.png` | Android home screen | The same faces on Android, arranged the same way, for the side-by-side. |
@@ -49,8 +44,7 @@ slots in without any other edit.
 
 ## Two-ups
 
-Three places in the README put two images side by side in a table. Both halves
-have to be shot at the same size or the row looks broken:
+Pairs meant to sit side by side. Shoot both halves at the same size:
 
 - `widgets-ios.png` + `widgets-android.png`
 - `hero.png` + `dark.png`

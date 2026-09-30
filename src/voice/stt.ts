@@ -475,18 +475,13 @@ function handleError(current: Session, event: ExpoSpeechRecognitionErrorEvent): 
     it is what the recogniser says **as it is stopped** — after the final result
     has already been delivered. A farewell, not a failure.
 
-    Observed on a Galaxy S23: a perfectly transcribed sentence
-    ("Book two hours for the robotics report on Thursday afternoon and remind me
-    to email the tutor the day before") followed by `code: 'client'`,
-    `message: 'Other client side errors.'` — so the screen reported "Speech
-    recognition failed." over a transcript that was completely correct, and the
-    turn was never run. Every dictation ended that way.
+    Observed on a Galaxy S23: a correctly transcribed sentence followed by
+    `code: 'client'`, `message: 'Other client side errors.'`. Treated as an
+    error, a correct transcript would be reported as a failure and never run.
 
-    This is the same fact AGENTS.md already records — *the recogniser talks
-    after it is stopped* — one step further on. The session ticket in `store.ts`
-    guards a *superseded* session's late callbacks; this one arrives for the
-    session that is still current, straight after a good result, so nothing was
-    catching it.
+    The session ticket in `store.ts` guards a *superseded* session's late
+    callbacks; this one arrives for the session that is still current, straight
+    after a good result, so it is handled here.
 
     Settled, not swallowed: only when there are words to settle with. With
     nothing heard it stays an error, because "client error" over a microphone
@@ -504,9 +499,8 @@ function handleError(current: Session, event: ExpoSpeechRecognitionErrorEvent): 
   // The code is the only thing that says *which* failure this was, and the
   // message the user sees deliberately does not: "Speech recognition failed."
   // is the `default` arm of `toSttError`, so every unmapped code arrives
-  // looking identical. The details went into the `AppError` and nowhere else,
-  // which made a real failure on a real phone undiagnosable — logcat had
-  // nothing at all about it. One line, before the mapping throws the code away.
+  // looking identical. Logged here, before the mapping throws the code away,
+  // so a failure on a device can be diagnosed.
   log.warn('recogniser failed', {
     code: event.error,
     native: event.code,

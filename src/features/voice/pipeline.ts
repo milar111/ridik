@@ -221,16 +221,12 @@ let hosted: LlmClient | null = null;
  *   offline       neither, or the budget is spent: the mock provider's pattern
  *                 matcher.
  *
- * **Both paid modes go through the same gate.** The hosted one used to return
- * before the budget was ever consulted, on the grounds that quotas belong to
- * the server — which is true of the *authoritative* answer and was read as
- * meaning the client should not have one. The result was that every line of
- * the free-tier lock was dead code on the only configuration that ships: the
- * trial, the entitlement check and the meter all ran on personal builds, where
- * the invoice belongs to whoever pasted the key, and none of them ran on the
- * build where it belongs to the operator. The server still decides; this is the
- * half that stops an unbilled request being made at all, and the half that
- * records what the turn cost so a caching change can be seen to have worked.
+ * **Both paid modes go through the same gate.** Quotas belong to the server,
+ * which holds the *authoritative* answer — but that does not mean the client
+ * should have none. The trial, the entitlement check and the meter run on the
+ * hosted build too. The server still decides; this is the half that stops an
+ * unbilled request being made at all, and the half that records what the turn
+ * cost so a caching change can be seen to have worked.
  *
  * Hitting a cap degrades rather than silences, the same path a missing key
  * takes, because a budget control that bricks the mic only teaches people to
@@ -482,10 +478,9 @@ async function assistantBudget(options: BudgetOptions): Promise<TurnBudget> {
          * The decision is `creditsCoverBreach`, in allowance.ts, and not an
          * `if` written here — the invariant is one decision then one
          * measurement, and this is the same decision being asked again with
-         * the measurement in hand. A subscriber who bought a top-up for
-         * exactly this moment used to be refused anyway, because the only path
-         * to the balance ran through `refuse()` inside the first decision and
-         * a spent monthly allowance is refused by the meter, downstream of it.
+         * the measurement in hand. A spent monthly allowance is refused by the
+         * meter, downstream of the first decision, so a subscriber's top-up
+         * has to be consulted here as well.
          */
         const breach = (verdict.error.details as { breach?: { window?: string } } | undefined)
           ?.breach;
@@ -677,17 +672,15 @@ export function createVoicePipeline(): VoicePipeline {
       const whisperLocalUpgrade = config?.sttEngine === 'whisper-local' && canCaptureAudio();
 
       /**
-       * And it covers the *recogniser* too, which is the rung nobody thought to
-       * gate because it looks local from the call site.
+       * And it covers the *recogniser* too, although it looks local from the
+       * call site.
        *
        * It is not reliably local. On-device recognition is preferred and often
        * simply unavailable — most Android devices, and any iPhone whose locale
-       * dictation has not been downloaded — and the session then starts with
-       * `requiresOnDeviceRecognition: false`, which streams the raw audio to
-       * Apple's or Google's speech servers; there is a silent retry over the
-       * network on top of that. So a fresh install that read the screen, tapped
-       * "Use Ridik offline" and spoke had its audio uploaded, and was then told
-       * "nothing went to Google" by the refusal notice on that exact turn.
+       * dictation has not been downloaded — and the session would then start
+       * with `requiresOnDeviceRecognition: false`, which streams the raw audio
+       * to Apple's or Google's speech servers, with a retry over the network
+       * on top of that. Without consent, the session is held to on-device.
        *
        * Fails closed on a settings read that did not land: an unknown answer is
        * not a yes.

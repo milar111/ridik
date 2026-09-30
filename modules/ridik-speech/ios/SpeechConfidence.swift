@@ -3,14 +3,12 @@
 
  Its own file, and free of `AVFAudio`, for two reasons. It is the only pure
  arithmetic in this module — everything else is a microphone, an audio session
- or an actor — and being pure it is the only part that can be *checked*:
- `notes/speechlab` compiles this exact file against real models and prints what
- it returns, on the host as well as in the simulator, because `AVAudioSession`
- does not exist on macOS and would make the whole session file uncompilable
- there.
+ or an actor — and being pure it is the only part that can be *checked*: a
+ host bench compiles this exact file against real models and prints what it
+ returns, on macOS as well as in the simulator, because `AVAudioSession` does
+ not exist on macOS and would make the whole session file uncompilable there.
 
- So this is the shipped function the bench measures, not a copy of it. The same
- reason `notes/tilelab` compiles the real widget faces.
+ So this is the shipped function the bench measures, not a copy of it.
  */
 import Foundation
 import Speech

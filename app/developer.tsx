@@ -153,9 +153,7 @@ function spendDetail(month: UsageWindow): string {
 /**
  * What the last hundred turns took, and whether that is good.
  *
- * `latency_ms` is written on every single turn and, until the history screen,
- * was read by nothing at all — the app measured how slow it was and then threw
- * the measurement away. Two figures, because neither alone is honest: the
+ * `latency_ms` is written on every turn and read here. Two figures, because neither alone is honest: the
  * median is what a turn usually costs, and the 95th is what people actually
  * complain about. A mean would be neither.
  *

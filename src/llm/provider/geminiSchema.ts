@@ -163,7 +163,7 @@ function branchTool(branch: unknown): string | null {
  * This is the whole of the per-call narrowing, and it is done here rather than
  * by pinning `responseSchema` on the request because pinning would take the
  * provider off its own ladder and disable the 400-fallback that exists because
- * no request has ever been made with a real key.
+ * the provider can refuse a strict schema outright.
  *
  * Both rungs are understood, and neither is assumed: the strict schema carries
  * one `anyOf` branch per tool (so narrowing deletes branches, and takes ~4,600

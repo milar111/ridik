@@ -13,8 +13,8 @@
  * - **Speaking replies** is off for the life of the app, so a person who wants
  *   to be answered out loud has to go looking for a switch they have no reason
  *   to believe exists.
- * - **The confirmation gate** shipped with no UI at all and a default that asks
- *   before anything irreversible. Somebody who finds that one question too many
+ * - **The confirmation gate** defaults to asking before anything
+ *   irreversible. Somebody who finds that one question too many
  *   spends the whole first session being asked.
  * - **The clock** reads the device, which on Android does not carry the
  *   24-hour switch at all — so an American on a Galaxy sees `21:00` with no

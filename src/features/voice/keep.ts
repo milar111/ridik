@@ -8,12 +8,10 @@
  * they get somewhere they can look at a screen."
  *
  * That window is precisely the one in which iOS and Android reclaim a
- * backgrounded app. Held only in zustand, the slot survived every failure it
- * was designed for and none of the ordinary one: pocket the phone, come back
- * ten minutes later, and the words are gone from a feature whose entire promise
- * is that they are not. Nothing else in the app persists UI state, which is why
- * it went unnoticed — nothing else in the app holds something the user cannot
- * get back.
+ * backgrounded app. Held only in zustand, the slot would not survive the
+ * ordinary case — pocket the phone, come back ten minutes later — so it is
+ * persisted. Nothing else in the app persists UI state, because nothing else
+ * holds something the user cannot get back.
  *
  * Three decisions worth keeping:
  *

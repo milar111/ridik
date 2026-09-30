@@ -20,8 +20,8 @@
  *
  * ## The numbers
  *
- * `CHARS_PER_LINE` is measured, not guessed. `notes/measure.py fits` in the
- * shipped face (Bricolage Grotesque) puts "What lies behind us and what lies
+ * `CHARS_PER_LINE` is measured, not guessed. Measured against the font file,
+ * the shipped face (Bricolage Grotesque) puts "What lies behind us and what lies
  * before us are tiny matters compared to what lies within us." — 92 characters
  * — at **579.5pt** at `caption`'s 13pt, so 6.30pt a character. A note row spans
  * the gutter to the gutter: 402 − 32 = 370pt on an iPhone 17 Pro, which is

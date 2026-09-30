@@ -7,8 +7,8 @@ React Native, and an Android widget is XML replayed by the launcher. So this
 file is the shared source, and it is normative. Where the code and this file
 disagree, one of them is a bug.
 
-Read `AGENTS.md` → **Widgets** first for what will bite you. This is the *what*;
-that is the *why it breaks*.
+`AGENTS.md` → **Widgets** holds the implementation notes for both platforms.
+This file is the *what*; that one is the *how*.
 
 ---
 
@@ -31,11 +31,9 @@ and the test is what stops one being added that nobody can read.
 | hot | `3` | `#C7360F` | `#FF5A36` | **the one urgent thing** |
 
 These are the default ember composited over `tile` at 23 / 46 / 71% (light) and
-24 / 46 / 70% (dark) — the arithmetic in `theme.ts` → `embers`, done once. The
-three surfaces below hold these exact strings and `widget-tokens.test.ts` fails
-if any of them drifts; this table used to carry a ramp solved against the app's
-`bg` rather than the widget's `tile`, which is the ground the family is actually
-drawn on.
+24 / 46 / 70% (dark) — the arithmetic in `theme.ts` → `embers`, done once,
+against `tile`, the ground the family is drawn on. The three surfaces below hold
+these exact strings and `widget-tokens.test.ts` fails if any of them drifts.
 
 Defined once per platform — `src/ui/theme.ts` (`cells`),
 `RidikPalette.swift` (`heatCold`…`heatHot`), and the plugin's
@@ -64,16 +62,15 @@ big-number-with-caption as a whole face, three evenly spaced stat pills, and any
 second hue. There is no green and no blue anywhere in these widgets.
 
 **The one narrowing, and it is a narrowing rather than a repeal.** §3.7 *Rings*
-draws a proportion as a stroked arc, which the paragraph above forbids. It exists
-because the user asked for it after seeing the same encoding on the Habits
-*screen*, and the two are not the same argument: a screen is read at arm's length
+draws a proportion as a stroked arc, which the paragraph above forbids. It
+carries the Habits *screen*'s encoding onto the home screen for people who want
+it there, and a screen and a tile are not the same argument: a screen is read at arm's length
 by someone who opened it deliberately, where a proportion beats a bucket; a tile
 is glanced at across a room, where a ring is a smear and four discrete levels are
-not. So the rule now reads: **no face may draw a proportion as its graphic unless
+not. So the rule reads: **no face may draw a proportion as its graphic unless
 the user chose that face over one that does not.** Rings is offered *beside*
 Habits and never instead of it, and no other face may take a ring without the
-same argument being made again here. `Tank` and `Lens` remain unbuilt on exactly
-this reasoning — a ban that bends once per request is not a ban.
+same argument being made again here.
 
 **The second narrowing, and it is a distinction rather than a second exception.**
 §3.14 *Sundial* draws a curve with a disc riding it, which reads at a glance like
@@ -115,13 +112,11 @@ size is its own generated layout variant — the same mechanism as
 
 ### How a face answers the rectangle it is given
 
-Four rules. Every visible sizing failure the family has had broke one of them,
-so they are worth stating rather than re-deciding per widget.
+Four rules, stated once so they are not re-decided per widget.
 
 **1. A cell has a size. Extra space buys more cells, or more air — never fatter
-cells.** The rails first divided the tile's height between six of them with
-`layout_weight`, so a tile made twice as tall drew bars twice as thick: a chart
-whose thickness means nothing, stretched. Rails are now a fixed height and the
+cells.** A bar's thickness carries no meaning, so stretching one to fill a taller
+tile would draw a chart that says nothing new. Rails are a fixed height and the
 slack collects in a spacer at the bottom. The same rule is why the day element
 folds 32 cells into 8 on a small tile rather than drawing 32 fat ones.
 
@@ -132,21 +127,22 @@ shows one week, not five. `best` is dropped first, then `streak` — a number yo
 can live without, a name you cannot.
 
 **3. A face is sized by the axis it actually grows along.** Habits gains
-*columns* with width and only air with height, so it is bucketed on width alone;
-promoting it to the five-week layout because the tile was tall is what put
-thirty-five hairline columns beside a forty-dp gutter. Every other face gains
-rows with height and is bucketed on both.
+*columns* with width and only air with height, so it is bucketed on width alone.
+Every other face gains rows with height and is bucketed on both.
 
-**4. A widget must be able to fill the grid.** `maxResizeWidth` was 400dp, which
-on a 411dp phone is *almost* the screen — so the calendar could never quite
-reach the edges, and a tile that stops just short of full width reads as broken
-rather than as small. It is 800dp now, on every face, in both axes.
+**4. A face resizes up to the grid it declares, and no further.** On Android,
+`resizeFloor` and `resizeCeiling` in the plugin derive `minResize*` and
+`maxResize*` from the face's `cells`: 55dp a cell for the floor and 110dp for the
+ceiling, both on the safe side of any real launcher's grid. A face with a
+`large` layout gets two cells of headroom so it can reach the size it is built
+for; the rest gain nothing from extra height. Habits is capped on width just
+below `RAILS_LARGE_DP`, where its classifier would otherwise promote it.
+`widget-resize.test.ts` asserts every ceiling clears its own floor.
 
 ### And when there is nothing in it
 
-The resting cell sits at 23% of the ember, not the 14% that looked right in
-isolation: 1.39:1 against its own tile rather than 1.22:1. At 14% an empty board
-is a plain card with a suggestion of grid on it. The extra presence costs 0.3 of
+The resting cell sits at 23% of the ember: 1.39:1 against its own tile. Lower,
+an empty board reads as a plain card with a suggestion of grid on it. The extra presence costs 0.3 of
 a lightness step between the four levels, which is the correct trade — the empty
 tile is the state the family is judged on, and nobody ever sees two adjacent
 levels side by side to compare them.
@@ -213,9 +209,8 @@ length, and the shape of the month is what is being read.
 
 **Large — both**, plate with numerals (cells 41×25, gap 3, numeral 13pt inside
 the cell), then whitespace, then the element, axis and rows. **No rule between
-them.** 25 and not 26: the extra point clipped the last agenda row on the
-shortest large tile, and a row cut through the middle reads as a rendering
-fault rather than as a full tile.
+them.** Cells are 25pt tall so the last agenda row fits whole on the shortest
+large tile.
 
 **Row capacity drops by one when there is an all-day line**, on both medium and
 large. The line costs about 18pt and the arithmetic has to know.
@@ -384,8 +379,7 @@ are the two states where the tile has no header, on both platforms.
 
 ### 3.7 Rings — medium only
 
-Adopted from the `clay` direction by request, and the only face that draws a
-proportion — see §1 for the narrowing that permits it, which is a narrowing and
+The only face that draws a proportion — see §1 for the narrowing that permits it, which is a narrowing and
 not a repeal.
 
 One ring per habit: a stroked arc from twelve o'clock clockwise, the share of the
@@ -399,15 +393,12 @@ rows of three fill the tile *and* show every habit the payload carries, which is
 the thing this face exists to do and the reason it refuses a size that would hide
 some of them.
 
-**The name is beside the ring because two rows of it do not otherwise fit, and
-never did.** A 56dp ring with four of gap and an eleven-point name under it is a
-73dp row; two of those plus the header asked for about 189 of the 130-odd a
-medium tile's content box actually has. Neither WidgetKit nor a launcher reports
-that — both clip in silence — so the face shipped with its header cut off the top
-edge and the second row's names cut off the bottom. Height is the scarce axis
-here and width is the abundant one: three columns of a 312dp box is 97 each, and
-a name reads perfectly well in the 49 the ring does not want. Sideways, the row
-costs 42 instead of 73 and all six habits still show.
+**The name is beside the ring because two rows fit no other way.** A ring with a
+name under it is a 73dp row; two of those plus the header would need about 189
+of the roughly 130 a medium tile's content box has, and both platforms clip
+overflow silently. Height is the scarce axis here and width is the abundant one:
+three columns of a 312dp box is 97 each, and a name reads well in the 49 the ring
+does not use. Sideways, the row costs 42 and all six habits show.
 
 **No small, and no large.** Two rings is not a set: it reports on a third of
 somebody's habits and hides the rest without saying so, which is the one thing a
@@ -427,18 +418,15 @@ one number on this face that would be a lie. `RidikRings` in Swift and
 `RidikRings.kt` hold the identical arithmetic.
 
 **The picker needs its own arc.** The live tile is filled by
-`setImageViewBitmap`, and nothing of ours runs in the widget gallery — so the
-`ImageView` there had no drawable and the face rendered as an eyebrow over an
-empty tile, which is the one place a widget is judged before it is placed. The
-preview draws a **vector** instead, built from the same rate arithmetic. A vector
+`setImageViewBitmap`, and none of the app's code runs in the widget gallery, so
+the preview draws a **vector** instead, built from the same rate arithmetic. A vector
 has no stroke, so the arc is a filled annulus sector.
 
 **Android rasters the arc; iOS trims a circle.** RemoteViews cannot draw an arc,
 so the Kotlin generates a bitmap — and that bitmap is a **white alpha mask**,
 tinted by `android:tint` in the layout. A colour computed in the provider is
-computed against the *app's* configuration rather than the launcher's, which is
-the near-black-on-near-black bug in §5; a tint is a colour *reference* the
-launcher resolves in its own process. It is the same trick the mic glyph uses.
+computed against the *app's* configuration rather than the launcher's (see
+§4b); a tint is a colour *reference* the launcher resolves in its own process. It is the same trick the mic glyph uses.
 
 Tap → `ridik:///habits`.
 
@@ -470,21 +458,16 @@ object — so the slots step down to mid / low / cold and the element keeps the
 ember, the same trade §3.2 makes between the strip and the plate.
 
 **Large adds the rest of today between the slots and the element**, under an
-`AFTER THAT` eyebrow, capped at six rows. It had not: the face was the medium
-layout with the same 40pt element under it and a `Spacer` in between, and on a
-321pt tile that spacer stretched to 182 — more than half the face, empty. It read
-as a tile that had failed to draw rather than as a quiet day, which is the
-impression §2 rule 1 exists to prevent. The rows start past the two *future*
+`AFTER THAT` eyebrow, capped at six rows, so the extra height carries content
+rather than ground (§2 rule 1). The rows start past the two *future*
 rows the slots already spoke for, so nothing is ever printed twice; whatever is
 running holds `NOW` without coming out of that queue. When there is nothing
 after them the face says so in one line rather than leaving the space blank —
 air with no explanation under it is indistinguishable from a rendering fault.
 
-Medium used to stop at the three slots and give `hot` to NOW, which left two
-thirds of the tile as ground under three words. The strip is the one thing that
-can fill it while still saying something, and it is the same element §3.1 draws
-from the same payload — so this face and a Today tile beside it agree about the
-day.
+On medium the strip fills the space under the three slots while still saying
+something, and it is the same element §3.1 draws from the same payload — so this
+face and a Today tile beside it agree about the day.
 
 **No small.** Three columns in 131pt is 40pt each and truncates every title (§2
 rule 2). A one-slot small face would be §3.1's readout with a different word over
@@ -523,21 +506,18 @@ Tap → `ridik:///people`.
 
 Seven cells, Monday first, with today ringed, a weekday letter above each and its
 date below. **A day is a column here, not a chip** — the cells take the tile's
-height, because seven of them in a band across the top with nothing underneath is
-the same cheap drawing every other face on this page was making. The only face that answers a question about *tomorrow*: §3.1 draws
+height rather than sitting in a band across the top with nothing underneath.
+The only face that answers a question about *tomorrow*: §3.1 draws
 the day you are standing in and §3.2 draws a month you have to find the row in,
 and neither says "Thursday is the bad one" at a glance.
 
 **The two platforms reach that differently, and have to.** An iOS medium content
 box is 312 x 130, so a measured 68pt bar is exactly right and `RidikChainView`
 states it. An Android two-row tile is 215dp on a Galaxy S23 and about 240 on a
-Pixel — the same face, nearly twice the height — and the same 68 left a dead band
-across the bottom third, which in the picker is the whole of what a stranger
-judges the widget by. There is no number correct on both, so the Android bar is
-a `layout_weight` and takes whatever is left after the letter and the date. It
-degrades better at the other end too: squeezed, the bar gives up its own height
-and the date survives, where the fixed version clipped off the date row — and
-the date row is the half that says *which* week. `widget-geometry.test.ts` pins
+Pixel — the same face, nearly twice the height. There is no number correct on
+both, so the Android bar is a `layout_weight` and takes whatever is left after
+the letter and the date. Squeezed, the bar gives up its own height and the date
+row survives — and the date row is the half that says *which* week. `widget-geometry.test.ts` pins
 each side to its own approach rather than to a shared number.
 
 **The week is its own payload field and never seven characters of the month
@@ -620,10 +600,6 @@ minutes left are known and when they will finish is not, and a countdown to a
 receding moment is wrong every second it is on screen. The header says PAUSED and
 the strip holds its marker where the pause caught it.
 
-This is the face that would most benefit from iOS Live Activities, which
-`src/services/focus/liveActivity.ts` is already a capability-detected adapter
-for. Same extension, so the marginal cost of both is one target, not two.
-
 Tap → `ridik:///today`.
 
 ---
@@ -651,34 +627,25 @@ user choosing one reading over the other is not.
 
 **The graphic fills its tile.** Every ornament on these faces is sized from the
 box it is drawn in — the sundial's disc is 13% of its height, the route's line
-27% of its own — which for a while meant the box had to be pinned to a fixed
-aspect, because a taller one did not draw the same picture larger, it drew a
-*different* picture with a blot for a sun. That left a third of a two-row tile as
-ground under a small drawing: correct in shape and cheap to look at, which is the
-worse failure of the two. The ornaments are clamped against the horizontal
-*step* now — the disc, the dots and the puck all are — so the box is free to grow
-and the things on it are not.
+27% of its own — and clamped against the horizontal *step* as well: the disc,
+the dots and the puck all are. So the box is free to grow and the things on it
+keep their proportions.
 
 **Route is the exception, and it is why it has a one-row tile.** A route is a
 line, and a line cannot be made taller without becoming a band. On Android it
 declares `4 × 1`; WidgetKit has no such family, so on iOS it keeps `systemMedium`
 and the line sits above its caption rather than being stretched to meet it.
 
-**Its box is 44, and the slack is split rather than spent.** At 30 the line was
-27% of too little — an eight-point hairline — and every one of the 50-odd points
-a medium tile had left over went into a *single* gap between the line and its
-caption, which reads as a face with something missing out of the middle. The box
-is 44 now and the leftover is halved above and below it, so the line sits in the
-middle of its tile, which is what it is. The graphic is still a fixed height:
-everything on it is sized from its own box, so letting it grow would draw a
-different picture rather than a bigger one.
+**Its box is 44, and the slack is split rather than spent.** The leftover
+height is halved above and below the box, so the line sits in the middle of its
+tile. The graphic is a fixed height: everything on it is sized from its own box,
+so letting it grow would draw a different picture rather than a bigger one.
 
-Widening the box is the same trap in the other axis, and only Android has it:
+Widening the box has the same constraint in the other axis, on Android only:
 `scaleType="fitXY"` does not preserve aspect, so a raster whose shape differs
-from its `ImageView`'s stretches everything in it. That is what made the puck an
-egg, twice — once from a shared 300 × 100 viewport, and once from a 4 × 1 tile
-whose *preview card* the launcher drew three columns wide. A short widget's span
-is derived from `minWidth`, so `minWidth` has to agree with `cells.width`.
+from its `ImageView`'s stretches everything in it, including the round puck. A
+short widget's span is derived from `minWidth`, so `minWidth` has to agree with
+`cells.width`.
 
 Tap → `ridik:///today`.
 
@@ -724,20 +691,15 @@ either, the same substitution §3.14 makes.
 **The line is continuous, and the rounding is on its ends.** Each segment butts
 against the next; a hairline of ground is left only where a booking actually
 begins. The caps belong to the *rail* and are applied once — a `clipPath` on
-Android, a `clipShape` on iOS — never per segment. Rounding each one instead
-turned thirty-two segments across a tile into thirty-two beads at ten points wide
-by nine tall, which is the whole metaphor gone.
+Android, a `clipShape` on iOS — never per segment, which would turn the line into
+a row of beads.
 
-**A track is laid full width before any of it is drawn**, and the paragraph above
-is why that had to be said out loud. "Continuous" was a claim about the *clip*,
-and it said nothing about what got drawn into it: an empty cell is level 0, which
-is 18% of the accent, and a *spent* empty cell is that times 0.55, which is ten.
-Ten per cent of an ember, four points tall, is nothing — so the entire morning of
-an ordinary day rendered as blank ground and the route began at the puck. The
-face read as a slider somebody had dragged, which is the one thing a journey must
-not: no road behind you. Burn-down cannot answer it the way §3.13 does, because a
-silhouette has a baseline to shrink towards and a line has none. So the road goes
-down first at 13%, and the day is drawn on top of it.
+**A track is laid full width before any of it is drawn.** An empty cell is level
+0, 18% of the accent, and a *spent* empty cell is that times 0.55 — too faint to
+read as road on its own. So the road goes down first at 13%, and the day is
+drawn on top of it: there is always a line behind the puck as well as ahead of
+it. Burn-down cannot do this job the way §3.13 does, because a silhouette has a
+baseline to shrink towards and a line has none.
 
 It is honest about position and not about duration. A puck wide enough to see is
 about twenty-five minutes of a day, so it reads as *where you are* and never as
@@ -766,11 +728,10 @@ today is the one hot object.
 **Burn-down is the one rule that does not transfer, and the face says why.**
 §1.3 is a *height* rule — same level, 38% height, bottom-aligned — and a dot has
 no height to take 38% of. Shrinking one takes the ink away in both axes at once,
-which drew 241 days of history as a faint speckle under 124 solid days still to
-come: the past read as *less* present than the future, which is the opposite of
-what the face is for. So every dot is full size and only the opacity moves — the
-history is the filled mass, today is the hot one, the days ahead are the faint
-tail. That is how *one year*, the app this is lifted from, draws it.
+which would make the past read as *less* present than the future — the opposite
+of what the face is for. So every dot is full size and only the opacity moves:
+the history is the filled mass, today is the hot one, the days ahead are the
+faint tail.
 
 It reads **no load**, which is what lets it sit beside §3.14 without the two
 arguing about what a cell means — one is a count of days, the other a measure of
@@ -819,8 +780,7 @@ Two rules behind that table:
   cells at or after now — not from `freeMinutes`, which is the whole window and
   would still say "15h" at nine in the evening. Quantise to the quarter hour.
 - **`configured` is what separates "you did everything" from "you have never set
-  this up".** Without it those two render identically, which is most of the
-  reason an untouched install looks broken rather than empty.
+  this up".** Without it those two would render identically.
 - **A stale day face is not a notice.** "Yesterday's plan." goes *under* the
   drawing, with the strip fully burned down, the rails' last column unlit, the
   counts suppressed. The whole-tile notice pane is only for "nothing published"
@@ -843,9 +803,8 @@ and dark `CellRamp` and one more field that is not decoration.
 ### `platePeak`, and why a darker ember costs something
 
 **No darker ember is possible at any ramp on the sand ground.** This was solved
-for, not guessed: Oxide, Kiln, Madder and Rust all fail the family's own rules
-at every combination of alphas, and so does the default ember if you move one of
-them.
+for: Oxide, Kiln, Madder and Rust all fail the family's own rules at every
+combination of alphas, and so does the default ember if you move one of them.
 
 The month plate is the only place in the family where text sits *on* a filled
 cell. That pins the ramp from both ends at once — `mid` has to stay light enough
@@ -871,8 +830,8 @@ does not exist. It is a real loss and it is the only one on offer — which is w
 
 **Android cannot resolve the ember at draw time.** A colour from
 `resources.getColor()` is resolved against the *app* process's configuration
-while the launcher draws against its own; that mismatch is what made every row
-title vanish in dark mode once already. So the ember is baked into resources:
+while the launcher draws against its own, so a computed colour can be the wrong
+scheme on the home screen. The ember is therefore baked into resources:
 24 heat drawables and 53 layouts, selected by name through the same
 `Resources.getIdentifier` path that already picks size and clock variants, with
 light and dark still resolved by the launcher.
@@ -897,8 +856,7 @@ different objects rather than one object under two lamps.
    reads as glow). Light's takes a 1pt *inset of the ground* instead, so the hot
    cell does not touch its neighbours. Emission versus impression.
 4. **Dark tiles carry a 1pt border** (`#1FFFD6B8`); light tiles carry none. A
-   near-black tile on a dark photo wallpaper dissolves into it. This is a defect
-   fix, not a flourish.
+   near-black tile on a dark photo wallpaper would otherwise dissolve into it.
 5. **Dark is the hero.** Its ramp spans further — every step is about 20%
    larger in CIE L\* — so it is measurably the better instrument. Gallery
    previews and store screenshots are generated dark.
@@ -954,9 +912,9 @@ extension (`RidikControls.swift`), **Android `TileService`**
 (`RidikSpeakTileService.kt`), registered by the same plugin that registers the
 every provider. Both open `ridik:///?speak=1`.
 
-**Both platforms or neither — and the rule is about *controls*.** A
-quick-capture button on one platform and not the other is the AGENTS.md failure
-arriving through the door nobody would spot in a screenshot comparison, so
+**Both platforms or neither — and the rule is about *controls*.** The two
+platforms are meant to offer the same product, and a quick-capture button on
+only one would be a divergence no screenshot comparison shows, so
 `speak-intent.test.tsx` asserts them as a pair.
 
 That rule was written here, about this button, and it is stated in those terms
@@ -974,7 +932,7 @@ snapshot, has no size, no layout, no timeline and no update period; it is a
 glyph, a word and a URL. Nothing in §1–§6 applies to it, and adding it cost one
 file per platform rather than a sixth face.
 
-Three things that are the platforms being awkward rather than decisions:
+Three platform constraints:
 
 - **`ControlWidget` is iOS 18 and this extension ships to 16.4.** The bundle
   adds it through `if #available` — `WidgetBundleBuilder` calls
@@ -1029,8 +987,7 @@ the tile off every Lock Screen it is on.
 ## 8. What is deliberately not here
 
 - **No bitmaps on Android, except where `RemoteViews` cannot draw the shape at
-  all.** This used to be unqualified, and the reasoning behind it still stands
-  for every face built from cells: quantising heat into four fixed levels means
+  all.** For every face built from cells: quantising heat into four fixed levels means
   each one is a `View` with a `@drawable/` background the launcher resolves in
   its own process, so there is no night-mode seam and no Binder pressure.
 
@@ -1038,8 +995,7 @@ the tile off every Lock Screen it is on.
   (§3.13), Sundial (§3.14), Route (§3.15) and Term (§3.16). `RemoteViews` cannot
   set a view's width or height before API 31 and this app ships to 26, cannot
   draw a curve at any level, and cannot hold 365 views inside one Binder
-  transaction. So the choice was those five or nothing, and the seam is closed
-  rather than avoided: **every bitmap here is a white alpha mask and never a
+  transaction. The colour seam is closed rather than avoided: **every bitmap here is a white alpha mask and never a
   colour**, tinted by `android:tint` in the layout, which is a colour *reference*
   the launcher resolves against its own light/dark exactly as it does a cell.
   `RidikPlots.kt` and `RidikRings.kt` are the two files allowed to raster, and

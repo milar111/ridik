@@ -1,39 +1,22 @@
 /**
  * What happens when somebody taps a notification, or one of its buttons.
  *
- * ## What was wrong
- *
- * Nothing. Literally nothing happened.
- *
- * `subscribeToResponses()` and `getLaunchResponse()` were written, exported,
- * and called from nowhere. `addNotificationResponseReceivedListener` was never
- * installed, so no `actionIdentifier` and no `data.href` was ever read. Two
- * consequences, both invisible from the code:
+ * `addNotificationResponseReceivedListener` is installed here, so two things
+ * work:
  *
  *   - The ongoing focus notification's **Pause / Resume / Skip / Stop** buttons
- *     did nothing at all. `handleTimerAction()` in `services/focus/index.ts` was
- *     written for exactly this — complete with a guard against actions arriving
- *     from a stale notification — and was unreachable dead code. Its own
- *     docblock claimed "the root layout's single `subscribeToResponses`
- *     handler" forwarded to it. There was no such handler.
+ *     reach `handleTimerAction()` in `services/focus/index.ts`, which guards
+ *     against actions arriving from a stale notification.
  *   - Every scheduled notification carries an `href` — `/focus`, `/tasks`,
- *     `/places` — and tapping the body never opened it. The app just resumed
- *     wherever it had been.
+ *     `/places` — and tapping the body opens it.
  *
  * ## Why it lives here and not in the root layout
  *
  * The layout must mount its navigator on the first render, so it is the wrong
- * place for anything that can throw or await. This is a bootstrap step like
- * push, and it deliberately mirrors `push.ts`: the same one-tick deferral
- * before navigating, for the same reason — a launch response is replayed the
+ * place for anything that can throw or await. This is a bootstrap step, with a
+ * one-tick deferral before navigating: a launch response is replayed the
  * instant a listener appears, and dispatching a navigation from inside that
  * call reaches expo-router mid-commit.
- *
- * ## The honest limit
- *
- * This restores Android. On iOS there is a second, independent cause — the
- * delegate conflict documented in `notifications/index.ts` — so taps there are
- * not fixed by this file and are not claimed to be.
  */
 import { router } from 'expo-router';
 
@@ -63,12 +46,8 @@ const TAPPED = 'expo.modules.notifications.actions.DEFAULT';
  * notification that could carry it would be a way to start a recording from
  * outside the app. A scheduled reminder opens a screen; it never acts.
  *
- * This used to be one of two: `PUSH_BLOCKED_PARAMS` in `briefingPush.ts` said
- * the same thing for the OneSignal briefing, whose href came off a dashboard
- * and was therefore the *less* trusted of the two. That file is gone with the
- * SDK, which makes this the only enforcement point left — so it is exported and
- * tested by name rather than left as a private helper, and the rule is now
- * stated here rather than cross-referenced from here.
+ * This is the only enforcement point, so it is exported and tested by name
+ * rather than left as a private helper.
  */
 export function safeHref(href: unknown): string | null {
   if (typeof href !== 'string') return null;
@@ -83,7 +62,7 @@ export function safeHref(href: unknown): string | null {
   return trimmed;
 }
 
-/** One clean tick before navigating. See the note in `push.ts`. */
+/** One clean tick before navigating, so the navigation is not mid-commit. */
 function navigate(href: string, attempt = 0): void {
   setTimeout(
     () => {
@@ -112,8 +91,7 @@ async function handle(response: {
     // text-to-speech and the timer machinery, and a listener registered at boot
     // must not drag that into the startup graph for a button nobody may press.
     // `require` and not `await import()` — the `logic` test project runs under
-    // plain Node without VM modules, where a dynamic import throws, and this is
-    // the same shape `push.ts` uses to load its SDK.
+    // plain Node without VM modules, where a dynamic import throws.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { handleTimerAction } = require('@/services/focus') as {
       handleTimerAction: (

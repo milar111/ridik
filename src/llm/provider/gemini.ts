@@ -18,19 +18,10 @@ import {
 /**
  * Pinned, and pinned to the model the price of this app was built on.
  *
- * `gemini-flash-latest` is what shipped. On 16 August 2026 the first call ever
- * made with a real key reported `modelVersion: gemini-3.7-flash` — the top of
- * the Flash family, at $0.75/M input and $3.75/M output, doubling on 1 January
- * 2027. Every figure in the plan assumed a Flash-Lite at $0.25.
- *
- * That gap is not a rounding error, it is the business model. At 3.7 Flash a
- * subscriber burning the 1,000 credits of the upper tier costs $10.58 against
- * $7.60 of net revenue from January: the plan loses money on exactly the
- * customer it is designed to attract. On this model the same burn costs $1.93.
- *
- * So the choice is not "cheaper if convenient". The cheaper model is the
- * assumption the ladder rests on, and 3.7 Flash would mean repricing rather
- * than saving.
+ * The moving alias `gemini-flash-latest` resolves to the top of the Flash
+ * family, which is priced several times higher than the Flash-Lite every
+ * figure in the plan assumes. The plans are sized against this model's rates,
+ * so it is the assumption the pricing ladder rests on, not a convenience.
  *
  * The cost of the choice is answer quality: a smaller model picking among 28
  * tools with structured output may need the repair loop more often. Two things

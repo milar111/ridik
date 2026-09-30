@@ -108,8 +108,8 @@ export default function TasksScreen() {
 
   // A hook, not `<Refresh />`: what reaches `refreshControl` has to be the
   // `RefreshControl` element itself. This screen's `Screen` is `scroll={false}`,
-  // so the wrapper only ever emptied the list below rather than the whole page —
-  // which read as "no tasks" and is why it went unnoticed longest.
+  // so a wrapper would empty only the list below rather than the whole page,
+  // which reads as "no tasks".
   const refreshControl = useRefresh({
     refreshing: active.isRefetching || graph.isRefetching,
     onRefresh: refresh,

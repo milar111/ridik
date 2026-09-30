@@ -128,8 +128,7 @@ export function googleOAuthConfig(): GoogleOAuthConfig {
  * the one that actually signed the APK, and that differs between a Metro debug
  * build (Expo's template keystore) and anything from `npm run release` (the
  * upload key). Sending the wrong id fails inside Google with a certificate
- * mismatch — the app only ever sees a redirect that does not arrive, which is
- * indistinguishable from the scheme bug fixed the same day.
+ * mismatch — the app only ever sees a redirect that does not arrive.
  *
  * iOS needs none of this: its client is bound to a bundle identifier, which
  * does not change between debug and release.
@@ -169,11 +168,9 @@ export function appIdentifier(): string {
  *
  * Installed-app clients redirect through a custom URI scheme, and the scheme
  * has to be one the OS will actually route to *this* app. There are two Google
- * accepts — the application id and the reversed client id — and this used to
- * send the second one, which was registered on neither platform. The flow
- * therefore worked perfectly right up to the last hop: Google took the consent,
- * redirected, and the OS had nowhere to deliver it. No error, no return, and
- * the account looks connected to Google while the app never saw a token.
+ * accepts — the application id and the reversed client id. A scheme the OS
+ * has not registered fails at the last hop: Google takes the consent,
+ * redirects, and the OS has nowhere to deliver it, with no error and no token.
  *
  * So it is the application id, which is what `expo-auth-session`'s own Google
  * provider defaults to. iOS registers it automatically; Android registers it

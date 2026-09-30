@@ -106,3 +106,6 @@ REMOVING-ONESIGNAL.md
 # than the behaviour, and it fails as soon as the bug is fixed.
 **/__tests__/zz*.test.ts
 **/__tests__/zz*.test.tsx
+
+# local-only agent notes (full working notes live in notes/)
+CLAUDE.local.md

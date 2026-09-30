@@ -12,9 +12,9 @@
  * that is safe to speak.
  *
  * Two ceilings sit over both budgets. The retry ladders multiply — a transport
- * ladder inside every schema attempt — so a turn that hiccups in both ways at
- * once used to be able to spend fifteen provider calls without anyone asking
- * for it. `maxCallsPerTurn` is the flat number nobody can exceed. And when the
+ * ladder inside every schema attempt — so without a ceiling a turn that
+ * hiccups in both ways at once could spend fifteen provider calls.
+ * `maxCallsPerTurn` is the flat number nobody can exceed. And when the
  * schema budget really is spent, the turn degrades to the offline engine rather
  * than being thrown away: three malformed replies mean the model cannot answer
  * this utterance, and a note the user can edit beats losing what they said.
@@ -47,10 +47,9 @@ export const DEFAULT_MAX_DELAY_MS = 8_000;
 export const DEFAULT_MAX_CALLS_PER_TURN = 6;
 
 /**
- * A ceiling on the reply, because until now there was none.
+ * A ceiling on the reply.
  *
- * `maxOutputTokens` has been plumbed from here to both providers since the client
- * was written and set by nobody, so every turn was uncapped: a model that loops
+ * `maxOutputTokens` is passed to both providers. Without it a model that loops
  * — and a JSON-mode model repeating a `parameters` block is the commonest way to
  * see one — bills for as long as it keeps going. The app's own meter notices
  * afterwards; this stops it happening.

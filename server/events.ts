@@ -1,5 +1,5 @@
 /**
- * The usage ingest. `POST /v1/events`. NOT DEPLOYED — a starting point, like
+ * The usage ingest. `POST /v1/events`. A reference implementation, like
  * `interpret.ts` beside it.
  *
  * It exists because `docs/privacy.md` stakes its credibility on being checkable

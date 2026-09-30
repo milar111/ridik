@@ -90,12 +90,11 @@ type Panel = {
    * (summarised in the heading above them) and what is never sent. They open on
    * request.
    *
-   * A caution learned the expensive way, recorded below: the visible half must
-   * not be a *shorter* version of the enumeration. A first attempt at this
-   * screen summarised the index as "your event and task titles, list and habit
-   * names" and silently dropped the timetable's places, task due dates,
-   * projects, note titles and spending categories. Understating is the failure
-   * mode here, so the panel body is used verbatim in both places.
+   * The visible half must not be a *shorter* version of the enumeration: a
+   * summary like "your event and task titles, list and habit names" would drop
+   * the timetable's places, task due dates, projects, note titles and spending
+   * categories. Understating is the failure mode here, so the panel body is used
+   * verbatim in both places.
    */
   disclosure?: true;
 };
@@ -113,20 +112,17 @@ type Panel = {
  * disclosure that names one provider while the refusal notice names another is
  * worse than either alone.
  *
- * **Every sentence here is checked against the code, and two of them used to
- * fail.** "The words of a request, and today's date" described maybe a tenth of
- * what a turn sends: `buildLlmContext` puts today's *and* tomorrow's event
- * titles, times and locations, the timetable, open tasks with due dates and
- * projects, note titles, list names, habit names, place labels, spending
- * categories and up to twenty-five people's names from the CRM into the system
- * prompt on every single request — so "note the resistors" carried the user's
- * colleagues and their oncology appointment with it. And "Never sent — the
- * recording" was false whenever the phone had no offline voice for the locale,
- * which is the normal state on most Android devices: the session simply started
- * with `requiresOnDeviceRecognition: false` and streamed the audio to a speech
- * server. The gate in `pipeline.ts` now makes the refusal true, and these
- * panels say what the granted path actually does. A disclosure that understates
- * is worse than none: it is the thing the grant was obtained with.
+ * **Every sentence here is checked against the code.** `buildLlmContext` puts
+ * today's *and* tomorrow's event titles, times and locations, the timetable,
+ * open tasks with due dates and projects, note titles, list names, habit
+ * names, place labels, spending categories and up to twenty-five people's
+ * names into the system prompt on every request, so the panels list all of it
+ * rather than "the words of a request". Likewise the recording: on a phone
+ * with no offline voice for the locale — the normal state on most Android
+ * devices — recognition streams audio to a speech server, so that recipient is
+ * named, and the gate in `pipeline.ts` keeps it on-device when consent is
+ * refused. A disclosure that understates is worse than none: it is the thing
+ * the grant was obtained with.
  */
 const PANELS: Panel[] = [
   {
