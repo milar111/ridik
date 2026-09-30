@@ -90,6 +90,14 @@ export type TurnOutcome = {
   speak?: boolean;
   transcript: string;
   feedback?: string;
+  /**
+   * The model's own sentence, when it wrote one — as opposed to `feedback`,
+   * which falls back to the executor's summary. It is the only place an answer
+   * lives when the same utterance also changed something ("log thirty on
+   * switches, and when is Ivo's birthday?"): the receipt draws the change and
+   * nothing else would carry the date.
+   */
+  reply?: string;
   items: TurnItem[];
   /**
    * A question the turn stopped on, and how it can be answered.
@@ -669,9 +677,11 @@ export function createOrchestrator(options: OrchestratorOptions) {
       model,
     });
 
+    const reply = response.conversational_feedback?.trim();
     return {
       transcript,
       feedback,
+      ...(reply ? { reply } : {}),
       items: results.map(toItem),
       speak: shouldSpeak(results),
       usage: {

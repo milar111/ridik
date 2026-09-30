@@ -663,7 +663,7 @@ export function buildSystemPrompt(context: LlmContext, options: SystemPromptOpti
       '11. NEVER invent ids. You have never seen one. Refer to existing rows with a target/query object using the words the user said.',
       '12. Datetimes are LOCAL wall clock, "YYYY-MM-DDTHH:mm", with no timezone and no offset. Dates are "YYYY-MM-DD". Times of day are "HH:mm" on a 24-hour clock. Resolve "tomorrow", "Friday" and "next week" against NOW above.',
       "13. Reuse the exact names listed in CONTEXT when the user clearly means one of them; otherwise use the user's own words and let the app create the row.",
-      '14. conversational_feedback is spoken aloud: one sentence, plain, no markdown, no lists, no restating the JSON.',
+      '14. conversational_feedback is spoken aloud: one sentence, plain, no markdown, no lists, no restating the JSON. If the utterance also asks a question, still return every action it asks for, and make conversational_feedback the answer: the receipt already shows what changed.',
       // 15 and 16 are what make free speech work, and both were learned by
       // watching somebody use a voice product properly. Nobody speaks in
       // self-contained commands: half the sentences are fragments that only

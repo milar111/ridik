@@ -96,6 +96,8 @@ export type VoiceOutcome = {
    */
   noticeAction?: { label: string; href: string };
   feedback?: string;
+  /** The model's own sentence; see `TurnOutcome.reply`. */
+  reply?: string;
   items: VoiceOutcomeItem[];
   /**
    * A question the turn stopped on, and how it can be answered.

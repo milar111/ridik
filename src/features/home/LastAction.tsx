@@ -61,8 +61,22 @@ export function LastAction() {
   const open = useVoiceStore((s) => s.open);
   const items = outcome?.items ?? [];
   const applied = items.filter((item) => item.ok);
-  const headline = applied.length > 0 ? applied[applied.length - 1]! : null;
+  // The newest *change* leads when there is one. A sentence that files
+  // something and asks something can come back with a read (a search, a
+  // lookup) as its last item, and leading with that hid the receipt behind a
+  // match count — the answer itself is `reply`, drawn underneath.
+  const writes = applied.filter((item) => isWrite(item.toolName));
+  const headline =
+    writes.length > 0 ? writes[writes.length - 1]! : applied.length > 0 ? applied[applied.length - 1]! : null;
   const undoable = lastUndoable(items);
+  /*
+   * The model's own sentence, and the only place an answer lives when nothing
+   * was written ("when is Ivo's birthday?") or when the same sentence also
+   * changed something. A pure answer used to reach the sheet and the speaker
+   * only, so on home — where the sheet stays shut — it reached nobody.
+   */
+  const reply = outcome?.reply?.trim() || null;
+  const answerOnly = headline === null && reply !== null && !outcome?.clarification;
   /*
    * Whether the undo button takes back the thing the card is describing.
    *
@@ -109,9 +123,15 @@ export function LastAction() {
    * `isWrite` already draws this line for the confirmation gate, so it is the
    * same list rather than a second one that can drift from it.
    */
-  const isAnswer = headline !== null && !isWrite(headline.toolName);
+  const isAnswer = answerOnly || (headline !== null && !isWrite(headline.toolName));
+  // A write that came with a question: the receipt draws the change, the
+  // model's sentence carries the answer underneath it.
+  const alsoAnswered =
+    headline !== null && !isAnswer && reply !== null && asksSomething(outcome?.transcript ?? '');
 
-  const receipt = headline
+  const receipt = answerOnly
+    ? reply
+    : headline
     ? isAnswer
       ? headline.summary
       : isUndone
@@ -122,7 +142,8 @@ export function LastAction() {
         // thing had been reversed.
         `Undone. ${undoable.summary}`
         : `Done. ${headline.summary}` +
-          (applied.length > 1 ? `, and ${applied.length - 1} more` : '')
+          (applied.length > 1 ? `, and ${applied.length - 1} more` : '') +
+          (alsoAnswered ? ` ${reply}` : '')
     : null;
   // Android hears the card itself: it is an `accessibilityLiveRegion` below.
   useAnnounceOnIOS(receipt);
@@ -137,7 +158,7 @@ export function LastAction() {
   // examples were permanent furniture on the resting screen, so the state a
   // user sees most of the time was a page of suggestions rather than an
   // instrument at rest. The mic and its caption already say what to do.
-  if (!headline || !receipt) return null;
+  if ((!headline && !answerOnly) || !receipt) return null;
 
   const runUndo = () => {
     if (!undoable) return;
@@ -186,7 +207,7 @@ export function LastAction() {
         accessibilityHint="Opens what Ridik just did"
         // No href is not a dead tap: the sheet still holds the full result, and
         // the rest of what a multi-part sentence did lives there too.
-        onPress={() => (headline.href ? router.push(headline.href as never) : open())}
+        onPress={() => (headline?.href ? router.push(headline.href as never) : open())}
         {...openPress.handlers}
         style={[
           { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' },
@@ -213,11 +234,16 @@ export function LastAction() {
             numberOfLines={isAnswer ? 6 : 2}
             tone={isUndone ? 'tertiary' : undefined}
           >
-            {headline.summary}
+            {answerOnly ? reply : headline?.summary}
           </Txt>
           {applied.length > 1 && !isAnswer ? (
             <Txt variant="micro" tone="tertiary">
               and {applied.length - 1} more
+            </Txt>
+          ) : null}
+          {alsoAnswered ? (
+            <Txt testID="last-action-reply" variant="body" style={{ marginTop: 6 }}>
+              {reply}
             </Txt>
           ) : null}
         </View>
@@ -254,5 +280,16 @@ export function LastAction() {
         </AnimatedPressable>
       ) : null}
     </Animated.View>
+  );
+}
+
+/**
+ * Whether an utterance asked something as well as saying something. Loose on
+ * purpose: a false positive shows the model's one sentence under a receipt,
+ * and a false negative is the answer to a question going nowhere.
+ */
+export function asksSomething(transcript: string): boolean {
+  return /\?|\b(when|what|what's|whats|who|whose|where|which|how|why|wondering|do i|did i|is there|are there)\b/i.test(
+    transcript,
   );
 }

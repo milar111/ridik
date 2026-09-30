@@ -836,6 +836,7 @@ export function createVoicePipeline(): VoicePipeline {
         ...(turn.notice ? { notice: turn.notice } : {}),
         ...(turn.notice && turn.action ? { noticeAction: turn.action } : {}),
         ...(outcome.feedback ? { feedback: outcome.feedback } : {}),
+        ...(outcome.reply ? { reply: outcome.reply } : {}),
         items: toOutcomeItems(outcome),
         ...(outcome.clarification ? { clarification: outcome.clarification } : {}),
         // The turn never ran. Carried through so the store can keep the words:
